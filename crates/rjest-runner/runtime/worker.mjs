@@ -59,6 +59,8 @@ const dynamicImportBridges = new Map();
 const esmStaticDependencyCache = new Map();
 const bypassModuleMocks = new Set();
 const explicitlyUnmockedModules = new Set();
+const deeplyUnmockedModules = new Set();
+const transitivelyUnmockedModules = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
 const runtimeTransformers = [];
 const transformCacheFs = new Map();
@@ -2532,12 +2534,29 @@ function resolveModuleKey(specifier, fromPath = activeModulePath) {
   return requireFrom(fromPath).resolve(String(specifier));
 }
 
-function shouldAutomockModule(specifier, key) {
+function shouldTransitivelyUnmockModule(key, parentPath) {
+  const normalizedKey = normalizedRuntimePath(key);
+  const normalizedParent = parentPath
+    ? normalizedRuntimePath(parentPath)
+    : undefined;
+  if (
+    normalizedParent &&
+    (deeplyUnmockedModules.has(normalizedParent) ||
+      transitivelyUnmockedModules.has(normalizedParent))
+  ) {
+    transitivelyUnmockedModules.add(normalizedKey);
+    return true;
+  }
+  return false;
+}
+
+function shouldAutomockModule(specifier, key, parentPath) {
   if (transformerDepth > 0) return false;
   if (!automockEnabled || bypassModuleMocks.has(key)) return false;
   if (explicitlyUnmockedModules.has(key)) return false;
   if (Module.isBuiltin(String(specifier))) return false;
   const normalizedKey = normalizedRuntimePath(key);
+  if (shouldTransitivelyUnmockModule(key, parentPath)) return false;
   if (normalizedKey === normalizedRuntimePath(request.testPath)) return false;
   if (
     [...(request.setupFiles ?? []), ...(request.setupFilesAfterEnv ?? [])].some(
@@ -2833,6 +2852,7 @@ function registerModuleMock(
     : resolveModuleKey(specifier, fromPath);
   const registry = virtual ? virtualModuleMocks : moduleMocks;
   registry.set(key, {
+    explicit: true,
     factory,
     initialized: false,
     value: undefined,
@@ -2904,6 +2924,12 @@ function unregisterEsmModuleMock(specifier, fromPath, returnValue) {
   }
   explicitlyUnmockedEsmModules.add(coordinates.decisionKey);
   return returnValue;
+}
+
+function deepUnmockModule(specifier, fromPath, returnValue) {
+  const key = resolveModuleKey(specifier, fromPath);
+  deeplyUnmockedModules.add(normalizedRuntimePath(key));
+  return unmockModule(specifier, fromPath, returnValue);
 }
 
 function requireMock(specifier, fromPath = activeModulePath) {
@@ -2994,13 +3020,24 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
     return Reflect.apply(originalModuleLoad, this, [specifier, parent, isMain]);
   }
   let entry = moduleMocks.get(key);
-  if (!entry && shouldAutomockModule(specifier, key)) {
+  const parentPath = parent?.filename ?? request.testPath;
+  if (
+    entry?.explicit !== true &&
+    shouldTransitivelyUnmockModule(key, parentPath)
+  ) {
+    return Reflect.apply(originalModuleLoad, this, [specifier, parent, isMain]);
+  }
+  if (
+    !entry &&
+    shouldAutomockModule(specifier, key, parentPath)
+  ) {
     entry = {
+      explicit: false,
       factory: undefined,
       initialized: false,
       value: undefined,
       specifier: String(specifier),
-      fromPath: parent?.filename ?? request.testPath,
+      fromPath: parentPath,
     };
     moduleMocks.set(key, entry);
   }
@@ -3080,7 +3117,7 @@ function scopedJest(fromPath) {
       return scoped.disableAutomock();
     },
     deepUnmock(specifier) {
-      return unmockModule(specifier, fromPath, scoped);
+      return deepUnmockModule(specifier, fromPath, scoped);
     },
     unstable_mockModule(specifier, factory) {
       return registerEsmModuleMock(specifier, factory, fromPath, scoped);
@@ -4463,7 +4500,7 @@ const jest = {
     return jest.disableAutomock();
   },
   deepUnmock(specifier) {
-    return unmockModule(specifier, activeModulePath, jest);
+    return deepUnmockModule(specifier, activeModulePath, jest);
   },
   unstable_mockModule(specifier, factory) {
     return registerEsmModuleMock(specifier, factory, activeModulePath, jest);

@@ -217,9 +217,14 @@ const cases = [
   {
     name: 'gap-deep-unmock',
     category: 'Mocks',
-    compatible: false,
     expectedExit: 0,
     useFixtureConfig: true,
+  },
+  {
+    name: 'gap-replace-property',
+    category: 'Mocks',
+    compatible: false,
+    expectedExit: 0,
   },
   {
     name: 'resolution-node-package',
