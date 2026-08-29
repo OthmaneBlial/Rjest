@@ -41,6 +41,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-bail-threshold',
+    category: 'Configuration',
+    expectedExit: 1,
+    useFixtureConfig: true,
+    compareExecutionMarkers: true,
+  },
+  {
     name: 'config-rootdir-test-match',
     category: 'Configuration',
     expectedExit: 0,
@@ -313,9 +320,18 @@ const cases = [
   {
     name: 'gap-bail',
     category: 'CLI',
-    compatible: false,
     expectedExit: 1,
-    bail: 1,
+    bail: true,
+    compareExecutionMarkers: true,
+  },
+  {
+    name: 'config-bail-threshold',
+    label: 'cli-no-bail-overrides-config',
+    category: 'CLI',
+    expectedExit: 1,
+    useFixtureConfig: true,
+    bail: false,
+    compareExecutionMarkers: true,
   },
   {
     name: 'retry-before-all-failure',
@@ -454,7 +470,9 @@ function compareCase(testCase) {
       prepareNodeModule(jestFixture);
       prepareNodeModule(rjestFixture);
     }
-    const jestArguments = [jest, '--runInBand', '--json', `--outputFile=${jestOutput}`];
+    const jestArguments = [jest, '--runInBand'];
+    if (testCase.compareExecutionMarkers) jestArguments.push('--no-cache');
+    else jestArguments.push('--json', `--outputFile=${jestOutput}`);
     if (!testCase.useFixtureConfig) {
       jestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(jestFixture))}`);
     }
@@ -462,7 +480,8 @@ function compareCase(testCase) {
     if (testCase.seed !== undefined) jestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) jestArguments.push('--randomize');
     if (testCase.shard) jestArguments.push(`--shard=${testCase.shard}`);
-    if (testCase.bail !== undefined) jestArguments.push(`--bail=${testCase.bail}`);
+    if (testCase.bail === true) jestArguments.push('--bail');
+    if (testCase.bail === false) jestArguments.push('--no-bail');
     if (testCase.coverage) {
       jestArguments.push(
         '--coverage',
@@ -497,8 +516,8 @@ function compareCase(testCase) {
       testCase.rjestMaxWorkers
         ? `--maxWorkers=${testCase.rjestMaxWorkers}`
         : '--runInBand',
-      '--json',
     ];
+    if (!testCase.compareExecutionMarkers) rjestArguments.push('--json');
     if (!testCase.useFixtureConfig) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
     }
@@ -506,7 +525,8 @@ function compareCase(testCase) {
     if (testCase.seed !== undefined) rjestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) rjestArguments.push('--randomize');
     if (testCase.shard) rjestArguments.push(`--shard=${testCase.shard}`);
-    if (testCase.bail !== undefined) rjestArguments.push(`--bail=${testCase.bail}`);
+    if (testCase.bail === true) rjestArguments.push('--bail');
+    if (testCase.bail === false) rjestArguments.push('--no-bail');
     if (testCase.coverage) {
       rjestArguments.push(
         '--coverage',
@@ -538,18 +558,27 @@ function compareCase(testCase) {
       differences.push(`exit Jest=${jestRun.status} Rjest=${rjestRun.status}`);
     }
 
-    const jestResult = normalizeJest(
-      JSON.parse(readFileSync(jestOutput, 'utf8')),
-      testCase,
-    );
+    let jestResult;
     let rjestResult;
-    try {
-      rjestResult = normalizeRjest(JSON.parse(rjestRun.stdout), testCase);
+    if (testCase.compareExecutionMarkers) {
+      jestResult = {executionMarkers: readExecutionMarkers(jestFixture)};
+      rjestResult = {executionMarkers: readExecutionMarkers(rjestFixture)};
       if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
-        differences.push('test results differ');
+        differences.push('executed test files differ');
       }
-    } catch (error) {
-      differences.push(`Rjest JSON unavailable: ${error.message}`);
+    } else {
+      jestResult = normalizeJest(
+        JSON.parse(readFileSync(jestOutput, 'utf8')),
+        testCase,
+      );
+      try {
+        rjestResult = normalizeRjest(JSON.parse(rjestRun.stdout), testCase);
+        if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
+          differences.push('test results differ');
+        }
+      } catch (error) {
+        differences.push(`Rjest JSON unavailable: ${error.message}`);
+      }
     }
     if (testCase.compareSnapshots) {
       if (!snapshotTreesEqual(jestFixture, rjestFixture)) {
@@ -676,6 +705,13 @@ function readSnapshots(root) {
       }
     }
   }
+}
+
+function readExecutionMarkers(root) {
+  return readdirSync(root)
+    .filter(name => name.endsWith('.marker'))
+    .sort()
+    .map(name => ({name, contents: readFileSync(join(root, name), 'utf8')}));
 }
 
 function normalizeJest(result, testCase) {

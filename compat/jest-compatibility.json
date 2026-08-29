@@ -3,19 +3,19 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 87,
-    "total": 88,
-    "percentage": 98.86363636363636
+    "passing": 90,
+    "total": 90,
+    "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 4,
-      "total": 5,
-      "percentage": 80
+      "passing": 6,
+      "total": 6,
+      "percentage": 100
     },
     "Configuration": {
-      "passing": 17,
-      "total": 17,
+      "passing": 18,
+      "total": 18,
       "percentage": 100
     },
     "Core API": {
@@ -102,6 +102,12 @@
     },
     {
       "name": "config-test-regex",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-bail-threshold",
       "category": "Configuration",
       "compatible": true,
       "differences": []
@@ -439,11 +445,14 @@
     {
       "name": "gap-bail",
       "category": "CLI",
-      "compatible": false,
-      "differences": [
-        "exit Jest=1 Rjest=2",
-        "Rjest JSON unavailable: Unexpected end of JSON input"
-      ]
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-no-bail-overrides-config",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
     },
     {
       "name": "retry-before-all-failure",

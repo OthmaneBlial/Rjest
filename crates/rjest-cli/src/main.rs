@@ -85,6 +85,14 @@ struct Cli {
     #[arg(long = "runInBand", visible_alias = "run-in-band", action = ArgAction::SetTrue)]
     run_in_band: bool,
 
+    /// Stop after the first test failure (numeric thresholds belong in config).
+    #[arg(short = 'b', long, action = ArgAction::SetTrue)]
+    bail: bool,
+
+    /// Disable a bail threshold supplied by configuration.
+    #[arg(long = "no-bail", action = ArgAction::SetTrue)]
+    no_bail: bool,
+
     /// Maximum number of parallel test-file workers (number or percentage).
     #[arg(
         short = 'w',
@@ -248,7 +256,12 @@ fn main() {
 fn run() -> Result<bool> {
     let cli = Cli::parse();
     let project_dir = std::env::current_dir().context("cannot determine current directory")?;
-    let config = load_config(&project_dir, cli.config.as_deref())?;
+    let mut config = load_config(&project_dir, cli.config.as_deref())?;
+    if cli.no_bail {
+        config.bail = 0;
+    } else if cli.bail {
+        config.bail = 1;
+    }
 
     if cli.show_config {
         println!("{}", serde_json::to_string_pretty(&config)?);
@@ -296,6 +309,7 @@ fn run() -> Result<bool> {
     } = coverage_runner_settings(&cli, &config)?;
     let options = rjest_runner::RunnerOptions {
         max_workers,
+        bail: config.bail,
         execution_order: ExecutionOrderConfig { seed, randomize },
         test_name_pattern: cli.test_name_pattern.clone(),
         default_timeout_ms: config.test_timeout,
@@ -326,15 +340,18 @@ fn run() -> Result<bool> {
         ..rjest_runner::RunnerOptions::default()
     };
     let result = rjest_runner::run(&tests, &options)?;
+    let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
-    emit_results(
-        &cli,
-        &config,
-        &result,
-        coverage_report.as_ref(),
-        seed,
-        show_seed,
-    )?;
+    if !bail_reached || !cli.json {
+        emit_results(
+            &cli,
+            &config,
+            &result,
+            coverage_report.as_ref(),
+            seed,
+            show_seed,
+        )?;
+    }
     Ok(result.is_success()
         && coverage_report
             .as_ref()
@@ -670,7 +687,7 @@ fn indent(value: &str, spaces: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, path::PathBuf};
 
     use tempfile::tempdir;
 
@@ -689,6 +706,24 @@ mod tests {
             .expect("Jest-compatible flags");
         assert_eq!(cli.max_workers.as_deref(), Some("1"));
         assert!(cli.log_heap_usage);
+    }
+
+    #[test]
+    fn accepts_boolean_bail_flags_without_consuming_test_patterns() {
+        let cli = Cli::try_parse_from(["rjest", "--bail", "src/example.test.js"])
+            .expect("long bail flag");
+        assert!(cli.bail);
+        assert!(!cli.no_bail);
+        assert_eq!(
+            cli.test_path_patterns,
+            [PathBuf::from("src/example.test.js")]
+        );
+
+        let cli = Cli::try_parse_from(["rjest", "-b"]).expect("short bail flag");
+        assert!(cli.bail);
+
+        let cli = Cli::try_parse_from(["rjest", "--no-bail"]).expect("negative bail flag");
+        assert!(cli.no_bail);
     }
 
     #[test]

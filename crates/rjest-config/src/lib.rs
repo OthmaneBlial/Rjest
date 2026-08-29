@@ -112,6 +112,7 @@ pub struct ProjectConfig {
     pub transform: BTreeMap<String, Value>,
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
+    pub bail: usize,
     pub randomize: bool,
     pub show_seed: bool,
     pub max_workers: Option<String>,
@@ -153,6 +154,7 @@ struct RawProjectConfig {
     transform: Option<BTreeMap<String, Value>>,
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
+    bail: Option<Value>,
     randomize: Option<bool>,
     show_seed: Option<bool>,
     max_workers: Option<NumberOrString>,
@@ -272,6 +274,7 @@ impl ProjectConfig {
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
+            bail: 0,
             randomize: false,
             show_seed: false,
             max_workers: None,
@@ -541,6 +544,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .transform_ignore_patterns
             .unwrap_or(defaults.transform_ignore_patterns),
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
+        bail: normalize_bail(raw.bail, defaults.bail)?,
         randomize: raw.randomize.unwrap_or(defaults.randomize),
         show_seed: raw.show_seed.unwrap_or(defaults.show_seed),
         max_workers: raw.max_workers.map(NumberOrString::into_string),
@@ -562,6 +566,26 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.coverage_threshold),
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
+}
+
+fn normalize_bail(configured: Option<Value>, default: usize) -> Result<usize, ConfigError> {
+    let Some(configured) = configured else {
+        return Ok(default);
+    };
+    match configured {
+        Value::Bool(enabled) => Ok(usize::from(enabled)),
+        Value::Number(value) => value
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| ConfigError::UnsupportedValue {
+                field: "bail".into(),
+                value: value.to_string(),
+            }),
+        value => Err(ConfigError::UnsupportedValue {
+            field: "bail".into(),
+            value: value.to_string(),
+        }),
+    }
 }
 
 fn reject_unsupported_fields(unsupported: &BTreeMap<String, Value>) -> Result<(), ConfigError> {
@@ -939,6 +963,24 @@ mod tests {
         let config = ProjectConfig::defaults(temp.path()).expect("defaults");
         assert!(config.module_file_extensions.contains(&"tsx".to_owned()));
         assert_eq!(config.roots, vec![temp.path().to_path_buf()]);
+        assert_eq!(config.bail, 0);
+    }
+
+    #[test]
+    fn normalizes_boolean_and_numeric_bail_thresholds() {
+        let temp = tempdir().expect("temp dir");
+
+        let enabled = load_inline_json(temp.path(), r#"{"bail":true}"#).expect("boolean bail");
+        assert_eq!(enabled.bail, 1);
+        let disabled = load_inline_json(temp.path(), r#"{"bail":false}"#).expect("disabled bail");
+        assert_eq!(disabled.bail, 0);
+        let numeric = load_inline_json(temp.path(), r#"{"bail":3}"#).expect("numeric bail");
+        assert_eq!(numeric.bail, 3);
+
+        for invalid in [r#"{"bail":-1}"#, r#"{"bail":1.5}"#, r#"{"bail":"2"}"#] {
+            let error = load_inline_json(temp.path(), invalid).expect_err("invalid bail value");
+            assert!(error.to_string().contains("bail"));
+        }
     }
 
     #[test]

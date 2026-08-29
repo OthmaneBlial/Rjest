@@ -5,6 +5,10 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::Duration,
     time::Instant,
@@ -25,6 +29,7 @@ const WORKER_SOURCE: &str = include_str!("../runtime/worker.mjs");
 pub struct RunnerOptions {
     pub node_binary: PathBuf,
     pub max_workers: usize,
+    pub bail: usize,
     pub execution_order: ExecutionOrderConfig,
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
@@ -57,6 +62,7 @@ impl Default for RunnerOptions {
         Self {
             node_binary: PathBuf::from("node"),
             max_workers: parallelism.div_ceil(2).max(1),
+            bail: 0,
             execution_order: ExecutionOrderConfig::default(),
             test_name_pattern: None,
             default_timeout_ms: 5_000,
@@ -128,6 +134,27 @@ pub enum RunnerError {
     },
     #[error("cannot merge coverage for `{path}`: {message}")]
     InvalidCoverage { path: String, message: String },
+    #[error("worker for `{0}` was cancelled without an active bail threshold")]
+    UnexpectedCancellation(PathBuf),
+}
+
+#[derive(Debug)]
+enum FileRunOutcome {
+    Completed(Box<TestFileResult>),
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkerTermination {
+    Completed,
+    TimedOut,
+    Cancelled,
+}
+
+#[derive(Debug, Default)]
+struct BailState {
+    failed_tests: usize,
+    triggered: bool,
 }
 
 /// Runs test files through a bounded Rayon pool and returns path-sorted results.
@@ -154,13 +181,24 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.max_workers)
         .build()?;
-    let results = pool.install(|| {
-        files
-            .par_iter()
-            .enumerate()
-            .map(|(index, file)| run_file(&file.path, options, worker_path, index == 0))
-            .collect::<Result<Vec<_>, _>>()
-    })?;
+    let results = if options.bail == 0 {
+        pool.install(|| {
+            files
+                .par_iter()
+                .enumerate()
+                .map(|(index, file)| {
+                    match run_file(&file.path, options, worker_path, index == 0, None)? {
+                        FileRunOutcome::Completed(result) => Ok(*result),
+                        FileRunOutcome::Cancelled => {
+                            Err(RunnerError::UnexpectedCancellation(file.path.clone()))
+                        }
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })?
+    } else {
+        run_files_with_bail(files, options, worker_path, &pool)?
+    };
     let mut test_results = results;
     test_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
     let coverage_map = merge_coverage_maps(&test_results)?;
@@ -169,6 +207,60 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
         duration_ms: millis(started.elapsed()),
         coverage_map,
     })
+}
+
+fn run_files_with_bail(
+    files: &[TestFile],
+    options: &RunnerOptions,
+    worker_path: &Path,
+    pool: &rayon::ThreadPool,
+) -> Result<Vec<TestFileResult>, RunnerError> {
+    let cancelled = AtomicBool::new(false);
+    let state = Mutex::new(BailState::default());
+    let results = pool.install(|| {
+        files
+            .par_iter()
+            .enumerate()
+            .map(|(index, file)| {
+                if cancelled.load(Ordering::Acquire) {
+                    return Ok(None);
+                }
+                let result = match run_file(
+                    &file.path,
+                    options,
+                    worker_path,
+                    index == 0,
+                    Some(&cancelled),
+                )? {
+                    FileRunOutcome::Completed(result) => *result,
+                    FileRunOutcome::Cancelled => return Ok(None),
+                };
+                let mut state = state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.triggered {
+                    return Ok(None);
+                }
+                state.failed_tests = state
+                    .failed_tests
+                    .saturating_add(failed_test_count(&result));
+                if state.failed_tests >= options.bail {
+                    state.triggered = true;
+                    cancelled.store(true, Ordering::Release);
+                }
+                Ok(Some(result))
+            })
+            .collect::<Result<Vec<_>, RunnerError>>()
+    })?;
+    Ok(results.into_iter().flatten().collect())
+}
+
+fn failed_test_count(result: &TestFileResult) -> usize {
+    result
+        .tests
+        .iter()
+        .filter(|test| test.status == rjest_core::TestStatus::Failed)
+        .count()
 }
 
 fn merge_coverage_maps(results: &[TestFileResult]) -> Result<CoverageMap, RunnerError> {
@@ -295,7 +387,11 @@ fn run_file(
     options: &RunnerOptions,
     worker_path: &Path,
     collect_uncovered_sources: bool,
-) -> Result<TestFileResult, RunnerError> {
+    cancellation: Option<&AtomicBool>,
+) -> Result<FileRunOutcome, RunnerError> {
+    if cancellation.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        return Ok(FileRunOutcome::Cancelled);
+    }
     let snapshot = rjest_snapshot::load(path, options.snapshot_update)?;
     let request = WorkerRequest {
         protocol_version: WORKER_PROTOCOL_VERSION,
@@ -334,9 +430,13 @@ fn run_file(
         },
     };
     let encoded = serde_json::to_vec(&request)?;
-    let (stdout, stderr, timed_out) = execute_worker(&encoded, options, worker_path)?;
-    if timed_out {
-        return Ok(TestFileResult {
+    let (stdout, stderr, termination) =
+        execute_worker(&encoded, options, worker_path, cancellation)?;
+    if termination == WorkerTermination::Cancelled {
+        return Ok(FileRunOutcome::Cancelled);
+    }
+    if termination == WorkerTermination::TimedOut {
+        return Ok(FileRunOutcome::Completed(Box::new(TestFileResult {
             protocol_version: WORKER_PROTOCOL_VERSION,
             test_path: path.to_path_buf(),
             tests: Vec::new(),
@@ -349,7 +449,7 @@ fn run_file(
             heap_used_bytes: None,
             snapshot: SnapshotResult::default(),
             coverage: CoverageMap::new(),
-        });
+        })));
     }
     let stdout = String::from_utf8_lossy(&stdout);
     let payload = stdout
@@ -378,14 +478,15 @@ fn run_file(
         });
     }
     rjest_snapshot::persist(&snapshot.path, &result.snapshot.data, result.snapshot.dirty)?;
-    Ok(result)
+    Ok(FileRunOutcome::Completed(Box::new(result)))
 }
 
 fn execute_worker(
     encoded_request: &[u8],
     options: &RunnerOptions,
     worker_path: &Path,
-) -> Result<(Vec<u8>, Vec<u8>, bool), RunnerError> {
+    cancellation: Option<&AtomicBool>,
+) -> Result<(Vec<u8>, Vec<u8>, WorkerTermination), RunnerError> {
     let mut command = Command::new(&options.node_binary);
     if std::env::var_os("NODE_ENV").is_none() {
         command.env("NODE_ENV", "test");
@@ -418,20 +519,25 @@ fn execute_worker(
     let stdout_reader = thread::spawn(move || read_pipe(stdout_pipe));
     let stderr_reader = thread::spawn(move || read_pipe(stderr_pipe));
     let child_started = Instant::now();
-    let timed_out = loop {
+    let termination = loop {
         if child.try_wait().map_err(RunnerError::Wait)?.is_some() {
-            break false;
+            break WorkerTermination::Completed;
+        }
+        if cancellation.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            child.kill().map_err(RunnerError::Wait)?;
+            child.wait().map_err(RunnerError::Wait)?;
+            break WorkerTermination::Cancelled;
         }
         if child_started.elapsed() >= Duration::from_millis(options.file_timeout_ms) {
             child.kill().map_err(RunnerError::Wait)?;
             child.wait().map_err(RunnerError::Wait)?;
-            break true;
+            break WorkerTermination::TimedOut;
         }
         thread::sleep(Duration::from_millis(10));
     };
     let stdout = join_reader(stdout_reader)?;
     let stderr = join_reader(stderr_reader)?;
-    Ok((stdout, stderr, timed_out))
+    Ok((stdout, stderr, termination))
 }
 
 fn read_pipe(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
@@ -590,6 +696,93 @@ mod tests {
         assert!(result.is_success());
         assert!(result.test_results[0].test_path.ends_with("a.test.js"));
         assert!(result.test_results[1].test_path.ends_with("z.test.js"));
+    }
+
+    #[test]
+    fn bails_between_files_after_the_configured_failed_test_count() {
+        let temp = tempdir().expect("temp dir");
+        let failure = temp.path().join("a-failure.test.cjs");
+        let later = temp.path().join("z-later.test.cjs");
+        let marker = temp.path().join("later.marker");
+        fs::write(
+            &failure,
+            "test('first failure', () => expect(1).toBe(2));\n\
+             test('second failure', () => expect(3).toBe(4));",
+        )
+        .expect("write failing suite");
+        fs::write(
+            &later,
+            format!(
+                "const fs = require('node:fs');\n\
+                 test('later', () => {{ fs.writeFileSync({}, 'ran'); }});",
+                serde_json::to_string(&marker).expect("marker path")
+            ),
+        )
+        .expect("write later suite");
+        let files = vec![
+            TestFile {
+                path: failure.canonicalize().expect("failure path"),
+            },
+            TestFile {
+                path: later.canonicalize().expect("later path"),
+            },
+        ];
+        let options = RunnerOptions {
+            max_workers: 1,
+            bail: 2,
+            ..RunnerOptions::default()
+        };
+
+        let result = run(&files, &options).expect("bail run");
+
+        assert_eq!(result.test_results.len(), 1);
+        assert_eq!(result.count(TestStatus::Failed), 2);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn cancels_in_flight_parallel_workers_when_bail_is_reached() {
+        let temp = tempdir().expect("temp dir");
+        let failure = temp.path().join("a-failure.test.cjs");
+        let slow = temp.path().join("z-slow.test.cjs");
+        let marker = temp.path().join("slow.marker");
+        fs::write(&failure, "test('fails', () => expect(1).toBe(2));")
+            .expect("write failing suite");
+        fs::write(
+            &slow,
+            format!(
+                "const fs = require('node:fs');\n\
+                 test('slow', async () => {{\n\
+                   await new Promise(resolve => setTimeout(resolve, 30000));\n\
+                   fs.writeFileSync({}, 'ran');\n\
+                 }});",
+                serde_json::to_string(&marker).expect("marker path")
+            ),
+        )
+        .expect("write slow suite");
+        let files = vec![
+            TestFile {
+                path: failure.canonicalize().expect("failure path"),
+            },
+            TestFile {
+                path: slow.canonicalize().expect("slow path"),
+            },
+        ];
+        let options = RunnerOptions {
+            max_workers: 2,
+            bail: 1,
+            default_timeout_ms: 60_000,
+            file_timeout_ms: 60_000,
+            ..RunnerOptions::default()
+        };
+        let started = Instant::now();
+
+        let result = run(&files, &options).expect("parallel bail run");
+
+        assert_eq!(result.test_results.len(), 1);
+        assert_eq!(result.count(TestStatus::Failed), 1);
+        assert!(!marker.exists());
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

@@ -151,3 +151,36 @@ fn writes_json_to_output_file_without_printing_it_to_stdout() {
             .expect("valid result JSON");
     assert_eq!(result["testResults"][0]["tests"][0]["status"], "passed");
 }
+
+#[test]
+fn bail_stops_serial_dispatch_and_exits_before_json_serialization() {
+    let temp = tempdir().expect("temp dir");
+    let marker = temp.path().join("later.marker");
+    let output_path = temp.path().join("result.json");
+    fs::write(
+        temp.path().join("a-failure.test.cjs"),
+        "test('fails', () => expect('received').toBe('expected'));",
+    )
+    .expect("write failure");
+    fs::write(
+        temp.path().join("z-later.test.cjs"),
+        format!(
+            "const fs = require('node:fs');\n\
+             test('later', () => fs.writeFileSync({}, 'ran'));",
+            serde_json::to_string(&marker).expect("marker path")
+        ),
+    )
+    .expect("write later test");
+
+    let output = command()
+        .current_dir(temp.path())
+        .args(["--runInBand", "--bail", "--json", "--outputFile"])
+        .arg(&output_path)
+        .output()
+        .expect("run with bail");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(!output_path.exists());
+    assert!(!marker.exists());
+}
