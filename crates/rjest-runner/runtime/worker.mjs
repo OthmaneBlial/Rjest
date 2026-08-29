@@ -54,6 +54,7 @@ let inheritedEsmModuleMockCache;
 const pendingEsmAutoMocks = new Map();
 const explicitlyUnmockedEsmModules = new Set();
 const esmMockValues = new Map();
+const onGenerateMockCallbacks = new Set();
 const dynamicImportBridges = new Map();
 const esmStaticDependencyCache = new Map();
 const bypassModuleMocks = new Set();
@@ -2558,7 +2559,16 @@ function loadActualModule(specifier, fromPath = activeModulePath) {
   }
 }
 
+function notifyGeneratedMock(modulePath, moduleMock) {
+  let result = moduleMock;
+  for (const callback of onGenerateMockCallbacks) {
+    result = callback(modulePath, result);
+  }
+  return result;
+}
+
 function generateAutoMock(specifier, fromPath = activeModulePath) {
+  const modulePath = resolveModuleKey(specifier, fromPath);
   const previousCache = Module._cache;
   const registrySnapshots = [moduleMocks, virtualModuleMocks].map(registry => [
     registry,
@@ -2577,7 +2587,10 @@ function generateAutoMock(specifier, fromPath = activeModulePath) {
     }
   }
   try {
-    return createAutoMock(loadActualModule(specifier, fromPath));
+    return notifyGeneratedMock(
+      modulePath,
+      createAutoMock(loadActualModule(specifier, fromPath)),
+    );
   } finally {
     Module._cache = previousCache;
     for (const [registry, entries] of registrySnapshots) {
@@ -2698,6 +2711,12 @@ function esmManualMockPath(specifier, parentURL, coordinates) {
   return existsSync(sibling) ? sibling : undefined;
 }
 
+function esmGeneratedMockModulePath(coordinates) {
+  return coordinates.canonical?.startsWith('file:')
+    ? fileURLToPath(coordinates.canonical)
+    : coordinates.canonical ?? coordinates.identity;
+}
+
 async function loadEsmManualMock(manualPath) {
   // The authored manual module executes in scratch registries so its native
   // namespace and generated dependencies do not populate the live caches.
@@ -2722,6 +2741,7 @@ async function ensureEsmAutoMock(specifier, parentURL, coordinates) {
   if (inFlight) return inFlight;
   const pending = (async () => {
     const manualPath = esmManualMockPath(specifier, parentURL, coordinates);
+    const generatedModulePath = esmGeneratedMockModulePath(coordinates);
     const actual = manualPath
       ? await loadEsmManualMock(manualPath)
       : await loadEsmAutomockMetadata(specifier, parentURL);
@@ -2743,7 +2763,7 @@ async function ensureEsmAutoMock(specifier, parentURL, coordinates) {
       relative: coordinates.relative,
       factory: manualPath
         ? () => loadEsmManualMock(manualPath)
-        : () => createAutoMock(actual),
+        : () => notifyGeneratedMock(generatedModulePath, createAutoMock(actual)),
       generation: 0,
       initialized: false,
       url: undefined,
@@ -3042,6 +3062,10 @@ function scopedJest(fromPath) {
     },
     genMockFromModule(specifier) {
       return generateAutoMock(specifier, fromPath);
+    },
+    onGenerateMock(callback) {
+      onGenerateMockCallbacks.add(callback);
+      return scoped;
     },
     enableAutomock() {
       return setAutomock(true, scoped);
@@ -4421,6 +4445,10 @@ const jest = {
   },
   genMockFromModule(specifier) {
     return generateAutoMock(specifier);
+  },
+  onGenerateMock(callback) {
+    onGenerateMockCallbacks.add(callback);
+    return jest;
   },
   enableAutomock() {
     return setAutomock(true, jest);

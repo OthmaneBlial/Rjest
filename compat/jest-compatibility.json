@@ -3,9 +3,9 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 70,
-    "total": 71,
-    "percentage": 98.59154929577466
+    "passing": 71,
+    "total": 72,
+    "percentage": 98.61111111111111
   },
   "categories": {
     "Configuration": {
@@ -44,9 +44,9 @@
       "percentage": 100
     },
     "Mocks": {
-      "passing": 9,
-      "total": 10,
-      "percentage": 90
+      "passing": 10,
+      "total": 11,
+      "percentage": 90.9090909090909
     },
     "Resolution": {
       "passing": 2,
@@ -337,6 +337,12 @@
     },
     {
       "name": "gap-on-generate-mock",
+      "category": "Mocks",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-deep-unmock",
       "category": "Mocks",
       "compatible": false,
       "differences": [

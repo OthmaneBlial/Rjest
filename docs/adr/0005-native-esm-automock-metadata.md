@@ -39,4 +39,4 @@ isolation clear or overlay instances while retaining metadata and decisions.
 - Reset creates a new mock instance without reusing prior mock state; first-use
   instances created in an isolation do not leak out.
 - Manual ESM lookup/loading is specified separately in ADR 0006; generated-mock
-  callbacks remain compatibility work.
+  callbacks are specified in ADR 0007.

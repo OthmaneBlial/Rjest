@@ -210,6 +210,13 @@ const cases = [
   {
     name: 'gap-on-generate-mock',
     category: 'Mocks',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'gap-deep-unmock',
+    category: 'Mocks',
     compatible: false,
     expectedExit: 0,
     useFixtureConfig: true,
