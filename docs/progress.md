@@ -147,6 +147,10 @@ Last updated: 2026-08-29
   shuffle at each describe lifecycle boundary. CLI/config activation, automatic
   seed reporting, nested suites, and stable whole-describe retry ordering are
   differentially covered.
+- Jest-compatible `--shard=n/m` parsing and coordinator-side selection using
+  the SHA-1 of each root-relative POSIX test path, including balanced uneven
+  partitions, identity shards, list-mode empty shards, and selection before
+  parallel scheduling.
 - A pinned setup-matlab/Jest 30 corpus: 7/7 suites, 94/94 tests, and exact
   aggregate and per-file coverage parity across nine TypeScript source files.
 - A pinned ts-jest/Jest 30 corpus: 20/20 suites, 358/358 tests, and 137/137
@@ -228,10 +232,10 @@ Last updated: 2026-08-29
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 84/85
-  compatible scenarios (98.8%), with Core API at 11/11 (100.0%), ESM at 7/7
+  preserved known incompatibilities. The current generated result is 87/88
+  compatible scenarios (98.9%), with Core API at 11/11 (100.0%), ESM at 7/7
   (100.0%), transforms at 5/5 (100.0%), mocks at 13/13 (100.0%), configuration
-  at 17/17 (100.0%), CLI at 1/2 (50.0%), and
+  at 17/17 (100.0%), CLI at 4/5 (80.0%), and
   per-category scores in the machine-readable report. This is a score for the
   versioned probe corpus, not all Jest behavior.
 
@@ -252,9 +256,9 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 84/85 (98.8%). Core API is 11/11 (100.0%), ESM is 7/7
+corpus score is 87/88 (98.9%). Core API is 11/11 (100.0%), ESM is 7/7
 (100.0%), transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), configuration
-is 17/17 (100.0%), CLI is 1/2 (50.0%), and
+is 17/17 (100.0%), CLI is 4/5 (80.0%), and
 coverage is 3/3 in their bounded scenario categories.
 
 ## Known blockers
@@ -271,7 +275,7 @@ coverage is 3/3 in their bounded scenario categories.
 - Custom resolvers are not implemented; CommonJS and native-ESM
   `moduleNameMapper` rules support the covered mappings, while complete Jest
   resolver conditions and fallback semantics need broader probes.
-- Jest-compatible test-file selection through `--shard` is not implemented. Manual
+- Jest-compatible early termination through `--bail` is not implemented. Manual
   CommonJS/native-ESM mocks, CommonJS/native-ESM automocking, transitive CommonJS unmocking,
   property replacement, Babel-hoisted and virtual factories, and
   direct/transitive synchronous or asynchronous ESM module factories are
@@ -295,7 +299,7 @@ coverage is 3/3 in their bounded scenario categories.
 1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from deterministic real-project
    failures.
-3. Implement Jest-compatible `--shard` validation and test-file selection.
+3. Implement serial and parallel Jest-compatible `--bail` thresholds.
 4. Add broader timer edge-case probes and modern timer tick-mode controls.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
    stable across a broader independent corpus.

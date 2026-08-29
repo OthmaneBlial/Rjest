@@ -45,6 +45,30 @@ fn shows_config_and_lists_discovered_tests() {
 }
 
 #[test]
+fn lists_an_empty_shard_successfully() {
+    let temp = tempdir().expect("temp dir");
+    fs::write(
+        temp.path().join("first.test.js"),
+        "test('first', () => expect(true).toBe(true));",
+    )
+    .expect("first fixture");
+    fs::write(
+        temp.path().join("second.test.js"),
+        "test('second', () => expect(true).toBe(true));",
+    )
+    .expect("second fixture");
+
+    let output = command()
+        .current_dir(temp.path())
+        .args(["--listTests", "--shard=3/3"])
+        .output()
+        .expect("list empty shard");
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
 fn accepts_jest_inline_json_config() {
     let temp = tempdir().expect("temp dir");
     fs::create_dir(temp.path().join("tests")).expect("test directory");

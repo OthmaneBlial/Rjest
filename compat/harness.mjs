@@ -291,10 +291,31 @@ const cases = [
   },
   {
     name: 'gap-shard',
+    label: 'gap-shard-1-of-2',
     category: 'CLI',
-    compatible: false,
     expectedExit: 0,
     shard: '1/2',
+  },
+  {
+    name: 'gap-shard',
+    label: 'gap-shard-2-of-2',
+    category: 'CLI',
+    expectedExit: 0,
+    shard: '2/2',
+  },
+  {
+    name: 'gap-shard',
+    label: 'gap-shard-1-of-1',
+    category: 'CLI',
+    expectedExit: 0,
+    shard: '1/1',
+  },
+  {
+    name: 'gap-bail',
+    category: 'CLI',
+    compatible: false,
+    expectedExit: 1,
+    bail: 1,
   },
   {
     name: 'retry-before-all-failure',
@@ -441,6 +462,7 @@ function compareCase(testCase) {
     if (testCase.seed !== undefined) jestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) jestArguments.push('--randomize');
     if (testCase.shard) jestArguments.push(`--shard=${testCase.shard}`);
+    if (testCase.bail !== undefined) jestArguments.push(`--bail=${testCase.bail}`);
     if (testCase.coverage) {
       jestArguments.push(
         '--coverage',
@@ -484,6 +506,7 @@ function compareCase(testCase) {
     if (testCase.seed !== undefined) rjestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) rjestArguments.push('--randomize');
     if (testCase.shard) rjestArguments.push(`--shard=${testCase.shard}`);
+    if (testCase.bail !== undefined) rjestArguments.push(`--bail=${testCase.bail}`);
     if (testCase.coverage) {
       rjestArguments.push(
         '--coverage',

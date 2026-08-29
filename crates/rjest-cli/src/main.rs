@@ -1,13 +1,53 @@
 use std::{
     path::PathBuf,
+    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgAction, Parser};
 use rjest_config::ProjectConfig;
-use rjest_core::{AggregatedResult, ExecutionOrderConfig, SnapshotUpdate, TestStatus};
+use rjest_core::{AggregatedResult, ExecutionOrderConfig, SnapshotUpdate, TestFile, TestStatus};
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
+use sha1::{Digest, Sha1};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Shard {
+    index: usize,
+    count: usize,
+}
+
+impl FromStr for Shard {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let components = value.split('/').collect::<Vec<_>>();
+        if components.len() != 2
+            || components.iter().any(|component| {
+                component.is_empty() || !component.chars().all(|c| c.is_ascii_digit())
+            })
+        {
+            return Err("The shard option requires a string in the format of <n>/<m>.".into());
+        }
+        let index = components[0].parse::<usize>().map_err(|_| {
+            "The shard option requires a string in the format of <n>/<m>.".to_owned()
+        })?;
+        let count = components[1].parse::<usize>().map_err(|_| {
+            "The shard option requires a string in the format of <n>/<m>.".to_owned()
+        })?;
+        if index == 0 || count == 0 {
+            return Err(
+                "The shard option requires 1-based values, received 0 or lower in the pair.".into(),
+            );
+        }
+        if index > count {
+            return Err(
+                "The shard option <n>/<m> requires <n> to be lower or equal than <m>.".into(),
+            );
+        }
+        Ok(Self { index, count })
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -173,6 +213,10 @@ struct Cli {
     /// Shuffle tests within each describe block using the run seed.
     #[arg(long, action = ArgAction::SetTrue)]
     randomize: bool,
+
+    /// Execute one deterministic shard of the discovered test files.
+    #[arg(long, value_name = "INDEX/COUNT")]
+    shard: Option<Shard>,
 }
 
 struct CoverageRunnerSettings {
@@ -211,12 +255,16 @@ fn run() -> Result<bool> {
         return Ok(true);
     }
 
-    let tests = rjest_discovery::discover(&config, &cli.test_path_patterns)?;
+    let discovered_tests = rjest_discovery::discover(&config, &cli.test_path_patterns)?;
+    let tests = match cli.shard {
+        Some(shard) => shard_tests(discovered_tests, &config.root_dir, shard),
+        None => discovered_tests,
+    };
     if cli.list_tests {
         for test in &tests {
             println!("{}", test.path.display());
         }
-        return if tests.is_empty() && !cli.pass_with_no_tests {
+        return if tests.is_empty() && cli.shard.is_none() && !cli.pass_with_no_tests {
             bail!("No tests found");
         } else {
             Ok(true)
@@ -291,6 +339,24 @@ fn run() -> Result<bool> {
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn shard_tests(
+    mut tests: Vec<TestFile>,
+    root_dir: &std::path::Path,
+    shard: Shard,
+) -> Vec<TestFile> {
+    tests.sort_by_key(|test| {
+        let relative = test.path.strip_prefix(root_dir).unwrap_or(&test.path);
+        let normalized = relative.to_string_lossy().replace('\\', "/");
+        Sha1::digest(normalized.as_bytes())
+    });
+    let base_size = tests.len() / shard.count;
+    let larger_shards = tests.len() % shard.count;
+    let preceding = shard.index - 1;
+    let start = preceding * base_size + preceding.min(larger_shards);
+    let size = base_size + usize::from(shard.index <= larger_shards);
+    tests.into_iter().skip(start).take(size).collect()
 }
 
 fn validate_seed(value: i64) -> Result<i32> {
@@ -610,7 +676,12 @@ mod tests {
 
     use clap::Parser;
 
-    use super::{Cli, parse_max_workers, uses_modern_branches_true_summary, validate_seed};
+    use rjest_core::TestFile;
+
+    use super::{
+        Cli, Shard, parse_max_workers, shard_tests, uses_modern_branches_true_summary,
+        validate_seed,
+    };
 
     #[test]
     fn accepts_jest_worker_and_heap_usage_flags() {
@@ -648,6 +719,69 @@ mod tests {
         );
         assert!(validate_seed(i64::from(i32::MIN) - 1).is_err());
         assert!(validate_seed(i64::from(i32::MAX) + 1).is_err());
+    }
+
+    #[test]
+    fn parses_and_rejects_jest_shard_pairs() {
+        assert_eq!(
+            "1/2".parse::<Shard>().expect("valid shard"),
+            Shard { index: 1, count: 2 }
+        );
+        for invalid in ["mumble", "1/2/3", "1.0/1", "a/1", "1/a", "1/-1"] {
+            assert!(invalid.parse::<Shard>().is_err(), "accepted {invalid}");
+        }
+        assert!("0/1".parse::<Shard>().is_err());
+        assert!("2/1".parse::<Shard>().is_err());
+    }
+
+    #[test]
+    fn shards_by_the_sha1_of_the_relative_posix_path() {
+        let temp = tempdir().expect("temp dir");
+        let root = temp.path().canonicalize().expect("canonical root");
+        let files = [
+            "alpha.test.cjs",
+            "bravo.test.cjs",
+            "charlie.test.cjs",
+            "delta.test.cjs",
+        ]
+        .map(|name| {
+            let path = root.join(name);
+            fs::write(&path, "").expect("write shard candidate");
+            TestFile { path }
+        });
+        let selected = shard_tests(files.into(), &root, Shard { index: 1, count: 2 });
+        let names = selected
+            .iter()
+            .map(|test| test.path.file_name().expect("file name").to_string_lossy())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["delta.test.cjs", "bravo.test.cjs"]);
+
+        let files = [
+            "alpha.test.cjs",
+            "bravo.test.cjs",
+            "charlie.test.cjs",
+            "delta.test.cjs",
+        ]
+        .map(|name| TestFile {
+            path: root.join(name),
+        });
+        let selected = shard_tests(files.into(), &root, Shard { index: 2, count: 2 });
+        let names = selected
+            .iter()
+            .map(|test| test.path.file_name().expect("file name").to_string_lossy())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["alpha.test.cjs", "charlie.test.cjs"]);
+
+        let files = [
+            "alpha.test.cjs",
+            "bravo.test.cjs",
+            "charlie.test.cjs",
+            "delta.test.cjs",
+        ]
+        .map(|name| TestFile {
+            path: root.join(name),
+        });
+        assert!(shard_tests(files.into(), &root, Shard { index: 5, count: 5 }).is_empty());
     }
 
     #[test]

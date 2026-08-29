@@ -3,15 +3,15 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 84,
-    "total": 85,
-    "percentage": 98.82352941176471
+    "passing": 87,
+    "total": 88,
+    "percentage": 98.86363636363636
   },
   "categories": {
     "CLI": {
-      "passing": 1,
-      "total": 2,
-      "percentage": 50
+      "passing": 4,
+      "total": 5,
+      "percentage": 80
     },
     "Configuration": {
       "passing": 17,
@@ -419,11 +419,29 @@
       "differences": []
     },
     {
-      "name": "gap-shard",
+      "name": "gap-shard-1-of-2",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-shard-2-of-2",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-shard-1-of-1",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-bail",
       "category": "CLI",
       "compatible": false,
       "differences": [
-        "exit Jest=0 Rjest=2",
+        "exit Jest=1 Rjest=2",
         "Rjest JSON unavailable: Unexpected end of JSON input"
       ]
     },

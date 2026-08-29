@@ -19,6 +19,7 @@ rjest-coverage = { path = "../rjest-coverage" }
 rjest-discovery = { path = "../rjest-discovery" }
 rjest-runner = { path = "../rjest-runner" }
 serde_json.workspace = true
+sha1.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
