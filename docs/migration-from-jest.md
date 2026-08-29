@@ -37,6 +37,12 @@ constructor mocks and does not expose Node-only `TextEncoder` or `TextDecoder`
 when the installed JSDOM window omits them. Complete custom environment
 behavior remains outside the current compatibility claim.
 
+The fake-indexeddb constructor family, including `IDBRequest`,
+`IDBTransaction`, `IDBDatabase`, and related cursor/object-store globals,
+remains linked to assignments on `window`. Pending zero-delay JSDOM callbacks
+are also discarded during file teardown instead of being drained between
+completed tests, matching the covered Jest lifecycle.
+
 Assignments to `window.XMLHttpRequest`, `window.FileReader`, and
 `window.ReadableStream` remain visible through their bare global names. JSDOM's
 `ArrayBuffer` realm is also distinct from buffers returned by Node-only
@@ -74,6 +80,9 @@ Custom matchers registered through `expect.extend` may return promises and use
 the matcher context such as `this.equals`. `toThrow` and promise-modified
 `toThrow` accept the covered asymmetric matchers and plain error-property
 objects as well as strings, regular expressions, constructors, and errors.
+The mutable state returned by `expect.getState()` exposes the current test path,
+name, assertion count, and assertion requirements; `expect.setState()` can
+merge additional matcher state.
 
 External and existing inline snapshots accept nested property matchers and
 serialize their asymmetric placeholders like Jest. Rjest still cannot write a

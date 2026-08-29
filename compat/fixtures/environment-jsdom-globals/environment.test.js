@@ -36,10 +36,25 @@ test('resolves global aliases through their JSDOM window getters', () => {
 });
 
 test('keeps bare IndexedDB globals linked to window assignments', () => {
-  const replacement = {bound: jest.fn()};
-  window.IDBKeyRange = replacement;
+  const originals = {
+    IDBKeyRange: window.IDBKeyRange,
+    IDBRequest: window.IDBRequest,
+    IDBTransaction: window.IDBTransaction,
+  };
+  const replacements = {
+    IDBKeyRange: {bound: jest.fn()},
+    IDBRequest: jest.fn(),
+    IDBTransaction: jest.fn(),
+  };
 
-  expect(IDBKeyRange).toBe(replacement);
+  try {
+    Object.assign(window, replacements);
+    expect(IDBKeyRange).toBe(replacements.IDBKeyRange);
+    expect(IDBRequest).toBe(replacements.IDBRequest);
+    expect(IDBTransaction).toBe(replacements.IDBTransaction);
+  } finally {
+    Object.assign(window, originals);
+  }
 });
 
 test('does not leak Node-only encoding globals into JSDOM', () => {
@@ -74,4 +89,18 @@ test('keeps JSDOM built-ins separate from Node constructor results', () => {
   const nodeBuffer = new NodeTextEncoder().encode('data').buffer;
 
   expect(nodeBuffer).not.toBeInstanceOf(ArrayBuffer);
+});
+
+test('tears down JSDOM before pending zero-delay callbacks escape', () => {
+  setTimeout(() => {
+    throw new Error('callback should be cancelled by environment teardown');
+  }, 0);
+});
+
+test('continues without draining the JSDOM timer queue between tests', () => {
+  const deadline = Date.now() + 20;
+  while (Date.now() < deadline) {
+    // Keep this synchronous: Jest tears the environment down before timers run.
+  }
+  expect(document.readyState).toBe('complete');
 });

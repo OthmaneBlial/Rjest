@@ -95,6 +95,14 @@ This corpus covers asynchronous custom matchers, asymmetric and object
 `toThrow` expectations, mutable JSDOM XHR constructors, and Node/JSDOM realm
 separation.
 
+The pinned [AWS Amplify DataStore corpus](corpus/amplify-datastore.md) adds
+fake IndexedDB, Dexie, RxJS, TSX type tests, and `expect.getState()` on the same
+unchanged monorepo. Both runners discover 33 suites and 1,174 tests, pass 1,160
+with 14 skipped, match 8 snapshots, and produce identical aggregate and
+per-file Istanbul summaries across 29 sources. The comparator strictly matches
+all executed identities and uses an explicit per-file count policy only for 12
+skipped fuzz-test labels generated with `Math.random()`.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

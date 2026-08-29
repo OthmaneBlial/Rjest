@@ -14,6 +14,19 @@ expect.extend({
   },
 });
 
+const definitionState = expect.getState();
+
+test('exposes the current Jest expectation state', () => {
+  expect(definitionState.testPath).toMatch(/custom-matcher\.test\.js$/);
+  expect(definitionState.currentTestName).toBe(
+    'exposes the current Jest expectation state',
+  );
+  expect(expect.getState().currentTestName).toBe(
+    'exposes the current Jest expectation state',
+  );
+  expect(expect.getState().assertionCalls).toBe(3);
+});
+
 test('runs a custom matcher', () => {
   expect(12).toBeDivisibleBy(3);
 });

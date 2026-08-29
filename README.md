@@ -110,6 +110,13 @@ The pinned [AWS Amplify Storage corpus](docs/corpus/amplify-storage.md) adds
 on every test identity/status and every Istanbul summary across 129 source
 files after exercising async custom matchers, XHR mocks, and cross-realm data.
 
+The pinned [AWS Amplify DataStore corpus](docs/corpus/amplify-datastore.md)
+adds fake IndexedDB, Dexie, RxJS scheduling, TSX type tests, and expectation
+state. Both runners discover 33 suites and 1,174 tests, pass 1,160 with 14
+skipped, match 8 snapshots, and agree on every Istanbul summary across 29
+source files. Executed identities are exact; 12 skipped fuzz labels are random
+and are compared by an explicit per-file count policy.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

@@ -1,7 +1,9 @@
 import {readFileSync} from 'node:fs';
 import {relative, resolve} from 'node:path';
 
-const {officialPath, rjestPath, root} = parseArguments(process.argv.slice(2));
+const {compareSkippedByFileCount, officialPath, rjestPath, root} = parseArguments(
+  process.argv.slice(2),
+);
 const official = JSON.parse(readFileSync(officialPath, 'utf8'));
 const rjest = JSON.parse(readFileSync(rjestPath, 'utf8'));
 
@@ -9,12 +11,27 @@ const officialResult = normalizeOfficial(official);
 const rjestResult = normalizeRjest(rjest);
 const suitePathsExact = same(officialResult.suites, rjestResult.suites);
 const testsExact = same(officialResult.tests, rjestResult.tests);
+const executedTestsExact = same(
+  executedTests(officialResult.tests),
+  executedTests(rjestResult.tests),
+);
+const skippedTestsExact = same(
+  skippedTests(officialResult.tests),
+  skippedTests(rjestResult.tests),
+);
+const skippedCountsExact = same(
+  skippedCountsByFile(officialResult.tests),
+  skippedCountsByFile(rjestResult.tests),
+);
+const testsCompatible =
+  testsExact ||
+  (compareSkippedByFileCount && executedTestsExact && skippedCountsExact);
 const snapshotsExact = same(officialResult.snapshots, rjestResult.snapshots);
 const coverage = compareCoverage(official.coverageMap ?? {}, rjest.coverageMap ?? {});
 
 const compatible =
   suitePathsExact &&
-  testsExact &&
+  testsCompatible &&
   snapshotsExact &&
   rjestResult.fileErrors.length === 0 &&
   coverage.filesExact &&
@@ -32,6 +49,13 @@ const report = {
     official: officialResult.tests.length,
     rjest: rjestResult.tests.length,
     namesAndStatusesExact: testsExact,
+    executedNamesAndStatusesExact: executedTestsExact,
+    skippedNamesAndStatusesExact: skippedTestsExact,
+    skippedCountsByFileExact: skippedCountsExact,
+    compatible: testsCompatible,
+    skippedComparison: compareSkippedByFileCount
+      ? 'per-file-count'
+      : 'name-and-status',
   },
   snapshots: {
     official: officialResult.snapshots,
@@ -47,26 +71,48 @@ if (!compatible) process.exitCode = 1;
 
 function parseArguments(args) {
   let comparisonRoot;
+  let compareSkippedByFileCount = false;
   const paths = [];
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '--root') {
       comparisonRoot = resolve(args[index + 1]);
       index += 1;
+    } else if (args[index] === '--compare-skipped-by-file-count') {
+      compareSkippedByFileCount = true;
     } else {
       paths.push(args[index]);
     }
   }
   if (paths.length !== 2) {
     console.error(
-      'Usage: node compat/compare-corpus-results.mjs [--root <project>] <jest.json> <rjest.json>',
+      'Usage: node compat/compare-corpus-results.mjs [--root <project>] [--compare-skipped-by-file-count] <jest.json> <rjest.json>',
     );
     process.exit(2);
   }
   return {
+    compareSkippedByFileCount,
     officialPath: resolve(paths[0]),
     rjestPath: resolve(paths[1]),
     root: comparisonRoot,
   };
+}
+
+function executedTests(tests) {
+  return tests.filter(test => test.status !== 'skipped');
+}
+
+function skippedTests(tests) {
+  return tests.filter(test => test.status === 'skipped');
+}
+
+function skippedCountsByFile(tests) {
+  const counts = new Map();
+  for (const test of skippedTests(tests)) {
+    counts.set(test.file, (counts.get(test.file) ?? 0) + 1);
+  }
+  return [...counts].map(([file, count]) => ({file, count})).sort((left, right) =>
+    left.file.localeCompare(right.file),
+  );
 }
 
 function normalizeOfficial(result) {

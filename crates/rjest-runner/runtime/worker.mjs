@@ -95,6 +95,16 @@ const snapshotState = {
   updated: 0,
   removed: 0,
 };
+const expectState = {
+  assertionCalls: 0,
+  currentTestName: undefined,
+  expectedAssertionsNumber: null,
+  isExpectingAssertions: false,
+  numPassingAsserts: 0,
+  snapshotState,
+  suppressedErrors: [],
+  testPath: request.testPath,
+};
 
 for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
   console[level] = (...values) => {
@@ -913,7 +923,10 @@ function validateCustomMatcherOutcome(
 }
 
 function recordAssertion() {
-  if (activeTest) activeTest.assertionCalls += 1;
+  if (activeTest) {
+    activeTest.assertionCalls += 1;
+    expectState.assertionCalls = activeTest.assertionCalls;
+  }
 }
 
 function makeExpectation(actual, isNot = false, promiseMode = undefined) {
@@ -1182,6 +1195,13 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
 function expect(actual) {
   return makeExpectation(actual);
 }
+expect.getState = () => expectState;
+expect.setState = state => {
+  if (!state || typeof state !== 'object') {
+    throw new TypeError('expect.setState expects an object');
+  }
+  Object.assign(expectState, state);
+};
 expect.assertions = expected => {
   if (!Number.isSafeInteger(expected) || expected < 0) {
     throw new TypeError(
@@ -1192,12 +1212,14 @@ expect.assertions = expected => {
     throw new Error('expect.assertions() must be called from within a test.');
   }
   activeTest.expectedAssertions = expected;
+  expectState.expectedAssertionsNumber = expected;
 };
 expect.hasAssertions = () => {
   if (!activeTest) {
     throw new Error('expect.hasAssertions() must be called from within a test.');
   }
   activeTest.requiresAssertions = true;
+  expectState.isExpectingAssertions = true;
 };
 expect.anything = () =>
   asymmetric(
@@ -2644,7 +2666,17 @@ function installJsdomEnvironment() {
     'localStorage',
     'sessionStorage',
     'indexedDB',
+    'IDBCursor',
+    'IDBCursorWithValue',
+    'IDBDatabase',
+    'IDBFactory',
+    'IDBIndex',
     'IDBKeyRange',
+    'IDBObjectStore',
+    'IDBOpenDBRequest',
+    'IDBRequest',
+    'IDBTransaction',
+    'IDBVersionChangeEvent',
   ]) {
     Object.defineProperty(globalThis, key, {
       configurable: true,
@@ -3365,6 +3397,12 @@ async function runTest(
   node.assertionCalls = 0;
   node.expectedAssertions = undefined;
   node.requiresAssertions = false;
+  expectState.assertionCalls = 0;
+  expectState.currentTestName = result.fullName;
+  expectState.expectedAssertionsNumber = null;
+  expectState.isExpectingAssertions = false;
+  expectState.numPassingAsserts = 0;
+  expectState.suppressedErrors = [];
   const testStarted = performance.now();
   const failures = beforeAllError ? [beforeAllError] : [];
   if (!beforeAllError) {
@@ -3465,7 +3503,6 @@ async function runSuite(
       results.push(
         await runTest(child, focusExists, selected, skipped, beforeAllError),
       );
-      await new Promise(resolve => nativeSetImmediate(resolve));
     }
   }
   for (const hook of suite.hooks.afterAll) {

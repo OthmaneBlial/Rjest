@@ -95,8 +95,8 @@ Last updated: 2026-08-29
   `expect.assertions`/`hasAssertions`, object and pretty `test.each` names,
   manual and virtual CommonJS mocks, legacy external snapshot escaping, and
   transformer/test module-cache isolation.
-- Weak mock tracking and an event-loop turn between tests so unreachable mock
-  call graphs can be collected during compiler-heavy suites.
+- Weak mock tracking so unreachable mock call graphs can be collected during
+  compiler-heavy suites.
 - A pinned AWS Amplify JS/Yarn monorepo corpus: the unchanged Analytics package
   passes 30/30 suites and 111/111 tests under Jest 29 and Rjest after the full
   20-package build, with exact aggregate and per-file coverage parity across 58
@@ -126,6 +126,15 @@ Last updated: 2026-08-29
 - Asynchronous custom matcher results with matcher context, asymmetric and
   object `toThrow` expectations, live JSDOM XHR/FileReader/ReadableStream
   aliases, and a separate observable JSDOM `ArrayBuffer` realm.
+- A pinned AWS Amplify DataStore/Jest 29 corpus: 33/33 suites, 1,160 passing and
+  14 skipped tests, 8/8 snapshots, and aggregate plus per-file Istanbul parity
+  across 29 source files on the unchanged package.
+- Mutable `expect.getState()`/`setState()` data, the complete fake-indexeddb
+  constructor-global surface, and Jest-aligned JSDOM teardown without an extra
+  event-loop turn between tests.
+- An explicit corpus-comparator policy for randomized skipped-test labels. It
+  retains strict executed identities/statuses and per-file skipped counts, with
+  automated negative regression tests for both constraints.
 - An automated differential denominator containing both passing probes and
   preserved known incompatibilities. The current generated result is 53/53
   compatible scenarios (100%), with per-category scores in the
@@ -134,8 +143,9 @@ Last updated: 2026-08-29
 
 ## Current work
 
-- Expand the pinned Amplify monorepo corpus beyond Analytics, Core, Auth, and
-  Storage, then address the next cross-package incompatibilities.
+- Expand the pinned Amplify monorepo corpus beyond Analytics, Core, Auth,
+  Storage, and DataStore, then address the next cross-package
+  incompatibilities.
 
 ## Compatibility snapshot
 
@@ -169,11 +179,12 @@ scenario category.
 - Fresh Node/JSDOM/transformer startup per test file is a major performance
   bottleneck: the pinned Amplify Core serial run is compatible but about 19.35
   times slower than Jest by reported runner time, while Auth is about 19.83
-  times slower and Storage is about 14.67 times slower.
+  times slower, Storage is about 14.67 times slower, and DataStore is about
+  4.17 times slower.
 
 ## Next highest-value tasks
 
-1. Run the Amplify DataStore workspace package unchanged.
+1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from its real failures.
 3. Implement legacy fake-timer behavior.
 4. Extend native ESM mocking to async factories and unmock/reset semantics.
