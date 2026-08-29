@@ -117,6 +117,11 @@ skipped, match 8 snapshots, and agree on every Istanbul summary across 29
 source files. Executed identities are exact; 12 skipped fuzz labels are random
 and are compared by an explicit per-file count policy.
 
+The pinned [AWS Amplify Notifications corpus](docs/corpus/amplify-notifications.md)
+adds 61 suites and 261 tests covering native/mobile branches, event listeners,
+signed requests, and per-file environment docblocks. Jest and Rjest agree on
+every test identity/status and every Istanbul summary across 90 source files.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

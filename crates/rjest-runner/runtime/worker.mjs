@@ -82,6 +82,8 @@ let invocationOrder = 0;
 let defaultTimeout = request.defaultTimeoutMs;
 let activeTest;
 let activeModulePath = request.testPath;
+let effectiveTestEnvironment = request.testEnvironment;
+let effectiveTestEnvironmentOptions = request.testEnvironmentOptions ?? {};
 const snapshotState = {
   update: request.snapshotUpdate,
   fileExists: request.snapshotFileExists,
@@ -2362,7 +2364,7 @@ function transformRuntimeSource(
   const config = {
     cwd: request.rootDir,
     rootDir: request.rootDir,
-    testEnvironment: request.testEnvironment,
+    testEnvironment: effectiveTestEnvironment,
     moduleFileExtensions: request.moduleFileExtensions ?? [],
     extensionsToTreatAsEsm: request.extensionsToTreatAsEsm ?? [],
   };
@@ -2510,11 +2512,54 @@ async function collectedCoverage() {
   }
 }
 
+function configureFileEnvironment() {
+  const source = readFileSync(request.testPath, 'utf8');
+  const pragmas = parseDocblockPragmas(source);
+  const customEnvironment = pragmas['jest-environment'];
+  if (Array.isArray(customEnvironment)) {
+    throw new TypeError(
+      `You can only define a single test environment through docblocks, got "${customEnvironment.join(', ')}"`,
+    );
+  }
+  if (typeof customEnvironment === 'string' && customEnvironment) {
+    effectiveTestEnvironment = customEnvironment;
+  }
+  const environmentOptions = pragmas['jest-environment-options'];
+  if (typeof environmentOptions === 'string') {
+    effectiveTestEnvironmentOptions = {
+      ...effectiveTestEnvironmentOptions,
+      ...JSON.parse(environmentOptions),
+    };
+  }
+}
+
+function parseDocblockPragmas(source) {
+  try {
+    const docblock = requireFromTest('jest-docblock');
+    return docblock.parse(docblock.extract(source));
+  } catch {
+    const docblock = source.match(/^\s*\/\*\*[\s\S]*?\*\//)?.[0] ?? '';
+    const pragmas = Object.create(null);
+    for (const match of docblock.matchAll(/@([\w-]+)(?:[ \t]+([^\r\n*]*))?/g)) {
+      const name = match[1];
+      const value = match[2]?.trim() ?? '';
+      const previous = pragmas[name];
+      pragmas[name] =
+        previous === undefined
+          ? value
+          : Array.isArray(previous)
+            ? [...previous, value]
+            : [previous, value];
+    }
+    return pragmas;
+  }
+}
+
 function installJsdomEnvironment() {
-  if (!String(request.testEnvironment).includes('jsdom')) return;
+  if (!String(effectiveTestEnvironment).includes('jsdom')) return;
   const existingGlobalDescriptors = Object.getOwnPropertyDescriptors(globalThis);
   const {JSDOM} = requireFromTest('jsdom');
-  const environmentOptions = request.testEnvironmentOptions ?? {};
+  const environmentOptions = effectiveTestEnvironmentOptions;
   jsdomEnvironment = new JSDOM(
     '<!doctype html><html><head></head><body></body></html>',
     {
@@ -3520,6 +3565,7 @@ process.on('uncaughtException', error => fileErrors.push(errorText(error)));
 
 let tests = [];
 try {
+  configureFileEnvironment();
   configureTransforms();
   installJsdomEnvironment();
   if (jsdomEnvironment) {

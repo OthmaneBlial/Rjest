@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 53/53 (100%) across its explicitly listed
+The current generated matrix is 54/54 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 
@@ -102,6 +102,13 @@ with 14 skipped, match 8 snapshots, and produce identical aggregate and
 per-file Istanbul summaries across 29 sources. The comparator strictly matches
 all executed identities and uses an explicit per-file count policy only for 12
 skipped fuzz-test labels generated with `Math.random()`.
+
+The pinned [AWS Amplify Notifications corpus](corpus/amplify-notifications.md)
+adds 61 suites and 261 tests across Pinpoint messaging, signed requests,
+React Native branches, and per-file Jest environments. Test identities and
+statuses are exact, and all aggregate plus per-file Istanbul summaries match
+across 90 sources. Its only initial failures came from ignoring a Node
+environment docblock inside a JSDOM-configured project.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

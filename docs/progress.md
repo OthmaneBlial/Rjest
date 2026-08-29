@@ -135,8 +135,14 @@ Last updated: 2026-08-29
 - An explicit corpus-comparator policy for randomized skipped-test labels. It
   retains strict executed identities/statuses and per-file skipped counts, with
   automated negative regression tests for both constraints.
+- A pinned AWS Amplify Notifications/Jest 29 corpus: exact 61/61 suites,
+  261/261 tests, and aggregate plus per-file Istanbul parity across 90 source
+  files on the unchanged package.
+- Jest test-file `@jest-environment` overrides and merged JSON
+  `@jest-environment-options`, preserved by a three-file official-Jest
+  differential scenario.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 53/53
+  preserved known incompatibilities. The current generated result is 54/54
   compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
@@ -144,7 +150,7 @@ Last updated: 2026-08-29
 ## Current work
 
 - Expand the pinned Amplify monorepo corpus beyond Analytics, Core, Auth,
-  Storage, and DataStore, then address the next cross-package
+  Storage, DataStore, and Notifications, then address the next cross-package
   incompatibilities.
 
 ## Compatibility snapshot
@@ -153,7 +159,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 53/53 (100%). Coverage is 3/3 in that deliberately bounded
+corpus score is 54/54 (100%). Coverage is 3/3 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -180,7 +186,7 @@ scenario category.
   bottleneck: the pinned Amplify Core serial run is compatible but about 19.35
   times slower than Jest by reported runner time, while Auth is about 19.83
   times slower, Storage is about 14.67 times slower, and DataStore is about
-  4.17 times slower.
+  4.17 times slower. Notifications is about 29.95 times slower.
 
 ## Next highest-value tasks
 

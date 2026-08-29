@@ -30,6 +30,11 @@ usage with `--logHeapUsage`; its fresh-process-per-file architecture makes
 `workerIdleMemoryLimit` a normalized no-reuse threshold rather than a recycled
 worker trigger.
 
+Test-file docblocks may override the configured Node or JSDOM environment with
+`@jest-environment`. JSON supplied through `@jest-environment-options` is
+merged over the project's environment options before the file is transformed
+and evaluated. Custom environment classes remain outside the current claim.
+
 JSDOM projects can redefine or spy on `window`, `self`, `navigator`, storage,
 and IndexedDB globals using the patterns covered by the differential suite.
 Rjest also isolates JSDOM's initial lifecycle events from test-side global

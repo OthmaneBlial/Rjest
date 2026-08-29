@@ -92,6 +92,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'environment-docblock',
+    category: 'Environment',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'environment-jsdom-global-date',
     category: 'Environment',
     expectedExit: 0,
