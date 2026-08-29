@@ -12,9 +12,9 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, CoverageMap, FakeTimersConfig, ModuleNameMapper, SnapshotRequest,
-    SnapshotResult, SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION,
-    WorkerRequest,
+    AggregatedResult, CoverageMap, FakeTimersConfig, MockLifecycleConfig, ModuleNameMapper,
+    SnapshotRequest, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
+    WORKER_PROTOCOL_VERSION, WorkerRequest,
 };
 use thiserror::Error;
 
@@ -34,7 +34,7 @@ pub struct RunnerOptions {
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
-    pub clear_mocks: bool,
+    pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
@@ -64,7 +64,7 @@ impl Default for RunnerOptions {
             module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
             automock: false,
-            clear_mocks: false,
+            mock_lifecycle: MockLifecycleConfig::default(),
             fake_timers: FakeTimersConfig::default(),
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
@@ -301,7 +301,7 @@ fn run_file(
         extensions_to_treat_as_esm: options.extensions_to_treat_as_esm.clone(),
         module_name_mapper: options.module_name_mapper.clone(),
         automock: options.automock,
-        clear_mocks: options.clear_mocks,
+        mock_lifecycle: options.mock_lifecycle.clone(),
         fake_timers: options.fake_timers.clone(),
         test_environment: options.test_environment.clone(),
         test_environment_options: options.test_environment_options.clone(),

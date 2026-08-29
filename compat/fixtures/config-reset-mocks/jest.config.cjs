@@ -1,5 +1,5 @@
 module.exports = {
-  restoreMocks: true,
+  resetMocks: true,
   setupFilesAfterEnv: ['./setup-after.cjs'],
   testEnvironment: 'node',
   transform: {},

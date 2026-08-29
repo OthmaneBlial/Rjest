@@ -11,7 +11,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 10;
+const PROTOCOL_VERSION = 11;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -5016,6 +5016,7 @@ async function runTest(
   const failures = beforeAllError ? [beforeAllError] : [];
   if (!beforeAllError) {
     if (request.clearMocks) jest.clearAllMocks();
+    if (request.restoreMocks) jest.restoreAllMocks();
     for (const hook of hookChain(node, 'beforeEach')) {
       try {
         await callAsync(hook.callback, hook.timeout, 'beforeEach hook');

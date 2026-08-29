@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use rjest_core::{FakeTimersConfig, ModuleNameMapper};
+use rjest_core::{FakeTimersConfig, MockLifecycleConfig, ModuleNameMapper};
 
 const CONFIG_FILENAMES: &[&str] = &[
     "jest.config.js",
@@ -99,7 +99,8 @@ pub struct ProjectConfig {
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
-    pub clear_mocks: bool,
+    #[serde(flatten)]
+    pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
     pub test_environment: String,
     pub test_environment_options: Value,
@@ -136,6 +137,7 @@ struct RawProjectConfig {
     module_paths: Option<Vec<String>>,
     automock: Option<bool>,
     clear_mocks: Option<bool>,
+    restore_mocks: Option<bool>,
     fake_timers: Option<RawFakeTimersConfig>,
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
@@ -251,7 +253,7 @@ impl ProjectConfig {
             module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
             automock: false,
-            clear_mocks: false,
+            mock_lifecycle: MockLifecycleConfig::default(),
             fake_timers: FakeTimersConfig::default(),
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
@@ -427,6 +429,17 @@ fn process_details(stdout: &str, stderr: &str) -> String {
     }
 }
 
+fn normalize_mock_lifecycle(
+    clear_mocks: Option<bool>,
+    restore_mocks: Option<bool>,
+    defaults: &ProjectConfig,
+) -> MockLifecycleConfig {
+    MockLifecycleConfig {
+        clear_mocks: clear_mocks.unwrap_or(defaults.mock_lifecycle.clear_mocks),
+        restore_mocks: restore_mocks.unwrap_or(defaults.mock_lifecycle.restore_mocks),
+    }
+}
+
 fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, ConfigError> {
     reject_unsupported_fields(&raw.unsupported)?;
 
@@ -437,6 +450,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     ensure_directory(&root_dir)?;
 
     let defaults = ProjectConfig::defaults(&root_dir)?;
+    let mock_lifecycle = normalize_mock_lifecycle(raw.clear_mocks, raw.restore_mocks, &defaults);
     let roots = normalize_roots(raw.roots, &root_dir, &defaults.roots)?;
 
     let test_environment =
@@ -496,7 +510,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         module_name_mapper,
         module_paths,
         automock: raw.automock.unwrap_or(defaults.automock),
-        clear_mocks: raw.clear_mocks.unwrap_or(defaults.clear_mocks),
+        mock_lifecycle,
         fake_timers,
         test_environment,
         test_environment_options: raw
@@ -992,6 +1006,7 @@ mod tests {
               "extensionsToTreatAsEsm":[".ts"],
               "automock":true,
               "clearMocks":true,
+              "restoreMocks":true,
               "fakeTimers":{
                 "enableGlobally":true,
                 "legacyFakeTimers":false,
@@ -1040,7 +1055,8 @@ mod tests {
             ]
         );
         assert!(config.automock);
-        assert!(config.clear_mocks);
+        assert!(config.mock_lifecycle.clear_mocks);
+        assert!(config.mock_lifecycle.restore_mocks);
         assert!(config.fake_timers.enable_globally);
         assert!(!config.fake_timers.legacy_fake_timers);
         assert_eq!(
