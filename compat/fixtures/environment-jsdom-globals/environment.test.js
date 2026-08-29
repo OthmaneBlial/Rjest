@@ -19,3 +19,25 @@ test('keeps bare storage globals linked to redefined window storage', () => {
   expect(sessionStorage).toBe(replacement);
   expect(sessionStorage.getItem('key')).toBe('replacement');
 });
+
+test('resolves global aliases through their JSDOM window getters', () => {
+  const originalWindow = window;
+  const selfGetter = jest.spyOn(originalWindow, 'self', 'get');
+  const replacement = {marker: 'replacement-self'};
+
+  try {
+    selfGetter.mockReturnValue(replacement);
+    expect(self).toBe(replacement);
+  } finally {
+    selfGetter.mockRestore();
+  }
+
+  expect(self).toBe(originalWindow);
+});
+
+test('keeps bare IndexedDB globals linked to window assignments', () => {
+  const replacement = {bound: jest.fn()};
+  window.IDBKeyRange = replacement;
+
+  expect(IDBKeyRange).toBe(replacement);
+});

@@ -105,16 +105,22 @@ Last updated: 2026-08-29
   `jest.isolateModules`, inherited/getter-export automocks, live JSDOM storage
   globals, unanchored mapper substitution, and compatible `-w` plus
   `--logHeapUsage` CLI behavior.
+- A pinned AWS Amplify Core/Jest 29 corpus: exact 94/94 suites, 632/632 tests,
+  2/2 snapshots, and aggregate plus per-file Istanbul parity across 204 source
+  files on the unchanged package after the full monorepo build.
+- Live JSDOM window/self/navigator and IndexedDB bindings, cycle-safe subset
+  matching through inherited accessors, JSDOM initialization isolation from
+  mocked global constructors, and Jest-major-aware empty-title result names.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 52/52
+  preserved known incompatibilities. The current generated result is 53/53
   compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Expand the pinned Amplify monorepo corpus beyond Analytics and address the
-  next cross-package incompatibilities.
+- Expand the pinned Amplify monorepo corpus beyond Analytics and Core, then
+  address the next cross-package incompatibilities.
 
 ## Compatibility snapshot
 
@@ -122,7 +128,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 52/52 (100%). Coverage is 3/3 in that deliberately bounded
+corpus score is 53/53 (100%). Coverage is 3/3 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -145,6 +151,9 @@ scenario category.
   groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
   Legacy-timer mode remains unimplemented.
+- Fresh Node/JSDOM/transformer startup per test file is a major performance
+  bottleneck: the pinned Amplify Core serial run is compatible but about 19.35
+  times slower than Jest by reported runner time.
 
 ## Next highest-value tasks
 

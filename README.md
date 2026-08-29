@@ -94,6 +94,12 @@ production build. Jest 29 and Rjest both pass 30/30 suites and 111/111 tests,
 with exact aggregate and per-file coverage-summary parity across 58 source
 files.
 
+The pinned [AWS Amplify Core corpus](docs/corpus/amplify-core.md) expands the
+same unchanged monorepo proof to 94/94 suites, 632/632 tests, and 2/2 snapshots.
+Its strict comparison also finds exact test identity/status and aggregate plus
+per-file coverage parity across 204 source files. Rjest remains materially
+slower on this transformer-heavy workload.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

@@ -34,6 +34,15 @@ const coverageFilter = request.coverageFilter
   ? new Set(request.coverageFilter.map(normalizedRuntimePath))
   : undefined;
 const requireFromTest = createRequire(request.testPath);
+let installedJestMajorVersion;
+try {
+  installedJestMajorVersion = Number.parseInt(
+    requireFromTest('jest/package.json').version.split('.')[0],
+    10,
+  );
+} catch {
+  installedJestMajorVersion = undefined;
+}
 const originalModuleLoad = Module._load;
 const originalModuleResolveFilename = Module._resolveFilename;
 const moduleMocks = new Map();
@@ -461,17 +470,36 @@ function deepEqual(received, expected, strict = false, receivedStack = [], expec
   return result;
 }
 
-function subsetEqual(received, expected) {
+function subsetEqual(received, expected, receivedStack = [], expectedStack = []) {
   if (isAsymmetric(expected)) return expected.asymmetricMatch(received);
+  if (Object.is(received, expected)) return true;
   if (typeof expected !== 'object' || expected === null) {
     return deepEqual(received, expected);
   }
   if (typeof received !== 'object' || received === null) return false;
-  return Reflect.ownKeys(expected).every(
-    key =>
-      Object.prototype.hasOwnProperty.call(received, key) &&
-      subsetEqual(received[key], expected[key]),
-  );
+  for (let index = receivedStack.length - 1; index >= 0; index -= 1) {
+    if (receivedStack[index] === received) {
+      return expectedStack[index] === expected;
+    }
+    if (expectedStack[index] === expected) return false;
+  }
+  receivedStack.push(received);
+  expectedStack.push(expected);
+  const result = Reflect.ownKeys(expected)
+    .filter(key => Object.prototype.propertyIsEnumerable.call(expected, key))
+    .every(
+      key =>
+        key in Object(received) &&
+        subsetEqual(
+          received[key],
+          expected[key],
+          receivedStack,
+          expectedStack,
+        ),
+    );
+  receivedStack.pop();
+  expectedStack.pop();
+  return result;
 }
 
 function propertyPath(path) {
@@ -2430,15 +2458,18 @@ function installJsdomEnvironment() {
       // JSDOM exposes a few host properties that Node deliberately protects.
     }
   }
-  for (const [key, value] of [
-    ['window', window],
-    ['self', window],
-  ]) {
+  for (const key of ['window', 'self']) {
     Object.defineProperty(globalThis, key, {
       configurable: true,
       enumerable: true,
-      value,
-      writable: true,
+      get: () => window[key],
+      set: value => {
+        try {
+          window[key] = value;
+        } catch {
+          // JSDOM exposes `window` as read-only in recent releases.
+        }
+      },
     });
   }
   Object.defineProperty(globalThis, 'document', {
@@ -2452,10 +2483,22 @@ function installJsdomEnvironment() {
   Object.defineProperty(globalThis, 'navigator', {
     configurable: true,
     enumerable: true,
-    value: window.navigator,
-    writable: true,
+    get: () => window.navigator,
+    set: value => {
+      Object.defineProperty(window, 'navigator', {
+        configurable: true,
+        enumerable: true,
+        value,
+        writable: true,
+      });
+    },
   });
-  for (const key of ['localStorage', 'sessionStorage']) {
+  for (const key of [
+    'localStorage',
+    'sessionStorage',
+    'indexedDB',
+    'IDBKeyRange',
+  ]) {
     Object.defineProperty(globalThis, key, {
       configurable: true,
       enumerable: true,
@@ -3016,7 +3059,12 @@ function fullName(node) {
     names.push(suite.name);
     suite = suite.parent;
   }
-  return names.reverse().join(' ');
+  names.reverse();
+  // Jest 29's legacy result adapter omitted an empty test title, while Jest 30
+  // preserves the separator in `fullName`. Follow the project's installed
+  // Jest major when it is available, defaulting to current Jest semantics.
+  if (installedJestMajorVersion < 30 && names.at(-1) === '') names.pop();
+  return names.join(' ');
 }
 
 function hasOnly(node, inherited = false) {
@@ -3287,6 +3335,12 @@ let tests = [];
 try {
   configureTransforms();
   installJsdomEnvironment();
+  if (jsdomEnvironment) {
+    // Let JSDOM finish its initial ready-state and load events before user code
+    // can mock shared Node globals such as Date. Jest runs JSDOM in a separate
+    // VM realm, so those internal events cannot observe test-side global mocks.
+    await new Promise(resolve => nativeSetImmediate(resolve));
+  }
   configureSnapshotFormat();
   configureEsmRuntime();
   automockEnabled = Boolean(request.automock);

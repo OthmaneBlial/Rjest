@@ -91,6 +91,12 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
+  {
+    name: 'environment-jsdom-global-date',
+    category: 'Environment',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'failure', category: 'Core API', expectedExit: 1},
   {name: 'fake-timers-clock', category: 'Fake timers', expectedExit: 0},
   {name: 'fake-timers-queues', category: 'Fake timers', expectedExit: 0},

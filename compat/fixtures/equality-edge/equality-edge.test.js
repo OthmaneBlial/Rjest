@@ -27,3 +27,18 @@ test('compares cycles and unordered collections structurally', () => {
     new Map([[{id: 1}, {name: 'Ada'}]]),
   );
 });
+
+test('matches object subsets through accessors and circular identities', () => {
+  const signal = new AbortController().signal;
+  const cycle = {};
+  cycle.self = cycle;
+  const inherited = Object.create({href: 'https://example.com/path'});
+
+  expect({signal}).toEqual(expect.objectContaining({signal}));
+  expect({cycle}).toEqual(expect.objectContaining({cycle}));
+  expect({url: inherited}).toEqual(
+    expect.objectContaining({
+      url: expect.objectContaining({href: 'https://example.com/path'}),
+    }),
+  );
+});

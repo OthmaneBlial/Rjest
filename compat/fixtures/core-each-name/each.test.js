@@ -17,3 +17,9 @@ test.each([[{enabled: true}], [{enabled: false}]])(
     expect(typeof value.enabled).toBe('boolean');
   },
 );
+
+describe('empty test titles', () => {
+  test('', () => {
+    expect(true).toBe(true);
+  });
+});

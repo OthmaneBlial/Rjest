@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 52/52 (100%) across its explicitly listed
+The current generated matrix is 53/53 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 
@@ -73,6 +73,13 @@ Yarn workspace monorepo built through its real 20-task production pipeline.
 The unchanged Jest 29 package suite passes 30/30 suites and 111/111 tests under
 both runners, with exact aggregate and per-file Istanbul summary parity across
 58 TypeScript sources.
+
+The pinned [AWS Amplify Core corpus](corpus/amplify-core.md) expands that same
+unchanged monorepo to 94/94 suites, 632/632 tests, and 2/2 snapshots. The
+machine comparison finds exact test-name/status parity, zero Rjest file errors,
+and exact aggregate and per-file Istanbul summary parity across 204 source
+files. The serial Rjest run is materially slower, so the result is correctness
+evidence rather than a performance claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

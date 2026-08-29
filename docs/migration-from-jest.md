@@ -30,6 +30,12 @@ usage with `--logHeapUsage`; its fresh-process-per-file architecture makes
 `workerIdleMemoryLimit` a normalized no-reuse threshold rather than a recycled
 worker trigger.
 
+JSDOM projects can redefine or spy on `window`, `self`, `navigator`, storage,
+and IndexedDB globals using the patterns covered by the differential suite.
+Rjest also isolates JSDOM's initial lifecycle events from test-side global
+constructor mocks. Complete custom environment behavior remains outside the
+current compatibility claim.
+
 `rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
 positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
 JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global
