@@ -6,8 +6,9 @@ and TypeScript test runner whose coordinator is written in Rust.
 > **Status:** early alpha. JavaScript, configured JSX/TypeScript transforms,
 > Node and JSDOM environments, modern fake timers, CommonJS module factories,
 > and Jest v1 snapshots now execute through isolated workers. Existing inline
-> snapshots, configured snapshot serializers, Babel/Istanbul coverage, and
-> CommonJS/transformed `moduleNameMapper` rules are supported. Global
+> snapshots, snapshot property matchers, configured serializers,
+> Babel/Istanbul coverage, and CommonJS/transformed `moduleNameMapper` rules are
+> supported. Global
 > automocking, ESM module mocks, writing new inline snapshots, native-ESM
 > mapping, V8 coverage, watch mode, and many Jest edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.

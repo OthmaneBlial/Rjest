@@ -41,3 +41,7 @@ CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 `require`, plus `jest.requireActual`, `jest.requireMock`, and
 `jest.createMockFromModule`. Rjest does not yet hoist mock declarations, enable
 global automocking, or implement Jest's ESM module-mocking API.
+
+External and existing inline snapshots accept nested property matchers and
+serialize their asymmetric placeholders like Jest. Rjest still cannot write a
+new inline snapshot back into the test source.

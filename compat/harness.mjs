@@ -120,7 +120,12 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
-  {name: 'gap-snapshot-property', category: 'Snapshots', expectedExit: 0, compatible: false},
+  {
+    name: 'gap-snapshot-property',
+    category: 'Snapshots',
+    expectedExit: 0,
+    compareSnapshots: true,
+  },
   {name: 'implicit-babel-transform', category: 'Transforms', expectedExit: 0},
   {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0, compatible: false},
 ];

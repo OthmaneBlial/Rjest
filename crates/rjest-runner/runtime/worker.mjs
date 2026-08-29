@@ -238,11 +238,16 @@ function printable(value) {
   });
 }
 
-function asymmetric(match, description) {
+function asymmetric(match, description, sample, inverse = false) {
   return {
+    $$typeof: Symbol.for('jest.asymmetricMatcher'),
+    sample,
+    inverse,
     [ASYMMETRIC]: true,
     asymmetricMatch: match,
     toString: () => description,
+    toAsymmetricMatcher: () =>
+      description === 'Any' ? `Any<${sample?.name ?? 'anonymous'}>` : description,
   };
 }
 
@@ -441,6 +446,7 @@ function resolveProperty(received, path) {
 }
 
 function prettyFormat(value, indentation = '', stack = []) {
+  if (isAsymmetric(value)) return value.toAsymmetricMatcher();
   if (value === true || value === false || value === null || value === undefined) {
     return String(value);
   }
@@ -538,6 +544,65 @@ function markSnapshotsChecked(testName) {
       snapshotState.unchecked.delete(key);
     }
   }
+}
+
+function mergeSnapshotProperties(target, source) {
+  if (isAsymmetric(source)) return source;
+  if (Array.isArray(target) && Array.isArray(source)) {
+    const merged = [...target];
+    for (const [index, sourceValue] of source.entries()) {
+      const targetValue = merged[index];
+      merged[index] =
+        (Array.isArray(targetValue) && Array.isArray(sourceValue)) ||
+        (targetValue !== null &&
+          typeof targetValue === 'object' &&
+          sourceValue !== null &&
+          typeof sourceValue === 'object' &&
+          !isAsymmetric(sourceValue))
+          ? mergeSnapshotProperties(targetValue, sourceValue)
+          : sourceValue;
+    }
+    return merged;
+  }
+  if (
+    target !== null &&
+    typeof target === 'object' &&
+    !Array.isArray(target) &&
+    source !== null &&
+    typeof source === 'object' &&
+    !Array.isArray(source)
+  ) {
+    const merged = {...target};
+    for (const key of Object.keys(source)) {
+      const sourceValue = source[key];
+      merged[key] =
+        key in Object(target) &&
+        sourceValue !== null &&
+        typeof sourceValue === 'object' &&
+        !isAsymmetric(sourceValue)
+          ? mergeSnapshotProperties(target[key], sourceValue)
+          : sourceValue;
+    }
+    return merged;
+  }
+  return target;
+}
+
+function applySnapshotProperties(received, properties) {
+  if (typeof properties !== 'object' || properties === null) {
+    throw new Error('Snapshot properties must be a non-null object');
+  }
+  if (typeof received !== 'object' || received === null) {
+    throw new Error(
+      'Received value must be an object when snapshot properties are provided',
+    );
+  }
+  if (!subsetEqual(received, properties)) {
+    throw new RjestAssertionError(
+      `Snapshot properties did not match\nExpected properties: ${printable(properties)}\nReceived: ${printable(received)}`,
+    );
+  }
+  return mergeSnapshotProperties(received, properties);
 }
 
 function matchSnapshot(received, hint) {
@@ -841,13 +906,20 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
     if (isNot) {
       throw new Error('Snapshot matchers cannot be used with .not');
     }
-    if (arguments_.length > 1 || (arguments_.length === 1 && typeof arguments_[0] !== 'string')) {
-      throw new Error(
-        'Snapshot property matchers are not supported yet; pass an optional string hint only',
-      );
+    if (arguments_.length > 2) {
+      throw new Error('toMatchSnapshot accepts properties and an optional hint');
     }
+    const hasProperties =
+      arguments_.length === 2 ||
+      (arguments_.length === 1 && typeof arguments_[0] !== 'string');
+    const properties = hasProperties ? arguments_[0] : undefined;
+    const hint = hasProperties ? arguments_[1] : arguments_[0];
     const evaluate = received => {
-      const outcome = matchSnapshot(received, arguments_[0]);
+      const snapshotReceived =
+        !hasProperties
+          ? received
+          : applySnapshotProperties(received, properties);
+      const outcome = matchSnapshot(snapshotReceived, hint);
       if (!outcome.pass) throw new RjestAssertionError(outcome.message);
     };
     if (!promiseMode) return evaluate(actual);
@@ -890,6 +962,15 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
     if (isNot) {
       throw new Error('Snapshot matchers cannot be used with .not');
     }
+    if (arguments_.length > 2) {
+      throw new Error(
+        'toMatchInlineSnapshot accepts properties and an optional inline snapshot',
+      );
+    }
+    const hasProperties =
+      arguments_.length > 1 ||
+      (arguments_.length === 1 && typeof arguments_[0] !== 'string');
+    const properties = hasProperties ? arguments_[0] : undefined;
     const inlineSnapshot = arguments_.at(-1);
     if (typeof inlineSnapshot !== 'string') {
       throw new Error(
@@ -897,7 +978,10 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
       );
     }
     const evaluate = received => {
-      const serialized = formatSnapshot(received);
+      const snapshotReceived = hasProperties
+        ? applySnapshotProperties(received, properties)
+        : received;
+      const serialized = formatSnapshot(snapshotReceived);
       if (serialized !== inlineSnapshot) {
         snapshotState.unmatched += 1;
         throw new RjestAssertionError(
@@ -967,7 +1051,7 @@ expect.any = constructor =>
     if (constructor === BigInt) return typeof value === 'bigint';
     if (constructor === Symbol) return typeof value === 'symbol';
     return value instanceof constructor;
-  }, `Any<${constructor?.name ?? 'anonymous'}>`);
+  }, 'Any', constructor);
 expect.arrayContaining = sample =>
   asymmetric(
     value =>
@@ -976,13 +1060,15 @@ expect.arrayContaining = sample =>
         value.some(actual => deepEqual(actual, expected)),
       ),
     'ArrayContaining',
+    sample,
   );
 expect.objectContaining = sample =>
-  asymmetric(value => subsetEqual(value, sample), 'ObjectContaining');
+  asymmetric(value => subsetEqual(value, sample), 'ObjectContaining', sample);
 expect.stringContaining = sample =>
   asymmetric(
     value => typeof value === 'string' && value.includes(String(sample)),
     'StringContaining',
+    sample,
   );
 expect.stringMatching = sample =>
   asymmetric(
@@ -992,6 +1078,7 @@ expect.stringMatching = sample =>
         ? sample.test(value)
         : value.includes(String(sample))),
     'StringMatching',
+    sample,
   );
 expect.extend = extensions => {
   if (!extensions || typeof extensions !== 'object') {
@@ -1014,15 +1101,24 @@ expect.not = {
             value.some(actual => deepEqual(actual, expected)),
           )
         ),
-      'NotArrayContaining',
+      'ArrayNotContaining',
+      sample,
+      true,
     ),
   objectContaining: sample =>
-    asymmetric(value => !subsetEqual(value, sample), 'NotObjectContaining'),
+    asymmetric(
+      value => !subsetEqual(value, sample),
+      'ObjectNotContaining',
+      sample,
+      true,
+    ),
   stringContaining: sample =>
     asymmetric(
       value =>
         !(typeof value === 'string' && value.includes(String(sample))),
-      'NotStringContaining',
+      'StringNotContaining',
+      sample,
+      true,
     ),
   stringMatching: sample =>
     asymmetric(
@@ -1033,7 +1129,9 @@ expect.not = {
             ? sample.test(value)
             : value.includes(String(sample)))
         ),
-      'NotStringMatching',
+      'StringNotMatching',
+      sample,
+      true,
     ),
 };
 globalThis.expect = expect;

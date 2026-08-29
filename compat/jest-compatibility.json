@@ -3,9 +3,9 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 34,
+    "passing": 35,
     "total": 37,
-    "percentage": 91.8918918918919
+    "percentage": 94.5945945945946
   },
   "categories": {
     "Configuration": {
@@ -54,9 +54,9 @@
       "percentage": 100
     },
     "Snapshots": {
-      "passing": 6,
+      "passing": 7,
       "total": 7,
-      "percentage": 85.71428571428571
+      "percentage": 100
     },
     "Transforms": {
       "passing": 1,
@@ -275,11 +275,8 @@
     {
       "name": "gap-snapshot-property",
       "category": "Snapshots",
-      "compatible": false,
-      "differences": [
-        "exit Jest=0 Rjest=1",
-        "test results differ"
-      ]
+      "compatible": true,
+      "differences": []
     },
     {
       "name": "implicit-babel-transform",

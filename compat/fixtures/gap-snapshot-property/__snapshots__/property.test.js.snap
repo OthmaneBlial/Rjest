@@ -1,0 +1,21 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`applies property matchers before snapshot serialization 1`] = `
+{
+  "id": Any<Number>,
+  "name": "Ada",
+}
+`;
+
+exports[`deep-merges nested and array property matchers without mutating received: nested properties 1`] = `
+{
+  "tags": [
+    StringMatching /\\^sta/,
+    Any<String>,
+  ],
+  "user": {
+    "id": Any<Number>,
+    "name": "Ada",
+  },
+}
+`;

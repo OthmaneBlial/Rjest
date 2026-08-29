@@ -74,9 +74,11 @@ Last updated: 2026-08-29
   shared mapped identity for explicit Jest mocks.
 - Modern animation-frame scheduling and `advanceTimersToNextFrame`, including
   JSDOM callbacks, cancellation, intermediate timers, and frame timestamps.
+- External and existing inline snapshot property matchers with deep object and
+  array merging and Jest-compatible asymmetric serialization.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 34/37
-  compatible scenarios (91.892%), with per-category scores in the
+  preserved known incompatibilities. The current generated result is 35/37
+  compatible scenarios (94.595%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
@@ -91,7 +93,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 34/37 (91.892%). Coverage is 2/2 in that deliberately bounded
+corpus score is 35/37 (94.595%). Coverage is 2/2 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -108,8 +110,8 @@ scenario category.
 - Global automocking, transform-time mock hoisting, and ESM module mocking are not
   implemented; CommonJS explicit factories and manual module generation are
   partial.
-- New/updated inline snapshot source writes, snapshot property matchers, V8
-  coverage, non-global threshold groups, watch mode, complete custom
+- New/updated inline snapshot source writes, V8 coverage, non-global threshold
+  groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
   Legacy-timer mode remains unimplemented.
 
