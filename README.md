@@ -122,6 +122,11 @@ adds 61 suites and 261 tests covering native/mobile branches, event listeners,
 signed requests, and per-file environment docblocks. Jest and Rjest agree on
 every test identity/status and every Istanbul summary across 90 source files.
 
+The pinned [AWS Amplify Adapter Next.js corpus](docs/corpus/amplify-adapter-nextjs.md)
+adds a mock-dense Node/Next.js server workload. Both runners pass 41/41 suites,
+300 tests with one skipped test, and one snapshot, with exact coverage summaries
+across 50 source files.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

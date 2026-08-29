@@ -141,6 +141,9 @@ Last updated: 2026-08-29
 - Jest test-file `@jest-environment` overrides and merged JSON
   `@jest-environment-options`, preserved by a three-file official-Jest
   differential scenario.
+- A pinned AWS Amplify Adapter Next.js/Jest 29 corpus: exact 41/41 suites, 300
+  passing and one skipped test, one snapshot, and aggregate plus per-file
+  Istanbul parity across 50 source files on the unchanged package.
 - An automated differential denominator containing both passing probes and
   preserved known incompatibilities. The current generated result is 54/54
   compatible scenarios (100%), with per-category scores in the
@@ -150,8 +153,8 @@ Last updated: 2026-08-29
 ## Current work
 
 - Expand the pinned Amplify monorepo corpus beyond Analytics, Core, Auth,
-  Storage, DataStore, and Notifications, then address the next cross-package
-  incompatibilities.
+  Storage, DataStore, Notifications, and Adapter Next.js, then address the next
+  cross-package incompatibilities.
 
 ## Compatibility snapshot
 
@@ -186,7 +189,8 @@ scenario category.
   bottleneck: the pinned Amplify Core serial run is compatible but about 19.35
   times slower than Jest by reported runner time, while Auth is about 19.83
   times slower, Storage is about 14.67 times slower, and DataStore is about
-  4.17 times slower. Notifications is about 29.95 times slower.
+  4.17 times slower. Notifications is about 29.95 times slower and Adapter
+  Next.js is about 35.78 times slower.
 
 ## Next highest-value tasks
 

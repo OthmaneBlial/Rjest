@@ -110,6 +110,13 @@ statuses are exact, and all aggregate plus per-file Istanbul summaries match
 across 90 sources. Its only initial failures came from ignoring a Node
 environment docblock inside a JSDOM-configured project.
 
+The pinned [AWS Amplify Adapter Next.js corpus](corpus/amplify-adapter-nextjs.md)
+adds a Node/Next.js server workload with 41 suites, 301 registered tests, one
+snapshot, automatic and factory mocks, `doMock`, `resetModules`, accessor
+spies, and package exports. The unchanged suite passes on the first Rjest
+diagnostic, and the strict machine comparison is exact across all test
+identities/statuses and 50 per-file Istanbul summaries.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.
