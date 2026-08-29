@@ -23,6 +23,13 @@ setup-after-env, serializer, module-path, timeout, worker, and common tooling
 fields; unsupported options are migration work items and produce an explicit
 error.
 
+`rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
+positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
+JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global
+positive-percentage and negative-uncovered thresholds. Keep Jest as the
+coverage gate when using the V8 provider, custom Istanbul reporters, or
+path/glob-specific threshold groups.
+
 Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.
 Keep Jest for suites relying on `moduleNameMapper`, custom resolvers, pnpm/Yarn

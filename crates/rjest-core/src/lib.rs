@@ -11,7 +11,10 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 3;
+pub const WORKER_PROTOCOL_VERSION: u32 = 4;
+
+/// Istanbul file coverage records keyed by canonical source path.
+pub type CoverageMap = BTreeMap<String, serde_json::Value>;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -35,6 +38,10 @@ pub struct WorkerRequest {
     pub snapshot_serializers: Vec<String>,
     pub transform: BTreeMap<String, serde_json::Value>,
     pub transform_ignore_patterns: Vec<String>,
+    pub collect_coverage: bool,
+    pub coverage_path_ignore_patterns: Vec<String>,
+    pub coverage_filter: Option<Vec<PathBuf>>,
+    pub coverage_sources: Vec<PathBuf>,
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
     pub snapshot_update: SnapshotUpdate,
@@ -79,6 +86,8 @@ pub struct TestFileResult {
     pub console: Vec<ConsoleEntry>,
     pub duration_ms: u64,
     pub snapshot: SnapshotResult,
+    #[serde(default, skip_serializing)]
+    pub coverage: CoverageMap,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -109,6 +118,8 @@ impl TestFileResult {
 pub struct AggregatedResult {
     pub test_results: Vec<TestFileResult>,
     pub duration_ms: u64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub coverage_map: CoverageMap,
 }
 
 impl AggregatedResult {

@@ -13,8 +13,11 @@ The architecture follows the boundary recorded in
 - `rjest-discovery`: native recursive scanning, matching, filtering, and stable
   ordering.
 - `rjest-core`: stable cross-component data types.
+- `rjest-coverage`: Istanbul source discovery, deterministic worker-map merging,
+  reports, and threshold evaluation.
 - `rjest-runner`: bounded parallel dispatch, Node process isolation, versioned
-  request/result validation, and deterministic aggregation.
+  request/result validation, deterministic aggregation, and coverage-counter
+  merging.
 - `rjest-snapshot`: safe Jest v1 snapshot parsing, natural key ordering,
   template-literal escaping, deterministic coordinator-side persistence, and
   obsolete-file cleanup.

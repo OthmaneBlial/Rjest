@@ -3,6 +3,7 @@ members = [
   "crates/rjest-cli",
   "crates/rjest-config",
   "crates/rjest-core",
+  "crates/rjest-coverage",
   "crates/rjest-discovery",
   "crates/rjest-runner",
   "crates/rjest-snapshot",

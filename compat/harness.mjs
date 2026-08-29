@@ -33,6 +33,22 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
+  {
+    name: 'coverage-basic',
+    category: 'Coverage',
+    expectedExit: 0,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['**/*.js', '!**/*.test.js'],
+    rjestMaxWorkers: 2,
+  },
+  {
+    name: 'coverage-threshold',
+    category: 'Coverage',
+    expectedExit: 1,
+    compareCoverage: true,
+    useFixtureConfig: true,
+  },
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
   {name: 'equality-edge', category: 'Expect', expectedExit: 0},
   {
@@ -141,6 +157,16 @@ function compareCase(testCase) {
       })}`);
     }
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
+    if (testCase.coverage) {
+      jestArguments.push(
+        '--coverage',
+        '--coverageReporters=json-summary',
+        `--coverageDirectory=${join(jestFixture, '.coverage')}`,
+      );
+      for (const pattern of testCase.collectCoverageFrom ?? []) {
+        jestArguments.push(`--collectCoverageFrom=${pattern}`);
+      }
+    }
     const jestEnvironment = {
       ...process.env,
       CI: '',
@@ -161,8 +187,23 @@ function compareCase(testCase) {
     );
     assertSpawned(jestRun, `Jest (${label})`);
 
-    const rjestArguments = ['--runInBand', '--json'];
+    const rjestArguments = [
+      testCase.rjestMaxWorkers
+        ? `--maxWorkers=${testCase.rjestMaxWorkers}`
+        : '--runInBand',
+      '--json',
+    ];
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');
+    if (testCase.coverage) {
+      rjestArguments.push(
+        '--coverage',
+        '--coverageReporters=json-summary',
+        `--coverageDirectory=${join(rjestFixture, '.coverage')}`,
+      );
+      for (const pattern of testCase.collectCoverageFrom ?? []) {
+        rjestArguments.push(`--collectCoverageFrom=${pattern}`);
+      }
+    }
     const rjestEnvironment = {
       ...process.env,
       NODE_PATH: join(repository, 'node_modules'),
@@ -199,6 +240,17 @@ function compareCase(testCase) {
         differences.push('snapshot files differ');
       }
     }
+    if (testCase.compareCoverage) {
+      const jestCoverage = normalizeCoverageSummary(
+        JSON.parse(readFileSync(join(jestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
+      );
+      const rjestCoverage = normalizeCoverageSummary(
+        JSON.parse(readFileSync(join(rjestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
+      );
+      if (JSON.stringify(jestCoverage) !== JSON.stringify(rjestCoverage)) {
+        differences.push('coverage summaries differ');
+      }
+    }
 
     const compatible = differences.length === 0;
     const expectedCompatibility = testCase.compatible ?? true;
@@ -223,6 +275,24 @@ function compareCase(testCase) {
   } finally {
     rmSync(temporary, {recursive: true, force: true});
   }
+}
+
+function normalizeCoverageSummary(summary) {
+  return canonicalize(Object.fromEntries(
+    Object.entries(summary)
+      .map(([path, metrics]) => [path === 'total' ? path : basename(path), metrics])
+      .sort(([left], [right]) => left.localeCompare(right)),
+  ));
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, canonicalize(child)]),
+  );
 }
 
 function prepareNodeModule(fixture) {

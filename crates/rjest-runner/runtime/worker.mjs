@@ -1,10 +1,11 @@
 import {readFileSync} from 'node:fs';
 import Module, {createRequire} from 'node:module';
 import {isDeepStrictEqual, format, inspect} from 'node:util';
+import {resolve as resolvePath} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -23,18 +24,23 @@ const nativePerformanceNowDescriptor = Object.getOwnPropertyDescriptor(
 const nativeNextTick = process.nextTick;
 const nativeHrtime = process.hrtime;
 const request = JSON.parse(readFileSync(0, 'utf8'));
+const coverageFilter = request.coverageFilter
+  ? new Set(request.coverageFilter.map(normalizedRuntimePath))
+  : undefined;
 const requireFromTest = createRequire(request.testPath);
 const originalModuleLoad = Module._load;
 const moduleMocks = new Map();
 const bypassModuleMocks = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
 const runtimeTransformers = [];
+const instrumentedFiles = new Set();
 const runtimeSnapshotSerializers = [];
 let runtimePrettyFormatter;
 let runtimePrettyFormatPlugins = [];
 let runtimePrettyFormatSupportsBasicPrototype = false;
 let jsdomEnvironment;
 let nativeWindowTimers;
+let transformerDepth = 0;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
   throw new Error(`Unsupported Rjest worker protocol ${request.protocolVersion}`);
@@ -1377,9 +1383,16 @@ function configureTransforms() {
   }
   if (runtimeTransformers.length === 0) {
     try {
-      runtimeTransformers.push(
-        transformerFromConfig('^.+\\.[jt]sx?$', 'babel-jest'),
-      );
+      let babelJest = 'babel-jest';
+      try {
+        const jestConfigPackage = requireFromTest.resolve(
+          'jest-config/package.json',
+        );
+        babelJest = createRequire(jestConfigPackage).resolve('babel-jest');
+      } catch {
+        // Projects without Jest can still provide Babel-Jest directly.
+      }
+      runtimeTransformers.push(transformerFromConfig('^.+\\.[jt]sx?$', babelJest));
     } catch (error) {
       if (error?.code !== 'MODULE_NOT_FOUND') throw error;
     }
@@ -1445,7 +1458,35 @@ function runtimeTransformerFor(filename) {
     : runtimeTransformers.find(({pattern}) => pattern.test(normalized));
 }
 
+function shouldInstrument(filename) {
+  if (!request.collectCoverage) return false;
+  const normalized = normalizedRuntimePath(filename);
+  if (normalized === normalizedRuntimePath(request.testPath)) return false;
+  if (coverageFilter && !coverageFilter.has(normalized)) return false;
+  if (
+    (request.setupFilesAfterEnv ?? []).some(
+      setupPath => normalized === normalizedRuntimePath(setupPath),
+    )
+  ) {
+    return false;
+  }
+  return !(request.coveragePathIgnorePatterns ?? []).some(pattern =>
+    new RegExp(pattern).test(normalized),
+  );
+}
+
+function normalizedRuntimePath(path) {
+  return resolvePath(path).replaceAll('\\', '/');
+}
+
 function compileRuntimeModule(module, filename) {
+  if (transformerDepth > 0) {
+    const extension = filename.slice(filename.lastIndexOf('.'));
+    const original =
+      originalModuleExtensions.get(extension) ??
+      (extension === '.cjs' ? originalModuleExtensions.get('.js') : undefined);
+    if (original) return original(module, filename);
+  }
   const selected = runtimeTransformerFor(filename);
   if (!selected) {
     const extension = filename.slice(filename.lastIndexOf('.'));
@@ -1456,6 +1497,22 @@ function compileRuntimeModule(module, filename) {
     throw new Error(`No configured transform can load ${filename}`);
   }
   const source = readFileSync(filename, 'utf8');
+  const transformed = transformRuntimeSource(
+    selected,
+    source,
+    filename,
+    shouldInstrument(filename),
+  );
+  const previousModulePath = activeModulePath;
+  activeModulePath = filename;
+  try {
+    module._compile(transformed.code, filename);
+  } finally {
+    activeModulePath = previousModulePath;
+  }
+}
+
+function transformRuntimeSource(selected, source, filename, instrument) {
   const config = {
     cwd: request.rootDir,
     rootDir: request.rootDir,
@@ -1466,7 +1523,7 @@ function compileRuntimeModule(module, filename) {
     cacheFS: new Map(),
     config,
     configString: JSON.stringify(config),
-    instrument: false,
+    instrument,
     rootDir: request.rootDir,
     supportsDynamicImport: false,
     supportsExportNamespaceFrom: false,
@@ -1474,10 +1531,16 @@ function compileRuntimeModule(module, filename) {
     supportsTopLevelAwait: false,
     transformerConfig: selected.transformerConfig,
   };
-  const transformed =
-    selected.transformer.process.length >= 4
-      ? selected.transformer.process(source, filename, config, transformOptions)
-      : selected.transformer.process(source, filename, transformOptions);
+  let transformed;
+  transformerDepth += 1;
+  try {
+    transformed =
+      selected.transformer.process.length >= 4
+        ? selected.transformer.process(source, filename, config, transformOptions)
+        : selected.transformer.process(source, filename, transformOptions);
+  } finally {
+    transformerDepth -= 1;
+  }
   if (transformed && typeof transformed.then === 'function') {
     throw new Error(`Async transformer output is not supported for ${filename}`);
   }
@@ -1485,13 +1548,49 @@ function compileRuntimeModule(module, filename) {
   if (typeof code !== 'string') {
     throw new TypeError(`Transformer returned no code for ${filename}`);
   }
-  const previousModulePath = activeModulePath;
-  activeModulePath = filename;
-  try {
-    module._compile(code, filename);
-  } finally {
-    activeModulePath = previousModulePath;
+  if (instrument) {
+    instrumentedFiles.add(normalizedRuntimePath(filename));
   }
+  return {code};
+}
+
+function collectUncoveredCoverage() {
+  if (!request.collectCoverage || !(request.coverageSources ?? []).length) {
+    return;
+  }
+  const loaded = requireFromTest('istanbul-lib-instrument');
+  const readInitialCoverage = loaded?.readInitialCoverage;
+  if (typeof readInitialCoverage !== 'function') {
+    throw new Error(
+      'collectCoverageFrom requires istanbul-lib-instrument.readInitialCoverage()',
+    );
+  }
+  globalThis.__coverage__ ??= {};
+  for (const filename of request.coverageSources) {
+    if (globalThis.__coverage__[filename]) continue;
+    const selected = runtimeTransformerFor(filename);
+    if (!selected) {
+      throw new Error(
+        `No configured transformer can instrument collectCoverageFrom source ${filename}`,
+      );
+    }
+    const source = readFileSync(filename, 'utf8');
+    const transformed = transformRuntimeSource(selected, source, filename, true);
+    const extracted = readInitialCoverage(transformed.code);
+    if (extracted?.coverageData) {
+      globalThis.__coverage__[extracted.coverageData.path ?? filename] =
+        extracted.coverageData;
+    }
+  }
+}
+
+function collectedCoverage() {
+  if (!request.collectCoverage) return {};
+  return Object.fromEntries(
+    Object.entries(globalThis.__coverage__ ?? {}).filter(([filename]) =>
+      instrumentedFiles.has(normalizedRuntimePath(filename)),
+    ),
+  );
 }
 
 function installJsdomEnvironment() {
@@ -2252,7 +2351,8 @@ try {
   await loadRuntimeModule(request.testPath);
   definitionComplete = true;
   tests = await runSuite(rootSuite, hasOnly(rootSuite));
-  await new Promise(resolve => nativeSetImmediate(resolve));
+  await Promise.resolve();
+  collectUncoveredCoverage();
 } catch (error) {
   fileErrors.push(errorText(error));
 }
@@ -2273,6 +2373,13 @@ if (
   );
 }
 
+let coverage = {};
+try {
+  coverage = await collectedCoverage();
+} catch (error) {
+  fileErrors.push(errorText(error));
+}
+
 const result = {
   protocolVersion: PROTOCOL_VERSION,
   testPath: request.testPath,
@@ -2290,6 +2397,7 @@ const result = {
     dirty: snapshotState.dirty,
     data: snapshotState.data,
   },
+  coverage,
 };
 if (fakeTimers.active) restoreRealTimers();
 jsdomEnvironment?.window.close();

@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgAction, Parser};
+use rjest_config::ProjectConfig;
 use rjest_core::{AggregatedResult, SnapshotUpdate, TestStatus};
+use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -76,6 +78,65 @@ struct Cli {
     )]
     output_file: Option<PathBuf>,
 
+    /// Collect Istanbul-compatible source coverage.
+    #[arg(
+        long,
+        visible_alias = "collectCoverage",
+        action = ArgAction::SetTrue
+    )]
+    coverage: bool,
+
+    /// Directory where coverage reports are written.
+    #[arg(
+        long = "coverageDirectory",
+        visible_alias = "coverage-directory",
+        value_name = "PATH"
+    )]
+    coverage_directory: Option<PathBuf>,
+
+    /// Coverage reporter to run; may be specified more than once.
+    #[arg(
+        long = "coverageReporters",
+        visible_alias = "coverage-reporters",
+        value_name = "REPORTER",
+        action = ArgAction::Append
+    )]
+    coverage_reporters: Vec<String>,
+
+    /// Glob of source files that should be included in coverage.
+    #[arg(
+        long = "collectCoverageFrom",
+        visible_alias = "collect-coverage-from",
+        value_name = "GLOB",
+        action = ArgAction::Append
+    )]
+    collect_coverage_from: Vec<String>,
+
+    /// Regular expression for paths excluded from coverage.
+    #[arg(
+        long = "coveragePathIgnorePatterns",
+        visible_alias = "coverage-path-ignore-patterns",
+        value_name = "REGEX",
+        action = ArgAction::Append
+    )]
+    coverage_path_ignore_patterns: Vec<String>,
+
+    /// Coverage implementation; Rjest currently supports Babel instrumentation.
+    #[arg(
+        long = "coverageProvider",
+        visible_alias = "coverage-provider",
+        value_name = "PROVIDER"
+    )]
+    coverage_provider: Option<String>,
+
+    /// JSON object containing coverage threshold rules.
+    #[arg(
+        long = "coverageThreshold",
+        visible_alias = "coverage-threshold",
+        value_name = "JSON"
+    )]
+    coverage_threshold: Option<String>,
+
     /// Rewrite failing snapshots and remove obsolete snapshots.
     #[arg(
         short = 'u',
@@ -84,6 +145,12 @@ struct Cli {
         action = ArgAction::SetTrue
     )]
     update_snapshot: bool,
+}
+
+struct CoverageRunnerSettings {
+    enabled: bool,
+    path_ignore_patterns: Vec<String>,
+    filter: Option<Vec<PathBuf>>,
 }
 
 fn main() {
@@ -132,9 +199,14 @@ fn run() -> Result<bool> {
     } else {
         parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
     };
+    let CoverageRunnerSettings {
+        enabled: collect_coverage,
+        path_ignore_patterns: coverage_path_ignore_patterns,
+        filter: coverage_filter,
+    } = coverage_runner_settings(&cli, &config)?;
     let options = rjest_runner::RunnerOptions {
         max_workers,
-        test_name_pattern: cli.test_name_pattern,
+        test_name_pattern: cli.test_name_pattern.clone(),
         default_timeout_ms: config.test_timeout,
         root_dir: config.root_dir.clone(),
         module_file_extensions: config.module_file_extensions.clone(),
@@ -145,6 +217,9 @@ fn run() -> Result<bool> {
         snapshot_serializers: config.snapshot_serializers.clone(),
         transform: config.transform.clone(),
         transform_ignore_patterns: config.transform_ignore_patterns.clone(),
+        collect_coverage,
+        coverage_path_ignore_patterns,
+        coverage_filter,
         snapshot_update: if cli.update_snapshot {
             SnapshotUpdate::All
         } else {
@@ -153,17 +228,148 @@ fn run() -> Result<bool> {
         ..rjest_runner::RunnerOptions::default()
     };
     let result = rjest_runner::run(&tests, &options)?;
+    let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
+    emit_results(&cli, &config, &result, coverage_report.as_ref())?;
+    Ok(result.is_success()
+        && coverage_report
+            .as_ref()
+            .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn coverage_runner_settings(cli: &Cli, config: &ProjectConfig) -> Result<CoverageRunnerSettings> {
+    let enabled = cli.coverage || config.collect_coverage;
+    let provider = cli
+        .coverage_provider
+        .as_deref()
+        .unwrap_or(&config.coverage_provider);
+    if enabled && provider != "babel" {
+        bail!(
+            "coverageProvider `{provider}` is not supported yet; use Jest's default `babel` provider"
+        );
+    }
+    let collect_from = if cli.collect_coverage_from.is_empty() {
+        &config.collect_coverage_from
+    } else {
+        &cli.collect_coverage_from
+    };
+    let path_ignore_patterns = if cli.coverage_path_ignore_patterns.is_empty() {
+        config.coverage_path_ignore_patterns.clone()
+    } else {
+        cli.coverage_path_ignore_patterns.clone()
+    };
+    let filter = if enabled && !collect_from.is_empty() {
+        let mut excluded_paths = rjest_discovery::discover(config, &[])?
+            .into_iter()
+            .map(|test| test.path)
+            .collect::<Vec<_>>();
+        excluded_paths.extend(config.setup_files_after_env.iter().cloned());
+        Some(discover_sources(
+            &config.root_dir,
+            collect_from,
+            &path_ignore_patterns,
+            &excluded_paths,
+        )?)
+    } else {
+        None
+    };
+    Ok(CoverageRunnerSettings {
+        enabled,
+        path_ignore_patterns,
+        filter,
+    })
+}
+
+fn coverage_report(
+    cli: &Cli,
+    config: &ProjectConfig,
+    result: &AggregatedResult,
+    enabled: bool,
+) -> Result<Option<CoverageReport>> {
+    if !enabled {
+        return Ok(None);
+    }
+    let coverage_directory = cli.coverage_directory.as_ref().map_or_else(
+        || config.coverage_directory.clone(),
+        |path| {
+            if path.is_absolute() {
+                path.clone()
+            } else {
+                config.root_dir.join(path)
+            }
+        },
+    );
+    let reporters = if cli.coverage_reporters.is_empty() {
+        config.coverage_reporters.clone()
+    } else {
+        cli.coverage_reporters
+            .iter()
+            .cloned()
+            .map(serde_json::Value::String)
+            .collect()
+    };
+    let thresholds = cli.coverage_threshold.as_ref().map_or_else(
+        || Ok(config.coverage_threshold.clone()),
+        |value| {
+            serde_json::from_str(value)
+                .with_context(|| format!("invalid coverageThreshold JSON `{value}`"))
+        },
+    )?;
+    Ok(Some(write_reports(
+        &result.coverage_map,
+        &CoverageOptions {
+            root_dir: config.root_dir.clone(),
+            coverage_directory,
+            reporters,
+            thresholds,
+            branches_true_unknown: uses_modern_branches_true_summary(&config.root_dir),
+        },
+    )?))
+}
+
+fn uses_modern_branches_true_summary(root_dir: &std::path::Path) -> bool {
+    let package = root_dir.join("node_modules/jest/package.json");
+    let Ok(source) = std::fs::read_to_string(package) else {
+        return true;
+    };
+    let Ok(package) = serde_json::from_str::<serde_json::Value>(&source) else {
+        return true;
+    };
+    package["version"]
+        .as_str()
+        .and_then(|version| version.split('.').next())
+        .and_then(|major| major.parse::<u64>().ok())
+        .is_none_or(|major| major >= 30)
+}
+
+fn emit_results(
+    cli: &Cli,
+    config: &ProjectConfig,
+    result: &AggregatedResult,
+    coverage_report: Option<&CoverageReport>,
+) -> Result<()> {
     let serialized = serde_json::to_string(&result)?;
     if let Some(ref output_file) = cli.output_file {
         std::fs::write(output_file, &serialized)
             .with_context(|| format!("cannot write JSON result to `{}`", output_file.display()))?;
     }
+    if let Some(coverage_report) = coverage_report {
+        for output in &coverage_report.terminal_output {
+            if cli.json && cli.output_file.is_none() {
+                eprintln!("{output}");
+            } else {
+                println!("{output}");
+            }
+        }
+        for failure in &coverage_report.threshold_failures {
+            eprintln!("{failure}");
+        }
+    }
     if cli.json && cli.output_file.is_none() {
         println!("{serialized}");
     } else {
-        report(&result, &config.root_dir, cli.silent, cli.verbose);
+        report(result, &config.root_dir, cli.silent, cli.verbose);
     }
-    Ok(result.is_success())
+    Ok(())
 }
 
 fn parse_max_workers(value: Option<&str>) -> Result<usize> {
@@ -282,7 +488,11 @@ fn indent(value: &str, spaces: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_max_workers;
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::{parse_max_workers, uses_modern_branches_true_summary};
 
     #[test]
     fn parses_numeric_worker_count() {
@@ -294,5 +504,25 @@ mod tests {
     fn parses_percentage_worker_count() {
         assert!(parse_max_workers(Some("50%")).expect("workers") >= 1);
         assert!(parse_max_workers(Some("101%")).is_err());
+    }
+
+    #[test]
+    fn preserves_the_legacy_jest_coverage_summary_empty_percentage() {
+        let temp = tempdir().expect("temp dir");
+        fs::create_dir_all(temp.path().join("node_modules/jest")).expect("Jest package");
+        fs::write(
+            temp.path().join("node_modules/jest/package.json"),
+            r#"{"version":"25.5.4"}"#,
+        )
+        .expect("Jest metadata");
+
+        assert!(!uses_modern_branches_true_summary(temp.path()));
+
+        fs::write(
+            temp.path().join("node_modules/jest/package.json"),
+            r#"{"version":"30.5.0"}"#,
+        )
+        .expect("modern Jest metadata");
+        assert!(uses_modern_branches_true_summary(temp.path()));
     }
 }

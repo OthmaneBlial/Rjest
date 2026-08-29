@@ -84,8 +84,12 @@ pub struct ProjectConfig {
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
     pub max_workers: Option<String>,
+    pub collect_coverage: bool,
     pub collect_coverage_from: Vec<String>,
+    pub coverage_directory: PathBuf,
     pub coverage_path_ignore_patterns: Vec<String>,
+    pub coverage_provider: String,
+    pub coverage_reporters: Vec<Value>,
     pub coverage_threshold: Value,
     pub watch_plugins: Value,
 }
@@ -109,8 +113,12 @@ struct RawProjectConfig {
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
     max_workers: Option<NumberOrString>,
+    collect_coverage: Option<bool>,
     collect_coverage_from: Option<Vec<String>>,
+    coverage_directory: Option<String>,
     coverage_path_ignore_patterns: Option<Vec<String>>,
+    coverage_provider: Option<String>,
+    coverage_reporters: Option<Vec<Value>>,
     coverage_threshold: Option<Value>,
     watch_plugins: Option<Value>,
     #[serde(flatten)]
@@ -159,6 +167,7 @@ impl ProjectConfig {
     pub fn defaults(root_dir: &Path) -> Result<Self, ConfigError> {
         let root_dir = absolute(root_dir)?;
         ensure_directory(&root_dir)?;
+        let coverage_directory = root_dir.join("coverage");
         Ok(Self {
             roots: vec![root_dir.clone()],
             root_dir,
@@ -184,8 +193,15 @@ impl ProjectConfig {
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
             max_workers: None,
+            collect_coverage: false,
             collect_coverage_from: Vec::new(),
-            coverage_path_ignore_patterns: Vec::new(),
+            coverage_directory,
+            coverage_path_ignore_patterns: vec!["/node_modules/".into()],
+            coverage_provider: "babel".into(),
+            coverage_reporters: ["json", "text", "lcov", "clover"]
+                .into_iter()
+                .map(|reporter| Value::String(reporter.into()))
+                .collect(),
             coverage_threshold: serde_json::json!({}),
             watch_plugins: serde_json::json!([]),
         })
@@ -340,16 +356,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     ensure_directory(&root_dir)?;
 
     let defaults = ProjectConfig::defaults(&root_dir)?;
-    let roots = match raw.roots {
-        Some(values) => values
-            .iter()
-            .map(|value| absolute(&resolve_root_token(&root_dir, value)))
-            .collect::<Result<Vec<_>, _>>()?,
-        None => defaults.roots.clone(),
-    };
-    for root in &roots {
-        ensure_directory(root)?;
-    }
+    let roots = normalize_roots(raw.roots, &root_dir, &defaults.roots)?;
 
     let test_environment = raw
         .test_environment
@@ -374,17 +381,20 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     };
     let module_paths = resolve_paths(raw.module_paths)?;
     let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
-    if raw.test_match.is_some() && raw.test_regex.is_some() {
-        return Err(ConfigError::ConflictingTestPatterns);
-    }
-    let test_match = if raw.test_regex.is_some() {
-        Vec::new()
-    } else {
-        raw.test_match.unwrap_or(defaults.test_match)
-    };
-    let test_regex = raw
-        .test_regex
-        .map_or(defaults.test_regex, OneOrMany::into_vec);
+    let (test_match, test_regex) = normalize_test_patterns(
+        raw.test_match,
+        raw.test_regex,
+        defaults.test_match,
+        defaults.test_regex,
+    )?;
+
+    let (coverage_provider, coverage_directory) = normalize_coverage(
+        raw.coverage_provider,
+        raw.coverage_directory,
+        defaults.coverage_provider,
+        defaults.coverage_directory,
+        &root_dir,
+    )?;
 
     Ok(ProjectConfig {
         root_dir,
@@ -415,17 +425,82 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.transform_ignore_patterns),
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
         max_workers: raw.max_workers.map(NumberOrString::into_string),
+        collect_coverage: raw.collect_coverage.unwrap_or(defaults.collect_coverage),
         collect_coverage_from: raw
             .collect_coverage_from
             .unwrap_or(defaults.collect_coverage_from),
+        coverage_directory,
         coverage_path_ignore_patterns: raw
             .coverage_path_ignore_patterns
             .unwrap_or(defaults.coverage_path_ignore_patterns),
+        coverage_provider,
+        coverage_reporters: raw
+            .coverage_reporters
+            .unwrap_or(defaults.coverage_reporters),
         coverage_threshold: raw
             .coverage_threshold
             .unwrap_or(defaults.coverage_threshold),
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
+}
+
+fn normalize_test_patterns(
+    configured_match: Option<Vec<String>>,
+    configured_regex: Option<OneOrMany>,
+    default_match: Vec<String>,
+    default_regex: Vec<String>,
+) -> Result<(Vec<String>, Vec<String>), ConfigError> {
+    if configured_match.is_some() && configured_regex.is_some() {
+        return Err(ConfigError::ConflictingTestPatterns);
+    }
+    let test_match = if configured_regex.is_some() {
+        Vec::new()
+    } else {
+        configured_match.unwrap_or(default_match)
+    };
+    let test_regex = configured_regex.map_or(default_regex, OneOrMany::into_vec);
+    Ok((test_match, test_regex))
+}
+
+fn normalize_roots(
+    configured: Option<Vec<String>>,
+    root_dir: &Path,
+    defaults: &[PathBuf],
+) -> Result<Vec<PathBuf>, ConfigError> {
+    let roots = configured.map_or_else(
+        || Ok(defaults.to_vec()),
+        |values| {
+            values
+                .iter()
+                .map(|value| absolute(&resolve_root_token(root_dir, value)))
+                .collect()
+        },
+    )?;
+    for root in &roots {
+        ensure_directory(root)?;
+    }
+    Ok(roots)
+}
+
+fn normalize_coverage(
+    configured_provider: Option<String>,
+    configured_directory: Option<String>,
+    default_provider: String,
+    default_directory: PathBuf,
+    root_dir: &Path,
+) -> Result<(String, PathBuf), ConfigError> {
+    let provider = configured_provider.unwrap_or(default_provider);
+    if provider != "babel" && provider != "v8" {
+        return Err(ConfigError::UnsupportedValue {
+            field: "coverageProvider".into(),
+            value: provider,
+        });
+    }
+    let directory = configured_directory.map_or_else(
+        || Ok(default_directory),
+        |value| absolute(&resolve_root_token(root_dir, &value)),
+    )?;
+    Ok((provider, directory))
 }
 
 fn find_config(project_dir: &Path) -> Result<Option<PathBuf>, ConfigError> {
@@ -581,8 +656,12 @@ mod tests {
               "testEnvironmentOptions":{"url":"https://example.test/"},
               "transform":{"^.+\\.tsx?$":"babel-jest"},
               "transformIgnorePatterns":["/vendor/"],
+              "collectCoverage":true,
               "collectCoverageFrom":["src/**/*.{js,ts}"],
+              "coverageDirectory":"<rootDir>/artifacts/coverage",
               "coveragePathIgnorePatterns":["/generated/"],
+              "coverageProvider":"babel",
+              "coverageReporters":["json-summary","lcov"],
               "coverageThreshold":{"global":{"lines":90}},
               "watchPlugins":["jest-watch-typeahead/filename"]
             }"#,
@@ -598,6 +677,12 @@ mod tests {
         assert_eq!(config.test_environment, "jsdom");
         assert!(config.transform.contains_key(r"^.+\.tsx?$"));
         assert_eq!(config.snapshot_serializers, ["fixture-serializer"]);
+        assert!(config.collect_coverage);
+        assert_eq!(
+            config.coverage_directory,
+            temp.path().join("artifacts/coverage")
+        );
+        assert_eq!(config.coverage_reporters, ["json-summary", "lcov"]);
     }
 
     #[test]

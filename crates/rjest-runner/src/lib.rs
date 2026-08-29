@@ -12,7 +12,7 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
+    AggregatedResult, CoverageMap, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
     WORKER_PROTOCOL_VERSION, WorkerRequest,
 };
 use thiserror::Error;
@@ -36,6 +36,9 @@ pub struct RunnerOptions {
     pub snapshot_serializers: Vec<String>,
     pub transform: BTreeMap<String, serde_json::Value>,
     pub transform_ignore_patterns: Vec<String>,
+    pub collect_coverage: bool,
+    pub coverage_path_ignore_patterns: Vec<String>,
+    pub coverage_filter: Option<Vec<PathBuf>>,
     pub file_timeout_ms: u64,
 }
 
@@ -57,6 +60,9 @@ impl Default for RunnerOptions {
             snapshot_serializers: Vec::new(),
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
+            collect_coverage: false,
+            coverage_path_ignore_patterns: vec!["/node_modules/".into()],
+            coverage_filter: None,
             file_timeout_ms: 120_000,
         }
     }
@@ -101,6 +107,8 @@ pub enum RunnerError {
         expected: PathBuf,
         received: PathBuf,
     },
+    #[error("cannot merge coverage for `{path}`: {message}")]
+    InvalidCoverage { path: String, message: String },
 }
 
 /// Runs test files through a bounded Rayon pool and returns path-sorted results.
@@ -120,18 +128,144 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
     let results = pool.install(|| {
         files
             .par_iter()
-            .map(|file| run_file(&file.path, options))
+            .enumerate()
+            .map(|(index, file)| run_file(&file.path, options, index == 0))
             .collect::<Result<Vec<_>, _>>()
     })?;
     let mut test_results = results;
     test_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+    let coverage_map = merge_coverage_maps(&test_results)?;
     Ok(AggregatedResult {
         test_results,
         duration_ms: millis(started.elapsed()),
+        coverage_map,
     })
 }
 
-fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, RunnerError> {
+fn merge_coverage_maps(results: &[TestFileResult]) -> Result<CoverageMap, RunnerError> {
+    let mut merged = CoverageMap::new();
+    for result in results {
+        for (path, incoming) in &result.coverage {
+            let Some(existing) = merged.get_mut(path) else {
+                merged.insert(path.clone(), incoming.clone());
+                continue;
+            };
+            merge_file_coverage(path, existing, incoming)?;
+        }
+    }
+    Ok(merged)
+}
+
+fn merge_file_coverage(
+    path: &str,
+    existing: &mut serde_json::Value,
+    incoming: &serde_json::Value,
+) -> Result<(), RunnerError> {
+    for map_name in ["statementMap", "fnMap", "branchMap"] {
+        if existing.get(map_name) != incoming.get(map_name) {
+            return Err(RunnerError::InvalidCoverage {
+                path: path.into(),
+                message: format!("instrumentation map `{map_name}` differs between workers"),
+            });
+        }
+    }
+    for counter_name in ["s", "f"] {
+        merge_scalar_counters(path, counter_name, existing, incoming)?;
+    }
+    merge_branch_counters(path, existing, incoming)
+}
+
+fn merge_scalar_counters(
+    path: &str,
+    counter_name: &str,
+    existing: &mut serde_json::Value,
+    incoming: &serde_json::Value,
+) -> Result<(), RunnerError> {
+    let incoming_counters = incoming
+        .get(counter_name)
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| invalid_coverage(path, format!("missing `{counter_name}` counters")))?;
+    let existing_counters = existing
+        .get_mut(counter_name)
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| invalid_coverage(path, format!("missing `{counter_name}` counters")))?;
+    if existing_counters.len() != incoming_counters.len() {
+        return Err(invalid_coverage(
+            path,
+            format!("`{counter_name}` counter lengths differ between workers"),
+        ));
+    }
+    for (key, incoming_count) in incoming_counters {
+        let incoming_count = coverage_count(path, incoming_count)?;
+        let existing_count = existing_counters
+            .get_mut(key)
+            .ok_or_else(|| invalid_coverage(path, format!("missing `{counter_name}.{key}`")))?;
+        let combined = coverage_count(path, existing_count)?.saturating_add(incoming_count);
+        *existing_count = serde_json::Value::from(combined);
+    }
+    Ok(())
+}
+
+fn merge_branch_counters(
+    path: &str,
+    existing: &mut serde_json::Value,
+    incoming: &serde_json::Value,
+) -> Result<(), RunnerError> {
+    let incoming_counters = incoming
+        .get("b")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| invalid_coverage(path, "missing `b` counters"))?;
+    let existing_counters = existing
+        .get_mut("b")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| invalid_coverage(path, "missing `b` counters"))?;
+    if existing_counters.len() != incoming_counters.len() {
+        return Err(invalid_coverage(
+            path,
+            "`b` counter lengths differ between workers",
+        ));
+    }
+    for (key, incoming_counts) in incoming_counters {
+        let incoming_counts = incoming_counts
+            .as_array()
+            .ok_or_else(|| invalid_coverage(path, format!("`b.{key}` is not an array")))?;
+        let existing_counts = existing_counters
+            .get_mut(key)
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or_else(|| invalid_coverage(path, format!("missing `b.{key}`")))?;
+        if existing_counts.len() != incoming_counts.len() {
+            return Err(invalid_coverage(
+                path,
+                format!("`b.{key}` counter lengths differ between workers"),
+            ));
+        }
+        for (existing_count, incoming_count) in existing_counts.iter_mut().zip(incoming_counts) {
+            let combined = coverage_count(path, existing_count)?
+                .saturating_add(coverage_count(path, incoming_count)?);
+            *existing_count = serde_json::Value::from(combined);
+        }
+    }
+    Ok(())
+}
+
+fn coverage_count(path: &str, value: &serde_json::Value) -> Result<u64, RunnerError> {
+    value
+        .as_u64()
+        .ok_or_else(|| invalid_coverage(path, "coverage counter is not an unsigned integer"))
+}
+
+fn invalid_coverage(path: &str, message: impl Into<String>) -> RunnerError {
+    RunnerError::InvalidCoverage {
+        path: path.into(),
+        message: message.into(),
+    }
+}
+
+fn run_file(
+    path: &Path,
+    options: &RunnerOptions,
+    collect_uncovered_sources: bool,
+) -> Result<TestFileResult, RunnerError> {
     let snapshot = rjest_snapshot::load(path, options.snapshot_update)?;
     let request = WorkerRequest {
         protocol_version: WORKER_PROTOCOL_VERSION,
@@ -144,6 +278,14 @@ fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, Runn
         snapshot_serializers: options.snapshot_serializers.clone(),
         transform: options.transform.clone(),
         transform_ignore_patterns: options.transform_ignore_patterns.clone(),
+        collect_coverage: options.collect_coverage,
+        coverage_path_ignore_patterns: options.coverage_path_ignore_patterns.clone(),
+        coverage_filter: options.coverage_filter.clone(),
+        coverage_sources: if collect_uncovered_sources {
+            options.coverage_filter.clone().unwrap_or_default()
+        } else {
+            Vec::new()
+        },
         test_name_pattern: options.test_name_pattern.clone(),
         default_timeout_ms: options.default_timeout_ms,
         snapshot_update: options.snapshot_update,
@@ -165,6 +307,7 @@ fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, Runn
             console: Vec::new(),
             duration_ms: options.file_timeout_ms,
             snapshot: SnapshotResult::default(),
+            coverage: CoverageMap::new(),
         });
     }
     let stdout = String::from_utf8_lossy(&stdout);
@@ -456,5 +599,87 @@ mod tests {
         let result = run(&files, &options).expect("run transformed test");
         assert!(result.is_success());
         assert_eq!(result.count(TestStatus::Passed), 1);
+    }
+
+    #[test]
+    fn merges_istanbul_counters_from_parallel_file_workers() {
+        let coverage_path = "/project/source.js";
+        let result = |statement, first_branch, second_branch| TestFileResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            test_path: PathBuf::from(format!("test-{statement}.js")),
+            tests: Vec::new(),
+            errors: Vec::new(),
+            console: Vec::new(),
+            duration_ms: 1,
+            snapshot: SnapshotResult::default(),
+            coverage: CoverageMap::from([(
+                coverage_path.into(),
+                serde_json::json!({
+                    "path": coverage_path,
+                    "statementMap": {"0": {"start": {"line": 1}, "end": {"line": 1}}},
+                    "fnMap": {"0": {"name": "source", "line": 1}},
+                    "branchMap": {"0": {"line": 1}},
+                    "s": {"0": statement},
+                    "f": {"0": statement},
+                    "b": {"0": [first_branch, second_branch]}
+                }),
+            )]),
+        };
+
+        let coverage =
+            merge_coverage_maps(&[result(1, 1, 0), result(2, 0, 2)]).expect("merge coverage");
+
+        assert_eq!(coverage[coverage_path]["s"]["0"], 3);
+        assert_eq!(coverage[coverage_path]["f"]["0"], 3);
+        assert_eq!(coverage[coverage_path]["b"]["0"], serde_json::json!([1, 2]));
+    }
+
+    #[test]
+    fn implicit_babel_transform_uses_the_version_bundled_with_jest() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("implicit.test.js");
+        fs::write(&test_path, "not valid JavaScript").expect("test source");
+        let root_babel = temp.path().join("node_modules/babel-jest");
+        let jest_config = temp.path().join("node_modules/jest-config");
+        let bundled_babel = jest_config.join("node_modules/babel-jest");
+        fs::create_dir_all(&root_babel).expect("root Babel-Jest");
+        fs::create_dir_all(&bundled_babel).expect("bundled Babel-Jest");
+        fs::write(
+            root_babel.join("package.json"),
+            r#"{"name":"babel-jest","main":"index.js"}"#,
+        )
+        .expect("root package");
+        fs::write(
+            root_babel.join("index.js"),
+            "exports.process = () => \"test('wrong transformer', () => { throw new Error('wrong Babel-Jest') })\";",
+        )
+        .expect("root transformer");
+        fs::write(
+            jest_config.join("package.json"),
+            r#"{"name":"jest-config","version":"25.5.4"}"#,
+        )
+        .expect("Jest config package");
+        fs::write(
+            bundled_babel.join("package.json"),
+            r#"{"name":"babel-jest","main":"index.js"}"#,
+        )
+        .expect("bundled package");
+        fs::write(
+            bundled_babel.join("index.js"),
+            "exports.process = () => \"test('bundled transformer', () => expect(true).toBe(true))\";",
+        )
+        .expect("bundled transformer");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical test"),
+        }];
+        let options = RunnerOptions {
+            root_dir: temp.path().to_path_buf(),
+            ..RunnerOptions::default()
+        };
+
+        let result = run(&files, &options).expect("run transformed test");
+
+        assert!(result.is_success());
+        assert_eq!(result.test_results[0].tests[0].name, "bundled transformer");
     }
 }

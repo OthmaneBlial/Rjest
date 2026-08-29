@@ -6,9 +6,10 @@ and TypeScript test runner whose coordinator is written in Rust.
 > **Status:** early alpha. JavaScript, configured JSX/TypeScript transforms,
 > Node and JSDOM environments, modern fake timers, CommonJS module factories,
 > and Jest v1 snapshots now execute through isolated workers. Existing inline
-> snapshots and configured snapshot serializers are supported. Global
+> snapshots, configured snapshot serializers, and Babel/Istanbul coverage are
+> supported. Global
 > automocking, ESM module mocks, writing new inline snapshots,
-> `moduleNameMapper`, coverage, watch mode, and many Jest edge cases remain.
+> `moduleNameMapper`, V8 coverage, watch mode, and many Jest edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.
 
 ## Why this architecture?
@@ -27,6 +28,7 @@ cargo run -p rjest-cli -- --listTests
 cargo run -p rjest-cli -- --runInBand
 cargo run -p rjest-cli -- --maxWorkers=50% --testNamePattern=calculator
 cargo run -p rjest-cli -- --updateSnapshot
+cargo run -p rjest-cli -- --coverage
 ```
 
 Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
@@ -39,8 +41,10 @@ yet handle TSX or TypeScript features that require code generation.
 The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
 package `exports` resolution to Node. Configured synchronous Jest transformers
 can compile JS, JSX, TS, and TSX before CommonJS execution. Jest-specific
-`moduleNameMapper`, custom resolvers, implicit `babel-jest`, and nonstandard
-package-manager layouts are not yet covered. For CommonJS,
+`moduleNameMapper`, custom resolvers, and nonstandard package-manager layouts
+are not yet covered. When no transform is configured,
+Rjest resolves the Babel-Jest version bundled with the project's installed Jest
+before falling back to a direct project dependency. For CommonJS,
 `jest.mock`/`doMock` factories, `requireActual`, `requireMock`, and recursive
 basic auto-mocks are available; transformed modules retain the declaring-file
 context used to resolve mocks.
@@ -65,7 +69,9 @@ the [Downshift corpus report](docs/corpus/downshift.md).
 
 The pinned [React Select corpus](docs/corpus/react-select.md) separately reaches
 5/5 suites, 255 passing and 3 skipped tests, and 5/5 Emotion snapshots under
-Jest 25. Its original coverage flag remains a CLI/reporting compatibility gap.
+Jest 25. Its original `--coverage` command now runs unchanged; Jest and Rjest
+also agree exactly on the 39-file Istanbul summary and all statement, branch,
+function, and line totals.
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current

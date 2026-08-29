@@ -347,6 +347,7 @@ dependencies = [
  "clap",
  "rjest-config",
  "rjest-core",
+ "rjest-coverage",
  "rjest-discovery",
  "rjest-runner",
  "serde_json",
@@ -369,6 +370,20 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rjest-coverage"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "globset",
+ "regex",
+ "rjest-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "walkdir",
 ]
 
 [[package]]

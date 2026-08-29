@@ -14,8 +14,10 @@ async tests, common matchers, function/method/accessor mocks, CommonJS module
 mocks, external Jest v1 snapshots, existing inline snapshots, configured
 serializers, and modern fake timers. Snapshot property matchers, writing new
 inline snapshots, complete resolution/config semantics, global automocking,
-coverage, and watch mode remain missing, so Rjest does not claim broad or
-drop-in Jest compatibility yet.
+Babel coverage supports parallel Istanbul-map merging, `collectCoverageFrom`,
+common reports, and global thresholds. V8 coverage, path/glob threshold groups,
+and watch mode remain missing, so Rjest does not claim broad or drop-in Jest
+compatibility yet.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
@@ -33,7 +35,9 @@ unmeasured Jest behavior. The pinned versions and commands are in the
 The pinned [React Select corpus](corpus/react-select.md) adds an older Jest 25,
 Babel 23, React 16, TSX, JSDOM, Emotion-serializer workload: both runners agree
 on 5/5 suites, 255 passing tests, 3 skipped tests, and 5/5 snapshots. Coverage
-reporting from the project's original command is not yet compatible.
+also matches across 39 files: 1,064/1,438 statements, 659/1,054 branches,
+251/312 functions, and 1,033/1,363 lines. The upstream `jest --coverage` script
+can therefore be replaced by `rjest --coverage` on this pinned checkout.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

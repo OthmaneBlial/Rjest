@@ -63,16 +63,22 @@ Last updated: 2026-08-29
 - Historical pre-Jest-27 JSDOM defaults, implicit `babel-jest`, legacy
   four-argument transformers, legacy Pretty Format, and modern `serialize()`
   snapshot plugins.
+- Babel/Istanbul coverage instrumentation with cross-worker counter merging,
+  positive and negated `collectCoverageFrom` globs, coverage path ignores,
+  JSON, JSON-summary, text, text-summary, LCOV/HTML, and Clover reporters, and
+  global positive/negative threshold enforcement.
+- Exact React Select coverage parity across 39 files: 1,064/1,438 statements,
+  659/1,054 branches, 251/312 functions, and 1,033/1,363 lines.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 30/35
-  compatible scenarios (85.714%), with per-category scores in the
+  preserved known incompatibilities. The current generated result is 32/37
+  compatible scenarios (86.486%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Close the zero-change React Select command gap by implementing coverage CLI
-  and report behavior, then add Node/ESM and monorepo corpora.
+- Implement `moduleNameMapper`, then add Node/ESM and monorepo corpora with
+  original Jest configurations.
 
 ## Compatibility snapshot
 
@@ -80,7 +86,8 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 30/35 (85.714%).
+corpus score is 32/37 (86.486%). Coverage is 2/2 in that deliberately bounded
+scenario category.
 
 ## Known blockers
 
@@ -94,16 +101,16 @@ corpus score is 30/35 (85.714%).
 - Global automocking, transform-time mock hoisting, and ESM module mocking are not
   implemented; CommonJS explicit factories and manual module generation are
   partial.
-- New/updated inline snapshot source writes, snapshot property matchers, coverage,
-  watch mode, complete custom environments, worker reuse, and cooperative
-  cancellation are not implemented. Modern fake timers still lack animation
-  frame advancement and legacy-timer mode.
+- New/updated inline snapshot source writes, snapshot property matchers, V8
+  coverage, non-global threshold groups, watch mode, complete custom
+  environments, worker reuse, and cooperative cancellation are not implemented.
+  Modern fake timers still lack animation frame advancement and legacy-timer
+  mode.
 
 ## Next highest-value tasks
 
-1. Implement coverage reporting so React Select's original `test:jest` command
-   can switch without dropping its coverage contract.
-2. Implement `moduleNameMapper` and add a corpus that depends on aliases.
-3. Complete animation-frame and legacy fake-timer behavior.
+1. Implement `moduleNameMapper` and add a corpus that depends on aliases.
+2. Complete animation-frame and legacy fake-timer behavior.
+3. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
 4. Expand CommonJS mocks toward global automocking, then design ESM module
    mocking at the loader boundary.
