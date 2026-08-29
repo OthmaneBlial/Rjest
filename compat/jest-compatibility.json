@@ -3,20 +3,25 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 77,
-    "total": 78,
-    "percentage": 98.71794871794873
+    "passing": 82,
+    "total": 83,
+    "percentage": 98.79518072289156
   },
   "categories": {
+    "CLI": {
+      "passing": 0,
+      "total": 1,
+      "percentage": 0
+    },
     "Configuration": {
       "passing": 16,
       "total": 16,
       "percentage": 100
     },
     "Core API": {
-      "passing": 6,
-      "total": 7,
-      "percentage": 85.71428571428571
+      "passing": 11,
+      "total": 11,
+      "percentage": 100
     },
     "Coverage": {
       "passing": 3,
@@ -380,11 +385,41 @@
     {
       "name": "gap-retry-times",
       "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-retry-entire-describe",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-jest-get-seed",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "retry-entire-after-all-failure",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-randomize",
+      "category": "CLI",
       "compatible": false,
       "differences": [
-        "exit Jest=0 Rjest=1",
-        "test results differ"
+        "exit Jest=0 Rjest=2",
+        "Rjest JSON unavailable: Unexpected end of JSON input"
       ]
+    },
+    {
+      "name": "retry-before-all-failure",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
     },
     {
       "name": "resolution-node-package",

@@ -7,11 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 77/78 (98.7%) across its explicitly listed
-scenarios and categories. ESM is 7/7 (100.0%) and transforms are 5/5 (100.0%);
-mocks are 13/13 (100.0%) and configuration is 16/16 (100.0%), while Core API is
-6/7 (85.7%) because the preserved `jest.retryTimes` probe still differs. These
-are scores for the bounded
+The current generated matrix is 82/83 (98.8%) across its explicitly listed
+scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
+transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
+16/16 (100.0%). CLI is 0/1 because deterministic `--randomize` ordering is the
+preserved known incompatibility. These are scores for the bounded
 regression set, not claims about the unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
@@ -44,6 +44,13 @@ decisions with fresh values, and advances native ESM generations before each
 test.
 `jest.setMock` injects explicit CommonJS exports with caller-relative identity,
 reset persistence, factory replacement, primitive values, and later unmocking.
+`jest.retryTimes` supports deferred and immediate per-test retries, hook and
+assertion-state reinitialization, real-time delays, retry reasons and invocation
+metadata, and snapshot-attempt rollback. Jest 30 whole-describe retries rerun
+the complete hook/test lifecycle, compose through nested retrying describes,
+and preserve non-retryable ancestor, process, and `afterAll` failure boundaries.
+`jest.getSeed`, `--seed`, and `--showSeed` share one validated signed 32-bit run
+seed across workers.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -77,8 +84,8 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Custom module directories, `jest.retryTimes`, and
-pnpm/Yarn PnP layouts remain open work.
+instrumentation. Custom module directories, deterministic `--randomize`
+ordering, and pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

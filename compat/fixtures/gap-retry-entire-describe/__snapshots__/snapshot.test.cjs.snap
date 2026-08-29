@@ -1,0 +1,3 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`rolls back passing and failing snapshot work from the attempt 1`] = `2`;

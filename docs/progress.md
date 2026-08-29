@@ -132,6 +132,16 @@ Last updated: 2026-08-29
 - Explicit CommonJS `jest.setMock` exports with global/scoped caller-relative
   resolution, supplied object or primitive identity, prior-factory replacement,
   persistence across module resets, and later explicit unmocking.
+- Jest Circus-compatible per-test retry scheduling with deferred and immediate
+  modes, hook/lifecycle reruns, real-timer waits, retry reasons, invocation
+  counts, and per-attempt snapshot rollback. Worker protocol v14 carries the
+  retry metadata into JSON and the default reporter.
+- Jest 30 whole-describe retries across `beforeAll`, descendant tests and
+  `afterAll`, including local boundaries, nested composition, snapshot rollback,
+  and non-retryable ancestor, process-level, and `afterAll`-only errors.
+- A coordinator-owned signed 32-bit run seed in worker protocol v15, exposed by
+  `jest.getSeed`, validated through `--seed`, generated when omitted, and shown
+  on demand through `--showSeed`.
 - A pinned setup-matlab/Jest 30 corpus: 7/7 suites, 94/94 tests, and exact
   aggregate and per-file coverage parity across nine TypeScript source files.
 - A pinned ts-jest/Jest 30 corpus: 20/20 suites, 358/358 tests, and 137/137
@@ -213,10 +223,10 @@ Last updated: 2026-08-29
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 77/78
-  compatible scenarios (98.7%), with ESM at 7/7 (100.0%), transforms at 5/5
-  (100.0%), mocks at 13/13 (100.0%), configuration at 16/16 (100.0%), Core API
-  at 6/7 (85.7%), and
+  preserved known incompatibilities. The current generated result is 82/83
+  compatible scenarios (98.8%), with Core API at 11/11 (100.0%), ESM at 7/7
+  (100.0%), transforms at 5/5 (100.0%), mocks at 13/13 (100.0%), configuration
+  at 16/16 (100.0%), CLI at 0/1 (0.0%), and
   per-category scores in the machine-readable report. This is a score for the
   versioned probe corpus, not all Jest behavior.
 
@@ -237,9 +247,9 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 77/78 (98.7%). ESM is 7/7 (100.0%), transforms are 5/5
-(100.0%), mocks are 13/13 (100.0%), configuration is 16/16 (100.0%), Core API
-is 6/7 (85.7%), and
+corpus score is 82/83 (98.8%). Core API is 11/11 (100.0%), ESM is 7/7
+(100.0%), transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), configuration
+is 16/16 (100.0%), CLI is 0/1 (0.0%), and
 coverage is 3/3 in their bounded scenario categories.
 
 ## Known blockers
@@ -256,8 +266,8 @@ coverage is 3/3 in their bounded scenario categories.
 - Custom resolvers are not implemented; CommonJS and native-ESM
   `moduleNameMapper` rules support the covered mappings, while complete Jest
   resolver conditions and fallback semantics need broader probes.
-- `jest.retryTimes` is not implemented. Manual CommonJS/native-ESM
-  mocks, CommonJS/native-ESM automocking, transitive CommonJS unmocking,
+- Deterministic Jest Circus `--randomize` ordering is not implemented. Manual
+  CommonJS/native-ESM mocks, CommonJS/native-ESM automocking, transitive CommonJS unmocking,
   property replacement, Babel-hoisted and virtual factories, and
   direct/transitive synchronous or asynchronous ESM module factories are
   covered by differential tests. ESM unmock/reset behavior and asynchronous
@@ -280,7 +290,7 @@ coverage is 3/3 in their bounded scenario categories.
 1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from deterministic real-project
    failures.
-3. Implement Jest Circus-compatible `jest.retryTimes` scheduling.
+3. Implement seeded Jest Circus `--randomize` ordering and its summary behavior.
 4. Add broader timer edge-case probes and modern timer tick-mode controls.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
    stable across a broader independent corpus.

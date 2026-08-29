@@ -12,7 +12,7 @@ and TypeScript test runner whose coordinator is written in Rust.
 > `__mocks__` resolution,
 > Babel-hoisted and virtual mock factories, native-ESM mapping, and direct
 > synchronous or asynchronous ESM module mocks also work. Writing new inline
-> snapshots, `retryTimes`, V8 coverage, watch mode, and
+> snapshots, V8 coverage, watch mode, seeded `--randomize` ordering, and
 > many Jest edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.
 
@@ -33,6 +33,7 @@ cargo run -p rjest-cli -- --runInBand
 cargo run -p rjest-cli -- --maxWorkers=50% --testNamePattern=calculator
 cargo run -p rjest-cli -- --updateSnapshot
 cargo run -p rjest-cli -- --coverage
+cargo run -p rjest-cli -- --seed=1234 --showSeed
 ```
 
 Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,

@@ -11,7 +11,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 13;
+const PROTOCOL_VERSION = 15;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -97,6 +97,11 @@ const replacedPropertyRegistry = new WeakMap();
 const customMatchers = new Map();
 let invocationOrder = 0;
 let defaultTimeout = request.defaultTimeoutMs;
+let configuredRetryTimes;
+let configuredRetryWait;
+let configuredRetryImmediately;
+let configuredLogErrorsBeforeRetry;
+let processErrorGeneration = 0;
 let activeTest;
 let activeModulePath = request.testPath;
 let effectiveTestEnvironment = request.testEnvironment;
@@ -108,6 +113,10 @@ const snapshotState = {
   dirty: request.snapshotDirty,
   unchecked: new Set(Object.keys(request.snapshotData)),
   counts: new Map(),
+  // Records remain until a retry clears them so an enclosing describe retry
+  // can roll back passing as well as failing descendant tests.
+  attempts: new WeakMap(),
+  writeCount: 0,
   added: 0,
   matched: 0,
   unmatched: 0,
@@ -143,6 +152,7 @@ function makeSuite(name, parent, mode) {
     mode,
     children: [],
     hooks: {beforeAll: [], afterAll: [], beforeEach: [], afterEach: []},
+    retryOptions: undefined,
   };
 }
 
@@ -186,6 +196,8 @@ function defineTest(name, callback, mode, timeout, concurrent = false) {
     timeout,
     concurrent,
     parent: currentSuite,
+    invocations: 0,
+    retryReasons: [],
   });
 }
 
@@ -680,6 +692,96 @@ function markSnapshotsChecked(testName) {
   }
 }
 
+function snapshotAttemptRecord(test = activeTest) {
+  if (!test) return undefined;
+  let record = snapshotState.attempts.get(test);
+  if (!record) {
+    record = {
+      checkedKeys: new Set(),
+      counters: new Map(),
+      counts: {added: 0, matched: 0, unmatched: 0, updated: 0},
+      data: new Map(),
+      writes: undefined,
+    };
+    snapshotState.attempts.set(test, record);
+  }
+  return record;
+}
+
+function bumpSnapshotCounter(testName) {
+  const record = snapshotAttemptRecord();
+  if (record && !record.counters.has(testName)) {
+    record.counters.set(testName, snapshotState.counts.get(testName));
+  }
+  const count = (snapshotState.counts.get(testName) ?? 0) + 1;
+  snapshotState.counts.set(testName, count);
+  return count;
+}
+
+function markSnapshotChecked(key) {
+  if (snapshotState.unchecked.delete(key)) {
+    snapshotAttemptRecord()?.checkedKeys.add(key);
+  }
+}
+
+function recordSnapshotData(key) {
+  const record = snapshotAttemptRecord();
+  if (record && !record.data.has(key)) {
+    record.data.set(
+      key,
+      Object.prototype.hasOwnProperty.call(snapshotState.data, key)
+        ? snapshotState.data[key]
+        : undefined,
+    );
+  }
+}
+
+function incrementSnapshotCount(status) {
+  snapshotState[status] += 1;
+  const record = snapshotAttemptRecord();
+  if (record) record.counts[status] += 1;
+}
+
+function recordSnapshotWrite() {
+  const record = snapshotAttemptRecord();
+  if (record) {
+    record.writes ??= {
+      dirtyBefore: snapshotState.dirty,
+      ownWrites: 0,
+      writeCountBefore: snapshotState.writeCount,
+    };
+    record.writes.ownWrites += 1;
+  }
+  snapshotState.writeCount += 1;
+  snapshotState.dirty = true;
+}
+
+function clearSnapshotAttempt(test) {
+  const record = snapshotState.attempts.get(test);
+  if (!record) return;
+  snapshotState.attempts.delete(test);
+  for (const status of ['added', 'matched', 'unmatched', 'updated']) {
+    snapshotState[status] -= record.counts[status];
+  }
+  for (const [key, previous] of record.data) {
+    if (previous === undefined) delete snapshotState.data[key];
+    else snapshotState.data[key] = previous;
+  }
+  for (const key of record.checkedKeys) snapshotState.unchecked.add(key);
+  for (const [testName, previous] of record.counters) {
+    if (previous === undefined) snapshotState.counts.delete(testName);
+    else snapshotState.counts.set(testName, previous);
+  }
+  const writes = record.writes;
+  if (
+    writes &&
+    snapshotState.writeCount - writes.writeCountBefore === writes.ownWrites
+  ) {
+    snapshotState.dirty = writes.dirtyBefore;
+    snapshotState.writeCount = writes.writeCountBefore;
+  }
+}
+
 function mergeSnapshotProperties(target, source) {
   if (isAsymmetric(source)) return source;
   if (Array.isArray(target) && Array.isArray(source)) {
@@ -747,10 +849,9 @@ function matchSnapshot(received, hint) {
     ? `${fullName(activeTest)}: ${String(hint)}`
     : fullName(activeTest);
   const normalizedName = normalizeSnapshotName(testName);
-  const count = (snapshotState.counts.get(normalizedName) ?? 0) + 1;
-  snapshotState.counts.set(normalizedName, count);
+  const count = bumpSnapshotCounter(normalizedName);
   const key = `${normalizedName} ${count}`;
-  snapshotState.unchecked.delete(key);
+  markSnapshotChecked(key);
   const receivedSerialized = formatSnapshot(received);
   const hasSnapshot = Object.prototype.hasOwnProperty.call(snapshotState.data, key);
   const expected = snapshotState.data[key];
@@ -762,13 +863,15 @@ function matchSnapshot(received, hint) {
     hasSnapshot &&
     (expected === receivedSerialized || expected === legacySerialized)
   ) {
-    snapshotState.matched += 1;
+    incrementSnapshotCount('matched');
+    recordSnapshotData(key);
     snapshotState.data[key] = receivedSerialized;
     return {pass: true, key};
   }
   if (hasSnapshot && snapshotState.update === 'all') {
-    snapshotState.updated += 1;
-    snapshotState.dirty = true;
+    incrementSnapshotCount('updated');
+    recordSnapshotData(key);
+    recordSnapshotWrite();
     snapshotState.data[key] = receivedSerialized;
     return {pass: true, key};
   }
@@ -776,13 +879,14 @@ function matchSnapshot(received, hint) {
     !hasSnapshot &&
     (snapshotState.update === 'new' || snapshotState.update === 'all')
   ) {
-    snapshotState.added += 1;
-    snapshotState.dirty = true;
+    incrementSnapshotCount('added');
+    recordSnapshotData(key);
+    recordSnapshotWrite();
     snapshotState.data[key] = receivedSerialized;
     return {pass: true, key};
   }
 
-  snapshotState.unmatched += 1;
+  incrementSnapshotCount('unmatched');
   return {
     pass: false,
     key,
@@ -1164,12 +1268,12 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
         : received;
       const serialized = formatSnapshot(snapshotReceived);
       if (serialized !== inlineSnapshot) {
-        snapshotState.unmatched += 1;
+        incrementSnapshotCount('unmatched');
         throw new RjestAssertionError(
           `Inline snapshot mismatch\nExpected: ${inlineSnapshot}\nReceived: ${serialized}`,
         );
       }
-      snapshotState.matched += 1;
+      incrementSnapshotCount('matched');
     };
     if (!promiseMode) return evaluate(actual);
     return Promise.resolve(actual).then(evaluate);
@@ -3219,6 +3323,9 @@ function scopedJest(fromPath) {
     unstable_unmockModule(specifier) {
       return unregisterEsmModuleMock(specifier, fromPath, scoped);
     },
+    retryTimes(numTestRetries, options) {
+      return setRetryTimes(numTestRetries, options, scoped);
+    },
   });
   return scoped;
 }
@@ -4838,6 +4945,9 @@ const jest = {
     }
     return NativeDate.now();
   },
+  getSeed() {
+    return request.seed;
+  },
   clearAllMocks() {
     forEachRegisteredMock(mock => mock.mockClear());
     return jest;
@@ -4855,8 +4965,41 @@ const jest = {
     defaultTimeout = Number(value);
     return jest;
   },
+  retryTimes(numTestRetries, options) {
+    return setRetryTimes(numTestRetries, options, jest);
+  },
 };
 globalThis.jest = jest;
+
+function setRetryTimes(numTestRetries, options, receiver) {
+  if (options?.entireDescribe) {
+    if (definitionComplete) {
+      throw new Error(
+        'Cannot set retry options after tests have started running. Retry options must be set synchronously.',
+      );
+    }
+    currentSuite.retryOptions = {
+      attempts: numTestRetries,
+      logErrors: options.logErrorsBeforeRetry,
+      wait: options.waitBeforeRetry,
+    };
+    return receiver;
+  }
+  configuredRetryTimes = numTestRetries;
+  configuredLogErrorsBeforeRetry = options?.logErrorsBeforeRetry;
+  configuredRetryWait = options?.waitBeforeRetry;
+  configuredRetryImmediately = options?.retryImmediately;
+  return receiver;
+}
+
+function currentRetryOptions() {
+  return {
+    attempts: Number.parseInt(configuredRetryTimes, 10) || 0,
+    immediately: Boolean(configuredRetryImmediately),
+    logErrors: Boolean(configuredLogErrorsBeforeRetry),
+    wait: Number.parseInt(configuredRetryWait, 10) || 0,
+  };
+}
 
 function fullName(node) {
   const names = [node.name];
@@ -4981,6 +5124,8 @@ function skippedResults(node, status = 'skipped') {
         status: node.mode === 'todo' ? 'todo' : status,
         durationMs: 0,
         failureMessage: null,
+        invocations: 0,
+        retryReasons: [],
       },
     ];
   }
@@ -5000,6 +5145,8 @@ async function runTest(
     status: 'passed',
     durationMs: 0,
     failureMessage: null,
+    invocations: node.invocations ?? 0,
+    retryReasons: [...(node.retryReasons ?? [])],
   };
   const isSelected = selected || node.mode === 'only';
   if (node.mode === 'todo') {
@@ -5018,6 +5165,8 @@ async function runTest(
     return result;
   }
   activeTest = node;
+  node.invocations = (node.invocations ?? 0) + 1;
+  result.invocations = node.invocations;
   node.assertionCalls = 0;
   node.expectedAssertions = undefined;
   node.requiresAssertions = false;
@@ -5094,8 +5243,50 @@ async function runTest(
     result.status = 'failed';
     result.failureMessage = failures.map(errorText).join('\n\n');
   }
+  result.retryReasons = [...(node.retryReasons ?? [])];
   activeTest = undefined;
   return result;
+}
+
+async function retryTest(
+  node,
+  initialResult,
+  retryOptions,
+  focusExists,
+  selected,
+  skipped,
+) {
+  let result = initialResult;
+  let retriesRemaining = retryOptions.attempts;
+  while (retriesRemaining > 0 && result.status === 'failed') {
+    if (retryOptions.logErrors && result.failureMessage) {
+      node.retryReasons.push(result.failureMessage);
+    }
+    clearSnapshotAttempt(node);
+    if (retryOptions.wait > 0) {
+      await new Promise(resolve => nativeSetTimeout(resolve, retryOptions.wait));
+    }
+    result = await runTest(node, focusExists, selected, skipped, undefined);
+    retriesRemaining -= 1;
+  }
+  result.retryReasons = [...node.retryReasons];
+  return result;
+}
+
+function testsUnderSuite(suite) {
+  const tests = [];
+  const pending = [suite];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node.type === 'test') {
+      tests.push(node);
+      continue;
+    }
+    for (let index = node.children.length - 1; index >= 0; index -= 1) {
+      pending.push(node.children[index]);
+    }
+  }
+  return tests;
 }
 
 async function runSuite(
@@ -5104,8 +5295,71 @@ async function runSuite(
   inheritedOnly = false,
   inheritedSkip = false,
   inheritedBeforeAllError = undefined,
+  insideDescribeRetry = false,
+) {
+  if (suite.retryOptions && !inheritedBeforeAllError) {
+    let retriesRemaining =
+      Number.parseInt(String(suite.retryOptions.attempts), 10) || 0;
+    const retryTests = testsUnderSuite(suite);
+    while (true) {
+      const fileErrorStart = fileErrors.length;
+      const processErrorsBeforeAttempt = processErrorGeneration;
+      const results = await runSuiteOnce(
+        suite,
+        focusExists,
+        inheritedOnly,
+        inheritedSkip,
+        inheritedBeforeAllError,
+        true,
+      );
+      const hasTestErrors = results.some(result => result.status === 'failed');
+      const hasFileErrors = fileErrors.length > fileErrorStart;
+      const hasProcessErrors =
+        processErrorGeneration > processErrorsBeforeAttempt;
+      if (
+        !hasTestErrors ||
+        hasFileErrors ||
+        hasProcessErrors ||
+        retriesRemaining <= 0
+      ) {
+        return results;
+      }
+      if (suite.retryOptions.logErrors) {
+        for (const [index, result] of results.entries()) {
+          if (!result.failureMessage) continue;
+          retryTests[index]?.retryReasons.push(result.failureMessage);
+        }
+      }
+      fileErrors.splice(fileErrorStart);
+      for (const test of retryTests) clearSnapshotAttempt(test);
+      const wait = Number.parseInt(String(suite.retryOptions.wait), 10) || 0;
+      if (wait > 0) {
+        await new Promise(resolve => nativeSetTimeout(resolve, wait));
+      }
+      retriesRemaining -= 1;
+    }
+  }
+  return runSuiteOnce(
+    suite,
+    focusExists,
+    inheritedOnly,
+    inheritedSkip,
+    inheritedBeforeAllError,
+    insideDescribeRetry,
+  );
+}
+
+async function runSuiteOnce(
+  suite,
+  focusExists,
+  inheritedOnly,
+  inheritedSkip,
+  inheritedBeforeAllError,
+  insideDescribeRetry,
 ) {
   const results = [];
+  const deferredRetries = [];
+  const retryOptions = currentRetryOptions();
   const selected = inheritedOnly || suite.mode === 'only';
   const skipped = inheritedSkip || suite.mode === 'skip';
   if (skipped) return skippedResults(suite);
@@ -5132,13 +5386,48 @@ async function runSuite(
           selected,
           skipped,
           beforeAllError,
+          insideDescribeRetry,
         )),
       );
     } else {
-      results.push(
-        await runTest(child, focusExists, selected, skipped, beforeAllError),
+      const resultIndex = results.length;
+      let result = await runTest(
+        child,
+        focusExists,
+        selected,
+        skipped,
+        beforeAllError,
       );
+      results.push(result);
+      const shouldRetry =
+        !insideDescribeRetry &&
+        !beforeAllError &&
+        retryOptions.attempts > 0 &&
+        result.status === 'failed';
+      if (shouldRetry && retryOptions.immediately) {
+        result = await retryTest(
+          child,
+          result,
+          retryOptions,
+          focusExists,
+          selected,
+          skipped,
+        );
+        results[resultIndex] = result;
+      } else if (shouldRetry) {
+        deferredRetries.push({node: child, result, resultIndex});
+      }
     }
+  }
+  for (const deferred of deferredRetries) {
+    results[deferred.resultIndex] = await retryTest(
+      deferred.node,
+      deferred.result,
+      retryOptions,
+      focusExists,
+      selected,
+      skipped,
+    );
   }
   for (const hook of suite.hooks.afterAll) {
     try {
@@ -5150,8 +5439,14 @@ async function runSuite(
   return results;
 }
 
-process.on('unhandledRejection', error => fileErrors.push(errorText(error)));
-process.on('uncaughtException', error => fileErrors.push(errorText(error)));
+process.on('unhandledRejection', error => {
+  processErrorGeneration += 1;
+  fileErrors.push(errorText(error));
+});
+process.on('uncaughtException', error => {
+  processErrorGeneration += 1;
+  fileErrors.push(errorText(error));
+});
 
 let tests = [];
 try {

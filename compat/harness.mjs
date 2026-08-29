@@ -252,8 +252,42 @@ const cases = [
   {
     name: 'gap-retry-times',
     category: 'Core API',
+    expectedExit: 0,
+    compareSnapshots: true,
+    compareRetryMetadata: true,
+  },
+  {
+    name: 'gap-retry-entire-describe',
+    category: 'Core API',
+    expectedExit: 0,
+    compareRetryMetadata: true,
+    compareSnapshots: true,
+  },
+  {
+    name: 'gap-jest-get-seed',
+    category: 'Core API',
+    expectedExit: 0,
+    seed: -12345,
+  },
+  {
+    name: 'retry-entire-after-all-failure',
+    category: 'Core API',
+    expectedExit: 1,
+    compareRetryMetadata: true,
+  },
+  {
+    name: 'gap-randomize',
+    category: 'CLI',
     compatible: false,
     expectedExit: 0,
+    randomize: true,
+    seed: 1234,
+  },
+  {
+    name: 'retry-before-all-failure',
+    category: 'Core API',
+    expectedExit: 1,
+    compareRetryMetadata: true,
   },
   {
     name: 'resolution-node-package',
@@ -391,6 +425,8 @@ function compareCase(testCase) {
       jestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(jestFixture))}`);
     }
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
+    if (testCase.seed !== undefined) jestArguments.push(`--seed=${testCase.seed}`);
+    if (testCase.randomize) jestArguments.push('--randomize');
     if (testCase.coverage) {
       jestArguments.push(
         '--coverage',
@@ -431,6 +467,8 @@ function compareCase(testCase) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
     }
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');
+    if (testCase.seed !== undefined) rjestArguments.push(`--seed=${testCase.seed}`);
+    if (testCase.randomize) rjestArguments.push('--randomize');
     if (testCase.coverage) {
       rjestArguments.push(
         '--coverage',
@@ -462,10 +500,13 @@ function compareCase(testCase) {
       differences.push(`exit Jest=${jestRun.status} Rjest=${rjestRun.status}`);
     }
 
-    const jestResult = normalizeJest(JSON.parse(readFileSync(jestOutput, 'utf8')));
+    const jestResult = normalizeJest(
+      JSON.parse(readFileSync(jestOutput, 'utf8')),
+      testCase,
+    );
     let rjestResult;
     try {
-      rjestResult = normalizeRjest(JSON.parse(rjestRun.stdout));
+      rjestResult = normalizeRjest(JSON.parse(rjestRun.stdout), testCase);
       if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
         differences.push('test results differ');
       }
@@ -599,7 +640,7 @@ function readSnapshots(root) {
   }
 }
 
-function normalizeJest(result) {
+function normalizeJest(result, testCase) {
   return {
     tests: result.testResults
       .flatMap(file =>
@@ -607,6 +648,12 @@ function normalizeJest(result) {
           file: basename(file.name),
           fullName: test.fullName,
           status: normalizeStatus(test.status),
+          ...(testCase.compareRetryMetadata
+            ? {
+                invocations: test.invocations ?? 0,
+                retryReasons: test.retryReasons?.length ?? 0,
+              }
+            : {}),
         })),
       )
       .sort(compare),
@@ -619,7 +666,7 @@ function normalizeJest(result) {
   };
 }
 
-function normalizeRjest(result) {
+function normalizeRjest(result, testCase) {
   const snapshot = {added: 0, matched: 0, unmatched: 0, updated: 0};
   for (const file of result.testResults) {
     for (const key of Object.keys(snapshot)) {
@@ -633,6 +680,12 @@ function normalizeRjest(result) {
           file: basename(file.testPath),
           fullName: test.fullName,
           status: normalizeStatus(test.status),
+          ...(testCase.compareRetryMetadata
+            ? {
+                invocations: test.invocations ?? 0,
+                retryReasons: test.retryReasons?.length ?? 0,
+              }
+            : {}),
         })),
       )
       .sort(compare),

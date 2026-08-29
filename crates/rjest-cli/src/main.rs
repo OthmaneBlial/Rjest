@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgAction, Parser};
@@ -154,12 +157,33 @@ struct Cli {
         action = ArgAction::SetTrue
     )]
     update_snapshot: bool,
+
+    /// Set the signed 32-bit seed exposed by `jest.getSeed()`.
+    #[arg(long, value_name = "NUMBER", allow_hyphen_values = true)]
+    seed: Option<i64>,
+
+    /// Print the run seed in the result summary.
+    #[arg(
+        long = "showSeed",
+        visible_alias = "show-seed",
+        action = ArgAction::SetTrue
+    )]
+    show_seed: bool,
 }
 
 struct CoverageRunnerSettings {
     enabled: bool,
     path_ignore_patterns: Vec<String>,
     filter: Option<Vec<PathBuf>>,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+struct ReportSettings {
+    silent: bool,
+    verbose: bool,
+    log_heap_usage: bool,
+    show_seed: bool,
+    seed: i32,
 }
 
 fn main() {
@@ -208,6 +232,9 @@ fn run() -> Result<bool> {
     } else {
         parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
     };
+    let seed = cli
+        .seed
+        .map_or_else(|| Ok(generated_seed()), validate_seed)?;
     let CoverageRunnerSettings {
         enabled: collect_coverage,
         path_ignore_patterns: coverage_path_ignore_patterns,
@@ -215,6 +242,7 @@ fn run() -> Result<bool> {
     } = coverage_runner_settings(&cli, &config)?;
     let options = rjest_runner::RunnerOptions {
         max_workers,
+        seed,
         test_name_pattern: cli.test_name_pattern.clone(),
         default_timeout_ms: config.test_timeout,
         root_dir: config.root_dir.clone(),
@@ -245,11 +273,28 @@ fn run() -> Result<bool> {
     };
     let result = rjest_runner::run(&tests, &options)?;
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
-    emit_results(&cli, &config, &result, coverage_report.as_ref())?;
+    emit_results(&cli, &config, &result, coverage_report.as_ref(), seed)?;
     Ok(result.is_success()
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn validate_seed(value: i64) -> Result<i32> {
+    i32::try_from(value).with_context(|| {
+        format!(
+            "seed value must be between `-0x80000000` and `0x7fffffff` inclusive - instead it is {value}"
+        )
+    })
+}
+
+fn generated_seed() -> i32 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    let folded = nanos ^ (nanos >> 32) ^ u128::from(std::process::id());
+    let bytes = folded.to_le_bytes();
+    i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 fn load_config(project_dir: &std::path::Path, configured: Option<&str>) -> Result<ProjectConfig> {
@@ -376,6 +421,7 @@ fn emit_results(
     config: &ProjectConfig,
     result: &AggregatedResult,
     coverage_report: Option<&CoverageReport>,
+    seed: i32,
 ) -> Result<()> {
     let serialized = serde_json::to_string(&result)?;
     if let Some(ref output_file) = cli.output_file {
@@ -400,9 +446,13 @@ fn emit_results(
         report(
             result,
             &config.root_dir,
-            cli.silent,
-            cli.verbose,
-            cli.log_heap_usage,
+            &ReportSettings {
+                silent: cli.silent,
+                verbose: cli.verbose,
+                log_heap_usage: cli.log_heap_usage,
+                show_seed: cli.show_seed,
+                seed,
+            },
         );
     }
     Ok(())
@@ -430,20 +480,14 @@ fn parse_max_workers(value: Option<&str>) -> Result<usize> {
     Ok(workers)
 }
 
-fn report(
-    result: &AggregatedResult,
-    root_dir: &std::path::Path,
-    silent: bool,
-    verbose: bool,
-    log_heap_usage: bool,
-) {
+fn report(result: &AggregatedResult, root_dir: &std::path::Path, settings: &ReportSettings) {
     for file in &result.test_results {
         let display_path = file
             .test_path
             .strip_prefix(root_dir)
             .unwrap_or(&file.test_path);
         let label = if file.is_success() { "PASS" } else { "FAIL" };
-        let heap_usage = if log_heap_usage {
+        let heap_usage = if settings.log_heap_usage {
             file.heap_used_bytes
                 .map(|bytes| format!(" ({} MB heap size)", bytes / (1024 * 1024)))
                 .unwrap_or_default()
@@ -455,13 +499,19 @@ fn report(
             display_path.display(),
             file.duration_ms
         );
-        if !silent {
+        if !settings.silent {
             for entry in &file.console {
                 println!("  Console {}: {}", entry.level, entry.message);
             }
         }
         for test in &file.tests {
-            if verbose || test.status == TestStatus::Failed {
+            if !test.retry_reasons.is_empty() {
+                println!("  RETRY ERRORS  {}", test.full_name);
+                for (index, reason) in test.retry_reasons.iter().enumerate() {
+                    println!("\n  RETRY {}\n\n{}\n", index + 1, indent(reason, 4));
+                }
+            }
+            if settings.verbose || test.status == TestStatus::Failed {
                 let marker = match test.status {
                     TestStatus::Passed => "✓",
                     TestStatus::Failed => "✕",
@@ -513,6 +563,9 @@ fn report(
         result.duration_ms / 1_000,
         result.duration_ms % 1_000
     );
+    if settings.show_seed {
+        println!("Seed:        {}", settings.seed);
+    }
 }
 
 fn snapshot_sum(
@@ -543,7 +596,7 @@ mod tests {
 
     use clap::Parser;
 
-    use super::{Cli, parse_max_workers, uses_modern_branches_true_summary};
+    use super::{Cli, parse_max_workers, uses_modern_branches_true_summary, validate_seed};
 
     #[test]
     fn accepts_jest_worker_and_heap_usage_flags() {
@@ -563,6 +616,24 @@ mod tests {
     fn parses_percentage_worker_count() {
         assert!(parse_max_workers(Some("50%")).expect("workers") >= 1);
         assert!(parse_max_workers(Some("101%")).is_err());
+    }
+
+    #[test]
+    fn accepts_and_validates_jest_seed_flags() {
+        let cli = Cli::try_parse_from(["rjest", "--seed=-2147483648", "--showSeed"])
+            .expect("Jest seed flags");
+        assert_eq!(cli.seed, Some(i64::from(i32::MIN)));
+        assert!(cli.show_seed);
+        assert_eq!(
+            validate_seed(i64::from(i32::MIN)).expect("minimum"),
+            i32::MIN
+        );
+        assert_eq!(
+            validate_seed(i64::from(i32::MAX)).expect("maximum"),
+            i32::MAX
+        );
+        assert!(validate_seed(i64::from(i32::MIN) - 1).is_err());
+        assert!(validate_seed(i64::from(i32::MAX) + 1).is_err());
     }
 
     #[test]
