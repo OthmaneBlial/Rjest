@@ -99,6 +99,7 @@ pub struct ProjectConfig {
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
+    pub reset_modules: bool,
     #[serde(flatten)]
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
@@ -136,6 +137,7 @@ struct RawProjectConfig {
     module_name_mapper: Option<serde_json::Map<String, Value>>,
     module_paths: Option<Vec<String>>,
     automock: Option<bool>,
+    reset_modules: Option<bool>,
     clear_mocks: Option<bool>,
     reset_mocks: Option<bool>,
     restore_mocks: Option<bool>,
@@ -254,6 +256,7 @@ impl ProjectConfig {
             module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
             automock: false,
+            reset_modules: false,
             mock_lifecycle: MockLifecycleConfig::default(),
             fake_timers: FakeTimersConfig::default(),
             test_environment: "node".into(),
@@ -513,6 +516,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         module_name_mapper,
         module_paths,
         automock: raw.automock.unwrap_or(defaults.automock),
+        reset_modules: raw.reset_modules.unwrap_or(defaults.reset_modules),
         mock_lifecycle,
         fake_timers,
         test_environment,
@@ -1008,6 +1012,7 @@ mod tests {
               },
               "extensionsToTreatAsEsm":[".ts"],
               "automock":true,
+              "resetModules":true,
               "clearMocks":true,
               "resetMocks":true,
               "restoreMocks":true,
@@ -1059,6 +1064,7 @@ mod tests {
             ]
         );
         assert!(config.automock);
+        assert!(config.reset_modules);
         assert!(config.mock_lifecycle.clear_mocks);
         assert!(config.mock_lifecycle.reset_mocks);
         assert!(config.mock_lifecycle.restore_mocks);

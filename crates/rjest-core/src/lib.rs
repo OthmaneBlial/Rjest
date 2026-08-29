@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 12;
+pub const WORKER_PROTOCOL_VERSION: u32 = 13;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -67,6 +67,7 @@ pub struct WorkerRequest {
     pub extensions_to_treat_as_esm: Vec<String>,
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub automock: bool,
+    pub reset_modules: bool,
     #[serde(flatten)]
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,

@@ -223,6 +223,7 @@ fn run() -> Result<bool> {
         module_name_mapper: config.module_name_mapper.clone(),
         module_paths: config.module_paths.clone(),
         automock: config.automock,
+        reset_modules: config.reset_modules,
         mock_lifecycle: config.mock_lifecycle.clone(),
         fake_timers: config.fake_timers.clone(),
         test_environment: config.test_environment.clone(),

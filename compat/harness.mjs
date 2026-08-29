@@ -240,10 +240,15 @@ const cases = [
   {
     name: 'config-reset-modules',
     category: 'Configuration',
-    compatible: false,
     expectedExit: 0,
     experimentalVmModules: true,
     useFixtureConfig: true,
+  },
+  {
+    name: 'gap-set-mock',
+    category: 'Mocks',
+    compatible: false,
+    expectedExit: 0,
   },
   {
     name: 'resolution-node-package',

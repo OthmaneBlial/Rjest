@@ -3,15 +3,15 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 75,
-    "total": 76,
-    "percentage": 98.68421052631578
+    "passing": 76,
+    "total": 77,
+    "percentage": 98.7012987012987
   },
   "categories": {
     "Configuration": {
-      "passing": 15,
+      "passing": 16,
       "total": 16,
-      "percentage": 93.75
+      "percentage": 100
     },
     "Core API": {
       "passing": 6,
@@ -45,8 +45,8 @@
     },
     "Mocks": {
       "passing": 12,
-      "total": 12,
-      "percentage": 100
+      "total": 13,
+      "percentage": 92.3076923076923
     },
     "Resolution": {
       "passing": 2,
@@ -368,10 +368,16 @@
     {
       "name": "config-reset-modules",
       "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-set-mock",
+      "category": "Mocks",
       "compatible": false,
       "differences": [
         "exit Jest=0 Rjest=1",
-        "Rjest JSON unavailable: Unexpected end of JSON input"
+        "test results differ"
       ]
     },
     {
