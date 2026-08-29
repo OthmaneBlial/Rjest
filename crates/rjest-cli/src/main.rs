@@ -212,6 +212,7 @@ fn run() -> Result<bool> {
         module_file_extensions: config.module_file_extensions.clone(),
         module_name_mapper: config.module_name_mapper.clone(),
         module_paths: config.module_paths.clone(),
+        automock: config.automock,
         test_environment: config.test_environment.clone(),
         test_environment_options: config.test_environment_options.clone(),
         setup_files_after_env: config.setup_files_after_env.clone(),

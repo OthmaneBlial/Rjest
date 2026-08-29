@@ -5,7 +5,7 @@ import {resolve as resolvePath} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 5;
+const PROTOCOL_VERSION = 6;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -32,6 +32,7 @@ const originalModuleLoad = Module._load;
 const originalModuleResolveFilename = Module._resolveFilename;
 const moduleMocks = new Map();
 const bypassModuleMocks = new Set();
+const explicitlyUnmockedModules = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
 const runtimeTransformers = [];
 const instrumentedFiles = new Set();
@@ -43,6 +44,7 @@ let jsdomEnvironment;
 let nativeWindowTimers;
 let nativeAnimationFrame;
 let transformerDepth = 0;
+let automockEnabled = false;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
   throw new Error(`Unsupported Rjest worker protocol ${request.protocolVersion}`);
@@ -1348,6 +1350,23 @@ function resolveModuleKey(specifier, fromPath = activeModulePath) {
   return requireFrom(fromPath).resolve(String(specifier));
 }
 
+function shouldAutomockModule(specifier, key) {
+  if (transformerDepth > 0) return false;
+  if (!automockEnabled || bypassModuleMocks.has(key)) return false;
+  if (explicitlyUnmockedModules.has(key)) return false;
+  if (Module.isBuiltin(String(specifier))) return false;
+  const normalizedKey = normalizedRuntimePath(key);
+  if (normalizedKey === normalizedRuntimePath(request.testPath)) return false;
+  if (
+    (request.setupFilesAfterEnv ?? []).some(
+      setupPath => normalizedKey === normalizedRuntimePath(setupPath),
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function loadActualModule(specifier, fromPath = activeModulePath) {
   const key = resolveModuleKey(specifier, fromPath);
   bypassModuleMocks.add(key);
@@ -1363,11 +1382,39 @@ function createAutoMock(value, seen = new WeakMap()) {
     if (seen.has(value)) return seen.get(value);
     const mock = createMock();
     seen.set(value, mock);
+    try {
+      Object.defineProperty(mock, 'name', {
+        configurable: true,
+        value: value.name,
+      });
+    } catch {
+      // Some host functions protect their display name.
+    }
     for (const key of Reflect.ownKeys(value)) {
-      if (key === 'length' || key === 'name' || key === 'prototype') continue;
+      if (
+        key === 'length' ||
+        key === 'name' ||
+        key === 'prototype' ||
+        key === 'caller' ||
+        key === 'arguments'
+      ) {
+        continue;
+      }
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor?.enumerable) continue;
-      mock[key] = createAutoMock(value[key], seen);
+      if (!descriptor || !('value' in descriptor)) continue;
+      mock[key] = createAutoMock(descriptor.value, seen);
+    }
+    if (value.prototype && typeof value.prototype === 'object') {
+      seen.set(value.prototype, mock.prototype);
+      for (const key of Reflect.ownKeys(value.prototype)) {
+        if (key === 'constructor') continue;
+        const descriptor = Object.getOwnPropertyDescriptor(value.prototype, key);
+        if (!descriptor || !('value' in descriptor)) continue;
+        Object.defineProperty(mock.prototype, key, {
+          ...descriptor,
+          value: createAutoMock(descriptor.value, seen),
+        });
+      }
     }
     return mock;
   }
@@ -1405,6 +1452,7 @@ function registerModuleMock(
     specifier: String(specifier),
     fromPath,
   });
+  explicitlyUnmockedModules.delete(key);
   delete Module._cache[key];
   return returnValue;
 }
@@ -1413,6 +1461,18 @@ function requireMock(specifier, fromPath = activeModulePath) {
   const key = resolveModuleKey(specifier, fromPath);
   if (!moduleMocks.has(key)) registerModuleMock(specifier, undefined, fromPath);
   return requireFrom(fromPath)(specifier);
+}
+
+function unmockModule(specifier, fromPath, returnValue) {
+  const key = resolveModuleKey(specifier, fromPath);
+  moduleMocks.delete(key);
+  explicitlyUnmockedModules.add(key);
+  return returnValue;
+}
+
+function setAutomock(enabled, returnValue) {
+  automockEnabled = enabled;
+  return returnValue;
 }
 
 Module._load = function rjestModuleLoad(specifier, parent, isMain) {
@@ -1440,7 +1500,17 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
   } catch {
     return Reflect.apply(originalModuleLoad, this, [specifier, parent, isMain]);
   }
-  const entry = moduleMocks.get(key);
+  let entry = moduleMocks.get(key);
+  if (!entry && shouldAutomockModule(specifier, key)) {
+    entry = {
+      factory: undefined,
+      initialized: false,
+      value: undefined,
+      specifier: String(specifier),
+      fromPath: parent?.filename ?? request.testPath,
+    };
+    moduleMocks.set(key, entry);
+  }
   if (!entry || bypassModuleMocks.has(key)) {
     return Reflect.apply(originalModuleLoad, this, [specifier, parent, isMain]);
   }
@@ -1478,8 +1548,7 @@ function scopedJest(fromPath) {
       return registerModuleMock(specifier, factory, fromPath, scoped);
     },
     unmock(specifier) {
-      moduleMocks.delete(resolveModuleKey(specifier, fromPath));
-      return scoped;
+      return unmockModule(specifier, fromPath, scoped);
     },
     dontMock(specifier) {
       return scoped.unmock(specifier);
@@ -1492,6 +1561,21 @@ function scopedJest(fromPath) {
     },
     createMockFromModule(specifier) {
       return createAutoMock(loadActualModule(specifier, fromPath));
+    },
+    enableAutomock() {
+      return setAutomock(true, scoped);
+    },
+    autoMockOn() {
+      return scoped.enableAutomock();
+    },
+    disableAutomock() {
+      return setAutomock(false, scoped);
+    },
+    autoMockOff() {
+      return scoped.disableAutomock();
+    },
+    deepUnmock(specifier) {
+      return unmockModule(specifier, fromPath, scoped);
     },
   });
   return scoped;
@@ -2135,8 +2219,7 @@ const jest = {
     return registerModuleMock(specifier, factory);
   },
   unmock(specifier) {
-    moduleMocks.delete(resolveModuleKey(specifier));
-    return jest;
+    return unmockModule(specifier, activeModulePath, jest);
   },
   dontMock(specifier) {
     return jest.unmock(specifier);
@@ -2145,6 +2228,21 @@ const jest = {
   requireMock,
   createMockFromModule(specifier) {
     return createAutoMock(loadActualModule(specifier));
+  },
+  enableAutomock() {
+    return setAutomock(true, jest);
+  },
+  autoMockOn() {
+    return jest.enableAutomock();
+  },
+  disableAutomock() {
+    return setAutomock(false, jest);
+  },
+  autoMockOff() {
+    return jest.disableAutomock();
+  },
+  deepUnmock(specifier) {
+    return unmockModule(specifier, activeModulePath, jest);
   },
   resetModules() {
     for (const path of Object.keys(Module._cache)) {
@@ -2547,6 +2645,7 @@ try {
   configureTransforms();
   installJsdomEnvironment();
   configureSnapshotFormat();
+  automockEnabled = Boolean(request.automock);
   for (const setupPath of request.setupFilesAfterEnv ?? []) {
     await loadRuntimeModule(setupPath);
   }

@@ -76,16 +76,19 @@ Last updated: 2026-08-29
   JSDOM callbacks, cancellation, intermediate timers, and frame timestamps.
 - External and existing inline snapshot property matchers with deep object and
   array merging and Jest-compatible asymmetric serialization.
+- Configured and runtime CommonJS automocking with recursive exports, classes,
+  built-in exemptions, explicit factories/unmocking, Babel hoisting, and
+  transform-tooling isolation.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 35/37
-  compatible scenarios (94.595%), with per-category scores in the
+  preserved known incompatibilities. The current generated result is 36/37
+  compatible scenarios (97.297%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Add Node/ESM and monorepo corpora with original Jest configurations, then use
-  their failures to drive the next compatibility work.
+- Close the remaining TypeScript enum transform probe, then add Node/ESM and
+  monorepo corpora with original Jest configurations.
 
 ## Compatibility snapshot
 
@@ -93,7 +96,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 35/37 (94.595%). Coverage is 2/2 in that deliberately bounded
+corpus score is 36/37 (97.297%). Coverage is 2/2 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -107,9 +110,9 @@ scenario category.
   and TypeScript path aliases remain incomplete.
 - Native-ESM module-name mapping and custom resolvers are not implemented;
   CommonJS and transformed `moduleNameMapper` rules support ordered fallbacks.
-- Global automocking, transform-time mock hoisting, and ESM module mocking are not
-  implemented; CommonJS explicit factories and manual module generation are
-  partial.
+- Manual `__mocks__` lookup, deeply unmocked dependency graphs, and ESM module
+  mocking are not implemented; CommonJS automocking and Babel-hoisted explicit
+  factories are covered by differential tests.
 - New/updated inline snapshot source writes, V8 coverage, non-global threshold
   groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
@@ -117,8 +120,7 @@ scenario category.
 
 ## Next highest-value tasks
 
-1. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
-2. Implement legacy fake-timer behavior.
-3. Extend `moduleNameMapper` to native ESM and custom resolvers.
-4. Expand CommonJS mocks toward global automocking, then design ESM module
-   mocking at the loader boundary.
+1. Close the remaining TypeScript enum transform probe.
+2. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
+3. Implement legacy fake-timer behavior.
+4. Extend `moduleNameMapper` and module mocking to native ESM.

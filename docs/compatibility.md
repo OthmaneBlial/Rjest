@@ -13,12 +13,14 @@ Jest transforms for JSX/TypeScript, Node and JSDOM environments, nested hooks,
 async tests, common matchers, function/method/accessor mocks, CommonJS module
 mocks, external Jest v1 snapshots, existing inline snapshots, configured
 serializers, snapshot property matchers, modern fake timers, and ordered
-`moduleNameMapper` rules for CommonJS and transformed modules. Babel coverage
-supports parallel Istanbul-map merging, `collectCoverageFrom`, common reports,
-and global thresholds. Writing new inline snapshots, complete resolution/config
-semantics, global automocking, V8 coverage, path/glob threshold groups, and
-watch mode remain missing, so Rjest does not claim broad or drop-in Jest
-compatibility yet.
+`moduleNameMapper` rules for CommonJS and transformed modules. Configured and
+runtime CommonJS automocking covers recursive exports and classes, while
+Babel-Jest hoists standard mock factories. Babel coverage supports parallel
+Istanbul-map merging, `collectCoverageFrom`, common reports, and global
+thresholds. Manual `__mocks__` lookup, writing new inline snapshots, complete
+resolution/config semantics, V8 coverage, path/glob threshold groups, and watch
+mode remain missing, so Rjest does not claim broad or drop-in Jest compatibility
+yet.
 
 The modern timer surface includes animation-frame scheduling, cancellation,
 timestamps, and `advanceTimersToNextFrame` in JSDOM. Legacy fake-timer mode is a

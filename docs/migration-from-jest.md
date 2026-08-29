@@ -39,8 +39,10 @@ transform-time path rewriting outside configured Jest transforms.
 
 CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 `require`, plus `jest.requireActual`, `jest.requireMock`, and
-`jest.createMockFromModule`. Rjest does not yet hoist mock declarations, enable
-global automocking, or implement Jest's ESM module-mocking API.
+`jest.createMockFromModule`. Configured and runtime CommonJS automocking covers
+nested exports and classes, and Babel-Jest hoists standard mock factories. Rjest
+does not yet resolve manual `__mocks__` directories, deeply unmock transitive
+dependencies, or implement Jest's ESM module-mocking API.
 
 External and existing inline snapshots accept nested property matchers and
 serialize their asymmetric placeholders like Jest. Rjest still cannot write a

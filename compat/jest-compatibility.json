@@ -3,9 +3,9 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 35,
+    "passing": 36,
     "total": 37,
-    "percentage": 94.5945945945946
+    "percentage": 97.2972972972973
   },
   "categories": {
     "Configuration": {
@@ -44,9 +44,9 @@
       "percentage": 100
     },
     "Mocks": {
-      "passing": 1,
+      "passing": 2,
       "total": 2,
-      "percentage": 50
+      "percentage": 100
     },
     "Resolution": {
       "passing": 2,
@@ -260,11 +260,8 @@
     {
       "name": "gap-automock",
       "category": "Mocks",
-      "compatible": false,
-      "differences": [
-        "exit Jest=0 Rjest=1",
-        "test results differ"
-      ]
+      "compatible": true,
+      "differences": []
     },
     {
       "name": "gap-module-name-mapper",

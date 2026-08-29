@@ -12,8 +12,8 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, CoverageMap, ModuleNameMapper, SnapshotResult, SnapshotUpdate, TestFile,
-    TestFileResult, WORKER_PROTOCOL_VERSION, WorkerRequest,
+    AggregatedResult, CoverageMap, ModuleNameMapper, SnapshotRequest, SnapshotResult,
+    SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION, WorkerRequest,
 };
 use thiserror::Error;
 
@@ -31,6 +31,7 @@ pub struct RunnerOptions {
     pub module_file_extensions: Vec<String>,
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
+    pub automock: bool,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub setup_files_after_env: Vec<PathBuf>,
@@ -56,6 +57,7 @@ impl Default for RunnerOptions {
             module_file_extensions: vec!["js".into(), "json".into(), "node".into()],
             module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
+            automock: false,
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files_after_env: Vec::new(),
@@ -275,6 +277,7 @@ fn run_file(
         root_dir: options.root_dir.clone(),
         module_file_extensions: options.module_file_extensions.clone(),
         module_name_mapper: options.module_name_mapper.clone(),
+        automock: options.automock,
         test_environment: options.test_environment.clone(),
         test_environment_options: options.test_environment_options.clone(),
         setup_files_after_env: options.setup_files_after_env.clone(),
@@ -291,10 +294,12 @@ fn run_file(
         },
         test_name_pattern: options.test_name_pattern.clone(),
         default_timeout_ms: options.default_timeout_ms,
-        snapshot_update: options.snapshot_update,
-        snapshot_file_exists: snapshot.exists,
-        snapshot_dirty: snapshot.dirty,
-        snapshot_data: snapshot.data,
+        snapshot: SnapshotRequest {
+            snapshot_update: options.snapshot_update,
+            snapshot_file_exists: snapshot.exists,
+            snapshot_dirty: snapshot.dirty,
+            snapshot_data: snapshot.data,
+        },
     };
     let encoded = serde_json::to_vec(&request)?;
     let (stdout, stderr, timed_out) = execute_worker(&encoded, options)?;

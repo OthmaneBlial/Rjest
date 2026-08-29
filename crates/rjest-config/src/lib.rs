@@ -79,6 +79,7 @@ pub struct ProjectConfig {
     pub module_file_extensions: Vec<String>,
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
+    pub automock: bool,
     pub test_environment: String,
     pub test_environment_options: Value,
     pub setup_files_after_env: Vec<PathBuf>,
@@ -109,6 +110,7 @@ struct RawProjectConfig {
     module_file_extensions: Option<Vec<String>>,
     module_name_mapper: Option<serde_json::Map<String, Value>>,
     module_paths: Option<Vec<String>>,
+    automock: Option<bool>,
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
     setup_files_after_env: Option<Vec<String>>,
@@ -190,6 +192,7 @@ impl ProjectConfig {
             .collect(),
             module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
+            automock: false,
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files_after_env: Vec::new(),
@@ -411,6 +414,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.module_file_extensions),
         module_name_mapper,
         module_paths,
+        automock: raw.automock.unwrap_or(defaults.automock),
         test_environment,
         test_environment_options: raw
             .test_environment_options
@@ -721,6 +725,7 @@ mod tests {
                 "^@first/(.*)$":"<rootDir>/src/$1",
                 "^@fallback$":["missing-module","<rootDir>/src/fallback.js"]
               },
+              "automock":true,
               "modulePathIgnorePatterns":["/dist/"],
               "setupFilesAfterEnv":["<rootDir>/test/setup.ts"],
               "snapshotSerializers":["fixture-serializer"],
@@ -758,6 +763,7 @@ mod tests {
                     .into_owned()
             ]
         );
+        assert!(config.automock);
         assert_eq!(
             config.setup_files_after_env,
             [temp.path().join("test/setup.ts")]

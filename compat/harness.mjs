@@ -113,7 +113,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {name: 'gap-inline-snapshot', category: 'Snapshots', expectedExit: 0},
-  {name: 'gap-automock', category: 'Mocks', expectedExit: 0, compatible: false},
+  {
+    name: 'gap-automock',
+    category: 'Mocks',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {
     name: 'gap-module-name-mapper',
     category: 'Configuration',
