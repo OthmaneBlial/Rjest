@@ -132,6 +132,10 @@ request signing, cancellation, response parsing, factory mocks, and timeout
 spies. Both runners pass 10/10 suites and 208/208 tests, with exact aggregate
 and per-file coverage summaries across 24 source files.
 
+The pinned [aggregate AWS Amplify API corpus](docs/corpus/amplify-api.md)
+composes GraphQL, Adapter Next.js, SSR, fetch mocks, and package exports. Both
+runners pass 2/2 suites and 86/86 tests with exact test identities/statuses.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

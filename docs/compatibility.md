@@ -123,6 +123,11 @@ automatic/factory mocks, `jest.mocked`, and timeout spies. The unchanged suite
 passes on the first Rjest diagnostic, with exact test identity/status and
 aggregate plus per-file Istanbul parity across 24 source files.
 
+The pinned [aggregate AWS Amplify API corpus](corpus/amplify-api.md) adds 2
+suites and 86 tests over the built GraphQL, Adapter Next.js, SSR, and package
+export surfaces. Test identities/statuses are exact and both runners return the
+same empty coverage map configured by this package.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.
