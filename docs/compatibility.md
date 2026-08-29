@@ -7,10 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 93/93 (100.0%) across its explicitly listed
+The current generated matrix is 96/96 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-18/18 (100.0%). CLI is 6/6 (100.0%). These are scores for the bounded regression
+21/21 (100.0%). CLI is 6/6 (100.0%). These are scores for the bounded regression
 set, not claims about the unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
@@ -29,6 +29,10 @@ unresolvable bare names, scratch dependency registries, reset, and isolation.
 Generated CommonJS and native-ESM automocks run registered `onGenerateMock`
 callbacks in order while authored manual mocks and explicit factories bypass
 them.
+Implicit configuration discovery traverses parent directories in Jest's file
+extension order, treats a package without a `jest` field as a default-config
+project root, and stops at the nearest package boundary. Invocations without a
+config or package root fail instead of silently choosing the current directory.
 CommonJS `deepUnmock` propagates actual-module decisions through dependencies
 and cycles while retaining explicit-factory priority and ordinary-parent mocks.
 `jest.replaceProperty` covers prototype lookup, repeated handles, descriptor

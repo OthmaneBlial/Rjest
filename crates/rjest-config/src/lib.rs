@@ -62,6 +62,8 @@ pub enum ConfigError {
     MissingPackageConfig(PathBuf),
     #[error("multiple Jest configuration files were found: {0}")]
     MultipleConfigs(String),
+    #[error("could not find a Jest configuration or package root from `{0}`")]
+    MissingConfig(PathBuf),
     #[error("unsupported configuration fields: {0}; Rjest does not silently ignore Jest options")]
     UnsupportedFields(String),
     #[error("configuration format `{0}` is not supported; use a standard Jest config extension")]
@@ -325,15 +327,8 @@ impl ProjectConfig {
 pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig, ConfigError> {
     let project_dir = absolute(project_dir)?;
     let config_path = match explicit {
-        Some(path) => Some(resolve_from(&project_dir, path)),
+        Some(path) => resolve_from(&project_dir, path),
         None => find_config(&project_dir)?,
-    };
-
-    let Some(config_path) = config_path else {
-        let mut defaults = ProjectConfig::defaults(&project_dir)?;
-        defaults.test_environment =
-            default_test_environment(&project_dir, &defaults.test_environment);
-        return Ok(defaults);
     };
 
     let extension = config_path.extension().and_then(|value| value.to_str());
@@ -348,10 +343,11 @@ pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig
     };
 
     if config_path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
-        value = value
-            .get_mut("jest")
-            .map(Value::take)
-            .ok_or_else(|| ConfigError::MissingPackageConfig(config_path.clone()))?;
+        let configured = value.get_mut("jest").map(Value::take);
+        let Some(configured) = configured.filter(json_value_is_truthy) else {
+            return default_project_config(config_path.parent().unwrap_or(&project_dir));
+        };
+        value = configured;
         if let Value::String(referenced) = value {
             let referenced = resolve_from(
                 config_path.parent().unwrap_or(&project_dir),
@@ -461,6 +457,12 @@ fn process_details(stdout: &str, stderr: &str) -> String {
     } else {
         format!(":\n{details}")
     }
+}
+
+fn default_project_config(root_dir: &Path) -> Result<ProjectConfig, ConfigError> {
+    let mut defaults = ProjectConfig::defaults(root_dir)?;
+    defaults.test_environment = default_test_environment(root_dir, &defaults.test_environment);
+    Ok(defaults)
 }
 
 fn normalize_mock_lifecycle(
@@ -923,26 +925,55 @@ fn normalize_coverage(
     Ok((provider, directory))
 }
 
-fn find_config(project_dir: &Path) -> Result<Option<PathBuf>, ConfigError> {
-    let mut candidates = CONFIG_FILENAMES
-        .iter()
-        .map(|name| project_dir.join(name))
-        .filter(|candidate| candidate.is_file())
-        .collect::<Vec<_>>();
-    let package = project_dir.join("package.json");
-    if package.is_file() && read_json(&package)?.get("jest").is_some() {
-        candidates.push(package);
+fn find_config(project_dir: &Path) -> Result<PathBuf, ConfigError> {
+    let mut directory = project_dir;
+    loop {
+        let mut candidates = CONFIG_FILENAMES
+            .iter()
+            .map(|name| directory.join(name))
+            .filter(|candidate| candidate.is_file())
+            .collect::<Vec<_>>();
+        let package = directory.join("package.json");
+        let package_exists = package.is_file();
+        if package_exists
+            && read_json(&package)?
+                .get("jest")
+                .is_some_and(json_value_is_truthy)
+        {
+            candidates.push(package.clone());
+        }
+        if candidates.len() > 1 {
+            return Err(ConfigError::MultipleConfigs(
+                candidates
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ));
+        }
+        if let Some(config) = candidates.pop() {
+            return Ok(config);
+        }
+        if package_exists {
+            return Ok(package);
+        }
+        let Some(parent) = directory.parent() else {
+            return Err(ConfigError::MissingConfig(project_dir.to_path_buf()));
+        };
+        if parent == directory {
+            return Err(ConfigError::MissingConfig(project_dir.to_path_buf()));
+        }
+        directory = parent;
     }
-    if candidates.len() > 1 {
-        return Err(ConfigError::MultipleConfigs(
-            candidates
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-        ));
+}
+
+fn json_value_is_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(number) => number.as_f64() != Some(0.0),
+        Value::String(value) => !value.is_empty(),
+        Value::Bool(true) | Value::Array(_) | Value::Object(_) => true,
     }
-    Ok(candidates.pop())
 }
 
 fn resolve_root_token(base: &Path, value: &str) -> PathBuf {
@@ -1102,6 +1133,53 @@ mod tests {
     }
 
     #[test]
+    fn traverses_parent_directories_for_implicit_configuration() {
+        let temp = tempdir().expect("temp dir");
+        let nested = temp.path().join("packages/example/src");
+        fs::create_dir_all(&nested).expect("nested directory");
+        fs::write(
+            temp.path().join("jest.config.json"),
+            r#"{"testTimeout":1234}"#,
+        )
+        .expect("write parent config");
+
+        let config = load(&nested, None).expect("load parent config");
+        assert_eq!(config.root_dir, temp.path());
+        assert_eq!(config.test_timeout, 1_234);
+    }
+
+    #[test]
+    fn nearest_package_is_an_implicit_root_boundary_without_jest_config() {
+        let temp = tempdir().expect("temp dir");
+        let package = temp.path().join("packages/example");
+        let nested = package.join("src/deep");
+        fs::create_dir_all(&nested).expect("nested directory");
+        fs::write(
+            temp.path().join("jest.config.json"),
+            r#"{"testTimeout":1234}"#,
+        )
+        .expect("write ancestor config");
+        fs::write(
+            package.join("package.json"),
+            r#"{"name":"nested-package","private":true}"#,
+        )
+        .expect("write package root");
+
+        let config = load(&nested, None).expect("load package defaults");
+        assert_eq!(config.root_dir, package);
+        assert_eq!(config.test_timeout, 5_000);
+    }
+
+    #[test]
+    fn rejects_implicit_discovery_without_a_config_or_package_root() {
+        let temp = tempdir().expect("temp dir");
+        assert!(matches!(
+            load(temp.path(), None),
+            Err(ConfigError::MissingConfig(_))
+        ));
+    }
+
+    #[test]
     fn rejects_explicit_test_match_and_test_regex_together() {
         let temp = tempdir().expect("temp dir");
         fs::write(
@@ -1119,6 +1197,8 @@ mod tests {
     #[test]
     fn preserves_the_pre_jest_27_jsdom_default() {
         let temp = tempdir().expect("temp dir");
+        fs::write(temp.path().join("package.json"), r#"{"private":true}"#)
+            .expect("write package root");
         fs::create_dir_all(temp.path().join("node_modules/jest")).expect("create Jest package");
         fs::write(
             temp.path().join("node_modules/jest/package.json"),

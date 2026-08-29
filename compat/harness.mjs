@@ -56,6 +56,27 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-parent-traversal',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+    workingDirectory: 'packages/example',
+  },
+  {
+    name: 'config-parent-package-root',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+    workingDirectory: 'packages/example',
+  },
+  {
+    name: 'config-parent-package-boundary',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+    workingDirectory: 'packages/example',
+  },
+  {
     name: 'config-setup-files',
     category: 'Configuration',
     expectedExit: 0,
@@ -489,9 +510,9 @@ function compareCase(testCase) {
   const label = testCase.label ?? testCase.name;
   const sourceFixture = join(fixtures, testCase.name);
   const temporary = mkdtempSync(join(tmpdir(), 'rjest-compat-'));
-  const jestOutput = join(temporary, 'jest-result.json');
-  const jestFixture = join(temporary, 'jest');
-  const rjestFixture = join(temporary, 'rjest');
+    const jestOutput = join(temporary, 'jest-result.json');
+    const jestFixture = join(temporary, 'jest');
+    const rjestFixture = join(temporary, 'rjest');
   try {
     cpSync(sourceFixture, jestFixture, {recursive: true});
     cpSync(sourceFixture, rjestFixture, {recursive: true});
@@ -499,6 +520,12 @@ function compareCase(testCase) {
       prepareNodeModule(jestFixture);
       prepareNodeModule(rjestFixture);
     }
+    const jestCwd = testCase.workingDirectory
+      ? join(jestFixture, testCase.workingDirectory)
+      : jestFixture;
+    const rjestCwd = testCase.workingDirectory
+      ? join(rjestFixture, testCase.workingDirectory)
+      : rjestFixture;
     const jestArguments = [jest, '--runInBand'];
     if (testCase.compareExecutionMarkers) jestArguments.push('--no-cache');
     else jestArguments.push('--json', `--outputFile=${jestOutput}`);
@@ -536,7 +563,7 @@ function compareCase(testCase) {
       process.execPath,
       jestArguments,
       {
-        cwd: jestFixture,
+        cwd: jestCwd,
         encoding: 'utf8',
         env: jestEnvironment,
       },
@@ -577,7 +604,7 @@ function compareCase(testCase) {
     };
     if (testCase.unsetNodeEnv) delete rjestEnvironment.NODE_ENV;
     const rjestRun = spawnSync(rjest, rjestArguments, {
-      cwd: rjestFixture,
+      cwd: rjestCwd,
       encoding: 'utf8',
       env: rjestEnvironment,
     });

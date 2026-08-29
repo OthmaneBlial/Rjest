@@ -43,7 +43,9 @@ cargo run -p rjest-cli -- --bail
 
 Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
 `.ts`, `.cts`, `.mts`, `.json`, and the `jest` field or config reference in
-`package.json`. Jest-style inline JSON passed through `--config` also works.
+`package.json`. Implicit discovery climbs from the invocation directory and
+uses the nearest package as a project-root boundary, matching Jest. Jest-style
+inline JSON passed through `--config` also works.
 Exported async config functions and supported `fakeTimers` options work. Unknown
 Jest options fail explicitly rather than being ignored. Node 22.18 or newer is
 required; the current TypeScript path uses Node's native erasable-syntax support

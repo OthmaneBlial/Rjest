@@ -6,9 +6,14 @@ fn command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rjest"))
 }
 
+fn write_package_root(path: &std::path::Path) {
+    fs::write(path.join("package.json"), r#"{"private":true}"#).expect("write package root");
+}
+
 #[test]
 fn shows_config_and_lists_discovered_tests() {
     let temp = tempdir().expect("temp dir");
+    write_package_root(temp.path());
     let test_path = temp.path().join("sample.test.js");
     fs::write(&test_path, "test('passes', () => expect(1).toBe(1));").expect("write fixture");
 
@@ -47,6 +52,7 @@ fn shows_config_and_lists_discovered_tests() {
 #[test]
 fn lists_an_empty_shard_successfully() {
     let temp = tempdir().expect("temp dir");
+    write_package_root(temp.path());
     fs::write(
         temp.path().join("first.test.js"),
         "test('first', () => expect(true).toBe(true));",
@@ -100,6 +106,7 @@ fn accepts_jest_inline_json_config() {
 #[test]
 fn returns_jest_style_exit_codes_for_passing_and_failing_runs() {
     let temp = tempdir().expect("temp dir");
+    write_package_root(temp.path());
     let test_path = temp.path().join("status.test.js");
     fs::write(&test_path, "test('passes', () => expect(1).toBe(1));")
         .expect("write passing fixture");
@@ -128,6 +135,7 @@ fn returns_jest_style_exit_codes_for_passing_and_failing_runs() {
 #[test]
 fn writes_json_to_output_file_without_printing_it_to_stdout() {
     let temp = tempdir().expect("temp dir");
+    write_package_root(temp.path());
     let test_path = temp.path().join("output.test.js");
     let output_path = temp.path().join("result.json");
     fs::write(&test_path, "test('passes', () => expect(1).toBe(1));")
@@ -155,6 +163,7 @@ fn writes_json_to_output_file_without_printing_it_to_stdout() {
 #[test]
 fn bail_stops_serial_dispatch_and_exits_before_json_serialization() {
     let temp = tempdir().expect("temp dir");
+    write_package_root(temp.path());
     let marker = temp.path().join("later.marker");
     let output_path = temp.path().join("result.json");
     fs::write(
