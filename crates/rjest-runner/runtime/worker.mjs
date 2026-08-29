@@ -1,4 +1,4 @@
-import {existsSync, readFileSync} from 'node:fs';
+import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import Module, {createRequire, registerHooks} from 'node:module';
 import {isDeepStrictEqual, format, inspect, promisify} from 'node:util';
 import {
@@ -66,6 +66,7 @@ const originalModuleExtensions = new Map(Object.entries(Module._extensions));
 const runtimeTransformers = [];
 const transformCacheFs = new Map();
 const transformedSourceCache = new Map();
+const runtimeSourceMaps = new Map();
 const pendingAsyncTransforms = new Map();
 const instrumentedFiles = new Set();
 const runtimeSnapshotSerializers = [];
@@ -120,6 +121,7 @@ const snapshotState = {
   // Records remain until a retry clears them so an enclosing describe retry
   // can roll back passing as well as failing descendant tests.
   attempts: new WeakMap(),
+  inlineUpdates: [],
   writeCount: 0,
   added: 0,
   matched: 0,
@@ -725,6 +727,185 @@ function stripInlineSnapshotIndentation(inlineSnapshot) {
   return lines.join('\n');
 }
 
+function inlineSnapshotFrame(error) {
+  const testPath = normalizedRuntimePath(request.testPath);
+  for (const line of String(error?.stack ?? '').split('\n')) {
+    const trimmed = line.trim();
+    const parenthesized = trimmed.match(/\((.+:\d+:\d+)\)$/)?.[1];
+    const location =
+      parenthesized ?? trimmed.replace(/^at\s+(?:async\s+)?/, '');
+    const match = location.match(/^(.*):(\d+):(\d+)$/);
+    if (!match) continue;
+    let file = match[1];
+    try {
+      if (file.startsWith('file:')) file = fileURLToPath(file);
+    } catch {
+      continue;
+    }
+    if (normalizedRuntimePath(file) !== testPath) continue;
+    return {
+      file: request.testPath,
+      line: Number.parseInt(match[2], 10),
+      column: Number.parseInt(match[3], 10),
+    };
+  }
+  throw new Error("Jest: Couldn't infer stack frame for inline snapshot.");
+}
+
+let inlineSnapshotTools;
+
+function loadUnmockedRuntimeTool(specifier) {
+  const resolved = requireFromTest.resolve(specifier);
+  bypassModuleMocks.add(resolved);
+  transformerDepth += 1;
+  try {
+    return requireFromTest(resolved);
+  } finally {
+    transformerDepth -= 1;
+    bypassModuleMocks.delete(resolved);
+  }
+}
+
+function getInlineSnapshotTools() {
+  if (inlineSnapshotTools) return inlineSnapshotTools;
+  const babel = loadUnmockedRuntimeTool('@babel/core');
+  const loadedGenerator = loadUnmockedRuntimeTool('@babel/generator');
+  const traceMapping = loadUnmockedRuntimeTool('@jridgewell/trace-mapping');
+  inlineSnapshotTools = {
+    babel,
+    generate: loadedGenerator.default ?? loadedGenerator,
+    traceMapping,
+  };
+  return inlineSnapshotTools;
+}
+
+function originalInlineSnapshotFrame(frame) {
+  const sourceMap = runtimeSourceMaps.get(normalizedRuntimePath(frame.file));
+  if (!sourceMap) return frame;
+  const {traceMapping} = getInlineSnapshotTools();
+  const original = traceMapping.originalPositionFor(
+    new traceMapping.TraceMap(sourceMap),
+    {line: frame.line, column: frame.column - 1},
+  );
+  if (original.line == null || original.column == null) return frame;
+  return {...frame, line: original.line, column: original.column + 1};
+}
+
+function escapeInlineSnapshot(snapshot) {
+  return snapshot.replaceAll(/`|\\|\${/g, '\\$&');
+}
+
+function inlineSnapshotParserPlugins(path) {
+  const extension = extname(path);
+  const plugins = [];
+  if (extension.endsWith('x')) plugins.push('jsx');
+  if (/\.[cm]?tsx?$/.test(extension)) {
+    plugins.push(['typescript', {isTSX: extension.endsWith('x')}]);
+  }
+  return plugins;
+}
+
+function rewriteInlineSnapshotFile(path, updates) {
+  const {babel, generate} = getInlineSnapshotTools();
+  const source = readFileSync(path, 'utf8');
+  const ast = babel.parseSync(source, {
+    babelrc: false,
+    configFile: false,
+    filename: path,
+    parserOpts: {
+      plugins: inlineSnapshotParserPlugins(path),
+      sourceType: 'unambiguous',
+    },
+  });
+  if (!ast) throw new Error(`jest-snapshot: Failed to parse ${path}`);
+
+  const updatesByLocation = new Map();
+  for (const update of updates) {
+    const frame = originalInlineSnapshotFrame(update.frame);
+    const key = `${frame.line}:${frame.column - 1}`;
+    const atLocation = updatesByLocation.get(key) ?? [];
+    atLocation.push(update);
+    updatesByLocation.set(key, atLocation);
+  }
+  const replacements = [];
+  babel.traverse(ast, {
+    CallExpression(nodePath) {
+      const node = nodePath.node;
+      const property = node.callee?.property;
+      if (
+        node.callee?.type !== 'MemberExpression' ||
+        property?.type !== 'Identifier' ||
+        !property.loc ||
+        node.callee.computed
+      ) {
+        return;
+      }
+      const key = `${property.loc.start.line}:${property.loc.start.column}`;
+      const atLocation = updatesByLocation.get(key);
+      if (!atLocation) return;
+      if (atLocation.length > 1) {
+        throw new Error(
+          'Jest: Multiple inline snapshots for the same call are not supported.',
+        );
+      }
+      const update = atLocation[0];
+      const replacement = babel.types.templateLiteral(
+        [
+          babel.types.templateElement({
+            raw: escapeInlineSnapshot(update.snapshot),
+          }),
+        ],
+        [],
+      );
+      const snapshotIndex = node.arguments.findIndex(
+        argument =>
+          argument.type === 'TemplateLiteral' || argument.type === 'StringLiteral',
+      );
+      if (snapshotIndex === -1) node.arguments.push(replacement);
+      else node.arguments[snapshotIndex] = replacement;
+      if (
+        typeof node.start !== 'number' ||
+        typeof node.end !== 'number' ||
+        !node.loc
+      ) {
+        throw new Error('Jest: no snapshot insert location found');
+      }
+      node.loc.end.line = node.loc.start.line;
+      replacements.push({
+        start: node.start,
+        end: node.end,
+        code: generate(node, {retainLines: true}).code.trim(),
+      });
+      updatesByLocation.delete(key);
+    },
+  });
+  if (updatesByLocation.size > 0) {
+    throw new Error("Jest: Couldn't locate all inline snapshots.");
+  }
+  let rewritten = source;
+  replacements.sort((left, right) => right.start - left.start);
+  for (const replacement of replacements) {
+    rewritten =
+      rewritten.slice(0, replacement.start) +
+      replacement.code +
+      rewritten.slice(replacement.end);
+  }
+  if (rewritten !== source) writeFileSync(path, rewritten);
+}
+
+function persistInlineSnapshots() {
+  const byFile = new Map();
+  for (const update of snapshotState.inlineUpdates) {
+    const path = update.frame.file;
+    const updates = byFile.get(path) ?? [];
+    updates.push(update);
+    byFile.set(path, updates);
+  }
+  for (const [path, updates] of byFile) {
+    rewriteInlineSnapshotFile(path, updates);
+  }
+}
+
 function normalizeSnapshotName(value) {
   return value.replace(/\r\n|\r|\n/g, ending => {
     if (ending === '\r\n') return '\\r\\n';
@@ -752,6 +933,7 @@ function snapshotAttemptRecord(test = activeTest) {
       counters: new Map(),
       counts: {added: 0, matched: 0, unmatched: 0, updated: 0},
       data: new Map(),
+      inlineUpdates: new Set(),
       writes: undefined,
     };
     snapshotState.attempts.set(test, record);
@@ -807,6 +989,12 @@ function recordSnapshotWrite() {
   snapshotState.dirty = true;
 }
 
+function recordInlineSnapshotUpdate(frame, snapshot) {
+  const update = {frame, snapshot};
+  snapshotState.inlineUpdates.push(update);
+  snapshotAttemptRecord()?.inlineUpdates.add(update);
+}
+
 function clearSnapshotAttempt(test) {
   const record = snapshotState.attempts.get(test);
   if (!record) return;
@@ -818,6 +1006,9 @@ function clearSnapshotAttempt(test) {
     if (previous === undefined) delete snapshotState.data[key];
     else snapshotState.data[key] = previous;
   }
+  snapshotState.inlineUpdates = snapshotState.inlineUpdates.filter(
+    update => !record.inlineUpdates.has(update),
+  );
   for (const key of record.checkedKeys) snapshotState.unchecked.add(key);
   for (const [testName, previous] of record.counters) {
     if (previous === undefined) snapshotState.counts.delete(testName);
@@ -1295,6 +1486,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
   };
   expectation.toMatchInlineSnapshot = (...arguments_) => {
     recordAssertion();
+    const callsiteError = new Error();
     if (isNot) {
       throw new Error('Snapshot matchers cannot be used with .not');
     }
@@ -1307,18 +1499,42 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
       arguments_.length > 1 ||
       (arguments_.length === 1 && typeof arguments_[0] !== 'string');
     const properties = hasProperties ? arguments_[0] : undefined;
-    const inlineSnapshot = stripInlineSnapshotIndentation(arguments_.at(-1));
-    if (typeof inlineSnapshot !== 'string') {
-      throw new Error(
-        'Writing new inline snapshots is not supported yet; provide an existing inline snapshot',
-      );
-    }
+    const inlineArgument = hasProperties ? arguments_[1] : arguments_[0];
+    const inlineSnapshot =
+      typeof inlineArgument === 'string'
+        ? stripInlineSnapshotIndentation(inlineArgument)
+        : undefined;
     const evaluate = received => {
       const snapshotReceived = hasProperties
         ? applySnapshotProperties(received, properties)
         : received;
       const serialized = formatSnapshot(snapshotReceived);
+      if (inlineSnapshot === undefined) {
+        if (
+          snapshotState.update === 'new' ||
+          snapshotState.update === 'all'
+        ) {
+          incrementSnapshotCount('added');
+          recordInlineSnapshotUpdate(
+            inlineSnapshotFrame(callsiteError),
+            serialized,
+          );
+          return;
+        }
+        incrementSnapshotCount('unmatched');
+        throw new RjestAssertionError(
+          `Inline snapshot is missing\nReceived: ${serialized}`,
+        );
+      }
       if (serialized !== inlineSnapshot) {
+        if (snapshotState.update === 'all') {
+          incrementSnapshotCount('updated');
+          recordInlineSnapshotUpdate(
+            inlineSnapshotFrame(callsiteError),
+            serialized,
+          );
+          return;
+        }
         incrementSnapshotCount('unmatched');
         throw new RjestAssertionError(
           `Inline snapshot mismatch\nExpected: ${inlineSnapshot}\nReceived: ${serialized}`,
@@ -1342,9 +1558,10 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
     if (thrown === undefined) {
       throw new RjestAssertionError('Received function did not throw');
     }
-    return makeExpectation(
-      thrown?.message ?? String(thrown),
-    ).toMatchInlineSnapshot(inlineSnapshot);
+    const thrownExpectation = makeExpectation(thrown?.message ?? String(thrown));
+    return inlineSnapshot === undefined
+      ? thrownExpectation.toMatchInlineSnapshot()
+      : thrownExpectation.toMatchInlineSnapshot(inlineSnapshot);
   };
   expectation.toThrowErrorMatchingSnapshot = hint => {
     recordAssertion();
@@ -3720,13 +3937,19 @@ function finalizeRuntimeTransform(
         ],
         sourceMaps: sourceMap ? 'both' : false,
       });
-      if (typeof instrumented?.code === 'string') code = instrumented.code;
+      if (typeof instrumented?.code === 'string') {
+        code = instrumented.code;
+        sourceMap = instrumented.map ?? sourceMap;
+      }
     } finally {
       transformerDepth -= 1;
     }
   }
   if (instrument) {
     instrumentedFiles.add(normalizedRuntimePath(filename));
+  }
+  if (sourceMap) {
+    runtimeSourceMaps.set(normalizedRuntimePath(filename), sourceMap);
   }
   const result = {code};
   transformedSourceCache.set(cacheKey, result);
@@ -5559,6 +5782,14 @@ try {
   await collectUncoveredCoverage();
 } catch (error) {
   fileErrors.push(errorText(error));
+}
+
+if (snapshotState.inlineUpdates.length > 0) {
+  try {
+    persistInlineSnapshots();
+  } catch (error) {
+    fileErrors.push(errorText(error));
+  }
 }
 
 if (

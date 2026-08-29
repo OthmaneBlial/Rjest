@@ -385,6 +385,14 @@ const cases = [
   },
   {name: 'gap-inline-snapshot', category: 'Snapshots', expectedExit: 0},
   {
+    name: 'snapshot-inline-write',
+    category: 'Snapshots',
+    expectedExit: 0,
+    updateSnapshots: true,
+    compareTestSources: true,
+    experimentalVmModules: true,
+  },
+  {
     name: 'gap-automock',
     category: 'Mocks',
     expectedExit: 0,
@@ -585,6 +593,13 @@ function compareCase(testCase) {
         differences.push('snapshot files differ');
       }
     }
+    if (testCase.compareTestSources) {
+      const jestSources = readTestSources(jestFixture);
+      const rjestSources = readTestSources(rjestFixture);
+      if (JSON.stringify(jestSources) !== JSON.stringify(rjestSources)) {
+        differences.push('rewritten test sources differ');
+      }
+    }
     if (testCase.compareCoverage) {
       const jestCoverage = normalizeCoverageSummary(
         JSON.parse(readFileSync(join(jestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
@@ -712,6 +727,23 @@ function readExecutionMarkers(root) {
     .filter(name => name.endsWith('.marker'))
     .sort()
     .map(name => ({name, contents: readFileSync(join(root, name), 'utf8')}));
+}
+
+function readTestSources(root) {
+  const sources = [];
+  visit(root, '');
+  return sources.sort((left, right) => left.path.localeCompare(right.path));
+
+  function visit(directory, relative) {
+    for (const name of readdirSync(directory)) {
+      const absolute = join(directory, name);
+      const child = relative ? `${relative}/${name}` : name;
+      if (statSync(absolute).isDirectory()) visit(absolute, child);
+      else if (/\.(?:spec|test)\.[cm]?[jt]sx?$/.test(name)) {
+        sources.push({path: child, contents: readFileSync(absolute, 'utf8')});
+      }
+    }
+  }
 }
 
 function normalizeJest(result, testCase) {

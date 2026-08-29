@@ -653,6 +653,70 @@ mod tests {
     }
 
     #[test]
+    fn writes_and_then_consumes_inline_snapshots_at_the_original_callsite() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("inline.test.cjs");
+        fs::write(
+            &test_path,
+            r#"test('inline', () => {
+  expect({greeting: 'hello'}).toMatchInlineSnapshot();
+  expect('fresh').toMatchInlineSnapshot(`"stale"`);
+});
+"#,
+        )
+        .expect("write inline fixture");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical path"),
+        }];
+        let module_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../node_modules")
+            .canonicalize()
+            .expect("repository node_modules");
+        let options = RunnerOptions {
+            root_dir: temp.path().to_path_buf(),
+            module_paths: vec![module_path.clone()],
+            snapshot_update: SnapshotUpdate::All,
+            ..RunnerOptions::default()
+        };
+
+        let written = run(&files, &options).expect("write inline snapshots");
+
+        assert!(written.is_success());
+        assert_eq!(written.test_results[0].snapshot.added, 1);
+        assert_eq!(written.test_results[0].snapshot.updated, 1);
+        let expected = r#"test('inline', () => {
+  expect({ greeting: 'hello' }).toMatchInlineSnapshot(`
+{
+  "greeting": "hello",
+}
+`);
+  expect('fresh').toMatchInlineSnapshot(`"fresh"`);
+});
+"#;
+        assert_eq!(
+            fs::read_to_string(&test_path).expect("rewritten source"),
+            expected
+        );
+
+        let matching = run(
+            &files,
+            &RunnerOptions {
+                root_dir: temp.path().to_path_buf(),
+                module_paths: vec![module_path],
+                snapshot_update: SnapshotUpdate::None,
+                ..RunnerOptions::default()
+            },
+        )
+        .expect("consume inline snapshots");
+        assert!(matching.is_success());
+        assert_eq!(matching.test_results[0].snapshot.matched, 2);
+        assert_eq!(
+            fs::read_to_string(test_path).expect("stable source"),
+            expected
+        );
+    }
+
+    #[test]
     fn parses_the_protocol_after_raw_stdout_without_a_line_break() {
         let temp = tempdir().expect("temp dir");
         let test_path = temp.path().join("stdout.test.js");
