@@ -111,6 +111,15 @@ Last updated: 2026-08-29
 - Live JSDOM window/self/navigator and IndexedDB bindings, cycle-safe subset
   matching through inherited accessors, JSDOM initialization isolation from
   mocked global constructors, and Jest-major-aware empty-title result names.
+- A pinned AWS Amplify Auth/Jest 29 corpus: exact 101/101 suites, 1,150/1,150
+  tests, and aggregate plus per-file Istanbul parity across 198 source files on
+  the unchanged package.
+- Getter-backed function spies, Jest 29's `jest.genMockFromModule` alias,
+  isolated automatic-mock metadata evaluation, and JSDOM isolation from
+  Node-only encoding globals.
+- A reusable machine comparator for captured real-project results, checking
+  exact suite paths, test names/statuses, snapshots, file errors, and aggregate
+  plus per-file coverage summaries.
 - An automated differential denominator containing both passing probes and
   preserved known incompatibilities. The current generated result is 53/53
   compatible scenarios (100%), with per-category scores in the
@@ -119,8 +128,8 @@ Last updated: 2026-08-29
 
 ## Current work
 
-- Expand the pinned Amplify monorepo corpus beyond Analytics and Core, then
-  address the next cross-package incompatibilities.
+- Expand the pinned Amplify monorepo corpus beyond Analytics, Core, and Auth,
+  then address the next cross-package incompatibilities.
 
 ## Compatibility snapshot
 
@@ -153,11 +162,12 @@ scenario category.
   Legacy-timer mode remains unimplemented.
 - Fresh Node/JSDOM/transformer startup per test file is a major performance
   bottleneck: the pinned Amplify Core serial run is compatible but about 19.35
-  times slower than Jest by reported runner time.
+  times slower than Jest by reported runner time, while Auth is about 19.83
+  times slower.
 
 ## Next highest-value tasks
 
-1. Run another high-pressure Amplify workspace package unchanged.
+1. Run the Amplify Storage workspace package unchanged.
 2. Grow the versioned differential denominator from its real failures.
 3. Implement legacy fake-timer behavior.
 4. Extend native ESM mocking to async factories and unmock/reset semantics.

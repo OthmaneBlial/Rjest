@@ -81,6 +81,13 @@ and exact aggregate and per-file Istanbul summary parity across 204 source
 files. The serial Rjest run is materially slower, so the result is correctness
 evidence rather than a performance claim.
 
+The pinned [AWS Amplify Auth corpus](corpus/amplify-auth.md) adds the same
+strict proof for 101/101 suites and 1,150/1,150 tests. The reusable corpus
+comparator verifies exact suite paths, test names/statuses, snapshot counts,
+and aggregate plus per-file Istanbul summaries across 198 source files, with
+zero Rjest file errors. Run it with `npm run compare:corpus` against captured
+Jest and Rjest JSON results.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

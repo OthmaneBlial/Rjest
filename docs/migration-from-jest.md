@@ -33,8 +33,9 @@ worker trigger.
 JSDOM projects can redefine or spy on `window`, `self`, `navigator`, storage,
 and IndexedDB globals using the patterns covered by the differential suite.
 Rjest also isolates JSDOM's initial lifecycle events from test-side global
-constructor mocks. Complete custom environment behavior remains outside the
-current compatibility claim.
+constructor mocks and does not expose Node-only `TextEncoder` or `TextDecoder`
+when the installed JSDOM window omits them. Complete custom environment
+behavior remains outside the current compatibility claim.
 
 `rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
 positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
@@ -56,9 +57,12 @@ CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 nested exports and classes, manual `__mocks__` files are resolved for adjacent
 and ancestor/bare-module cases, and Babel-Jest hoists standard mock factories.
 Virtual CommonJS mocks and synchronous `jest.unstable_mockModule` factories are
-supported. `jest.isolateModules` provides a temporary CommonJS module registry.
-Deeply unmocked transitive dependencies and async ESM mock factories remain
-incomplete.
+supported. Jest 29's legacy `jest.genMockFromModule` alias is also available,
+and metadata discovery is isolated from the active mock registry. Ordinary
+`jest.spyOn` supports getter-backed function exports as well as explicit
+accessor spies. `jest.isolateModules` provides a temporary CommonJS module
+registry. Deeply unmocked transitive dependencies and async ESM mock factories
+remain incomplete.
 
 External and existing inline snapshots accept nested property matchers and
 serialize their asymmetric placeholders like Jest. Rjest still cannot write a

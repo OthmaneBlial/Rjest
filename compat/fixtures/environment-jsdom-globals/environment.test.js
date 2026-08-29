@@ -41,3 +41,8 @@ test('keeps bare IndexedDB globals linked to window assignments', () => {
 
   expect(IDBKeyRange).toBe(replacement);
 });
+
+test('does not leak Node-only encoding globals into JSDOM', () => {
+  expect(typeof TextEncoder).toBe('undefined');
+  expect(typeof TextDecoder).toBe('undefined');
+});

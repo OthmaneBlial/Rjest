@@ -100,6 +100,11 @@ Its strict comparison also finds exact test identity/status and aggregate plus
 per-file coverage parity across 204 source files. Rjest remains materially
 slower on this transformer-heavy workload.
 
+The pinned [AWS Amplify Auth corpus](docs/corpus/amplify-auth.md) extends the
+unchanged monorepo proof to 101/101 suites and 1,150/1,150 tests. Its automated
+comparison finds exact suite paths, test identities/statuses, and aggregate plus
+per-file coverage parity across 198 source files, with zero Rjest file errors.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

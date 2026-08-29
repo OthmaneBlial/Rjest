@@ -1435,15 +1435,24 @@ function spyOn(target, property, accessType) {
     return mock;
   }
 
-  if (!descriptor || typeof descriptor.value !== 'function') {
+  const original =
+    descriptor && 'value' in descriptor
+      ? descriptor.value
+      : descriptor?.get?.call(target);
+  if (typeof original !== 'function') {
     throw new TypeError(`Property ${String(property)} is not a function`);
   }
-  const original = descriptor.value;
   if (isMock(original)) return original;
   const mock = createMock(function invokeOriginal(...args) {
     return original.apply(this, args);
   });
-  Object.defineProperty(target, property, {...descriptor, value: mock});
+  Object.defineProperty(
+    target,
+    property,
+    'value' in descriptor
+      ? {...descriptor, value: mock}
+      : {...descriptor, get: () => mock},
+  );
   mock._setRestore(() => {
     if (hadOwn) Object.defineProperty(target, property, ownDescriptor);
     else delete target[property];
@@ -1741,6 +1750,39 @@ function loadActualModule(specifier, fromPath = activeModulePath) {
   }
 }
 
+function generateAutoMock(specifier, fromPath = activeModulePath) {
+  const previousCache = Module._cache;
+  const registrySnapshots = [moduleMocks, virtualModuleMocks].map(registry => [
+    registry,
+    [...registry.entries()].map(([key, entry]) => [
+      key,
+      entry,
+      entry.initialized,
+      entry.value,
+    ]),
+  ]);
+  Module._cache = Object.create(null);
+  for (const [registry] of registrySnapshots) {
+    for (const entry of registry.values()) {
+      entry.initialized = false;
+      entry.value = undefined;
+    }
+  }
+  try {
+    return createAutoMock(loadActualModule(specifier, fromPath));
+  } finally {
+    Module._cache = previousCache;
+    for (const [registry, entries] of registrySnapshots) {
+      registry.clear();
+      for (const [key, entry, initialized, value] of entries) {
+        entry.initialized = initialized;
+        entry.value = value;
+        registry.set(key, entry);
+      }
+    }
+  }
+}
+
 function createAutoMock(value, seen = new WeakMap()) {
   if (isMock(value)) return value;
   if (typeof value === 'function') {
@@ -2025,7 +2067,7 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
         ? entry.factory()
         : manualPath
           ? loadActualModule(manualPath, entry.fromPath)
-          : createAutoMock(loadActualModule(entry.specifier, entry.fromPath));
+          : generateAutoMock(entry.specifier, entry.fromPath);
       if (process.env.RJEST_DEBUG_MODULE_MOCKS === '1') {
         consoleEntries.push({
           level: 'debug',
@@ -2064,7 +2106,10 @@ function scopedJest(fromPath) {
       return requireMock(specifier, fromPath);
     },
     createMockFromModule(specifier) {
-      return createAutoMock(loadActualModule(specifier, fromPath));
+      return generateAutoMock(specifier, fromPath);
+    },
+    genMockFromModule(specifier) {
+      return generateAutoMock(specifier, fromPath);
     },
     enableAutomock() {
       return setAutomock(true, scoped);
@@ -2457,6 +2502,9 @@ function installJsdomEnvironment() {
     } catch {
       // JSDOM exposes a few host properties that Node deliberately protects.
     }
+  }
+  for (const key of ['TextEncoder', 'TextDecoder']) {
+    if (!(key in window)) delete globalThis[key];
   }
   for (const key of ['window', 'self']) {
     Object.defineProperty(globalThis, key, {
@@ -2869,7 +2917,10 @@ const jest = {
   requireActual: loadActualModule,
   requireMock,
   createMockFromModule(specifier) {
-    return createAutoMock(loadActualModule(specifier));
+    return generateAutoMock(specifier);
+  },
+  genMockFromModule(specifier) {
+    return generateAutoMock(specifier);
   },
   enableAutomock() {
     return setAutomock(true, jest);
