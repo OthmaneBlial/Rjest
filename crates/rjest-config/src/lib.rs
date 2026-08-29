@@ -164,9 +164,10 @@ struct RawProjectConfig {
 struct RawFakeTimersConfig {
     enable_globally: Option<bool>,
     legacy_fake_timers: Option<bool>,
+    advance_timers: Option<Value>,
     do_not_fake: Option<Vec<String>>,
     now: Option<u64>,
-    timer_limit: Option<u64>,
+    timer_limit: Option<serde_json::Number>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
 }
@@ -561,13 +562,43 @@ fn normalize_fake_timers(
 
     let legacy_fake_timers = configured.legacy_fake_timers.unwrap_or(false);
     if legacy_fake_timers
-        && (configured.do_not_fake.is_some()
+        && (configured.advance_timers.is_some()
+            || configured.do_not_fake.is_some()
             || configured.now.is_some()
             || configured.timer_limit.is_some())
     {
         return Err(ConfigError::UnsupportedValue {
             field: "fakeTimers".into(),
-            value: "legacyFakeTimers cannot be combined with doNotFake, now, or timerLimit".into(),
+            value:
+                "legacyFakeTimers cannot be combined with advanceTimers, doNotFake, now, or timerLimit"
+                    .into(),
+        });
+    }
+
+    if let Some(value) = &configured.advance_timers {
+        let valid = value.is_boolean()
+            || value
+                .as_f64()
+                .is_some_and(|number| number.is_finite() && number >= 0.0);
+        if !valid {
+            return Err(ConfigError::UnsupportedValue {
+                field: "fakeTimers.advanceTimers".into(),
+                value: value.to_string(),
+            });
+        }
+    }
+    if configured
+        .timer_limit
+        .as_ref()
+        .and_then(serde_json::Number::as_f64)
+        .is_some_and(|number| number < 0.0)
+    {
+        return Err(ConfigError::UnsupportedValue {
+            field: "fakeTimers.timerLimit".into(),
+            value: configured
+                .timer_limit
+                .as_ref()
+                .map_or_else(String::new, ToString::to_string),
         });
     }
 
@@ -585,6 +616,7 @@ fn normalize_fake_timers(
     Ok(FakeTimersConfig {
         enable_globally: configured.enable_globally.unwrap_or(false),
         legacy_fake_timers,
+        advance_timers: configured.advance_timers,
         do_not_fake,
         now: configured.now,
         timer_limit: configured.timer_limit,
@@ -963,6 +995,7 @@ mod tests {
               "fakeTimers":{
                 "enableGlobally":true,
                 "legacyFakeTimers":false,
+                "advanceTimers":25,
                 "doNotFake":["performance"],
                 "now":1234,
                 "timerLimit":50
@@ -1010,9 +1043,16 @@ mod tests {
         assert!(config.clear_mocks);
         assert!(config.fake_timers.enable_globally);
         assert!(!config.fake_timers.legacy_fake_timers);
+        assert_eq!(
+            config.fake_timers.advance_timers,
+            Some(serde_json::json!(25))
+        );
         assert_eq!(config.fake_timers.do_not_fake, ["performance"]);
         assert_eq!(config.fake_timers.now, Some(1234));
-        assert_eq!(config.fake_timers.timer_limit, Some(50));
+        assert_eq!(
+            config.fake_timers.timer_limit,
+            Some(serde_json::Number::from(50))
+        );
         assert_eq!(config.extensions_to_treat_as_esm, [".ts"]);
         assert_eq!(config.setup_files, [temp.path().join("test/pre-setup.ts")]);
         assert_eq!(
@@ -1077,6 +1117,16 @@ mod tests {
         let error = load(incompatible.path(), None)
             .expect_err("legacy timers should reject modern-only options");
         assert!(error.to_string().contains("legacyFakeTimers"));
+
+        let invalid_advance = tempdir().expect("temp dir");
+        fs::write(
+            invalid_advance.path().join("jest.config.json"),
+            r#"{"fakeTimers":{"advanceTimers":-1}}"#,
+        )
+        .expect("write config");
+        let error = load(invalid_advance.path(), None)
+            .expect_err("negative automatic advancement should fail");
+        assert!(error.to_string().contains("fakeTimers.advanceTimers"));
     }
 
     #[test]

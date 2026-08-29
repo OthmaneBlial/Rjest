@@ -30,12 +30,14 @@ pub struct ModuleNameMapper {
 pub struct FakeTimersConfig {
     pub enable_globally: bool,
     pub legacy_fake_timers: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advance_timers: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub do_not_fake: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub now: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timer_limit: Option<u64>,
+    pub timer_limit: Option<serde_json::Number>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

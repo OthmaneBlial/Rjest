@@ -2829,6 +2829,7 @@ const fakeTimers = {
   active: false,
   mode: 'modern',
   maxRuns: 100_000,
+  autoAdvanceHandle: undefined,
   get now() {
     return fakeTimerStates[this.mode].now;
   },
@@ -3097,8 +3098,8 @@ function installFakeTimers(options = {}) {
   fakeTimers.active = true;
   fakeTimers.mode = mode;
   fakeTimers.maxRuns =
-    mode === 'modern' && Number.isFinite(Number(options.timerLimit))
-      ? Math.max(0, Math.floor(Number(options.timerLimit)))
+    mode === 'modern' && Number(options.timerLimit) > 0
+      ? Number(options.timerLimit)
       : 100_000;
   nativeAnimationFrame = {
     request: globalThis.requestAnimationFrame,
@@ -3246,7 +3247,23 @@ function installFakeTimers(options = {}) {
     fakeHrtime.bigint = () => BigInt(Math.floor(fakeTimers.monotonicNow * 1e6));
     process.hrtime = fakeHrtime;
   }
+  installAutomaticTimerAdvance(options.advanceTimers);
   return jest;
+}
+
+function installAutomaticTimerAdvance(configured) {
+  if (!configured) return;
+  const delta = typeof configured === 'number' ? configured : 20;
+  fakeTimers.autoAdvanceHandle = nativeSetInterval(() => {
+    if (!fakeTimers.active || fakeTimers.mode !== 'modern') return;
+    runTimersUntil(fakeTimers.now + delta);
+  }, delta);
+}
+
+function stopAutomaticTimerAdvance() {
+  if (fakeTimers.autoAdvanceHandle === undefined) return;
+  nativeClearInterval(fakeTimers.autoAdvanceHandle);
+  fakeTimers.autoAdvanceHandle = undefined;
 }
 
 function installLegacyFakeTimerApis() {
@@ -3320,6 +3337,7 @@ function installLegacyFakeTimerApis() {
 }
 
 function restoreRealTimers() {
+  stopAutomaticTimerAdvance();
   globalThis.setTimeout = nativeSetTimeout;
   globalThis.clearTimeout = nativeClearTimeout;
   globalThis.setInterval = nativeSetInterval;

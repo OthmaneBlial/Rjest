@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 60/60 (100%) across its explicitly listed
+The current generated matrix is 61/61 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 
@@ -33,7 +33,7 @@ separate zero-based scheduler, Jest-mock timer APIs, Node timer references, real
 wall-clock APIs and microtask queue, `runAllImmediates`, queue ordering, and
 modern-only API errors. Node and JSDOM behavior is differential-tested, as are
 globally enabled legacy and modern timer configuration. Modern automatic
-wall-clock advancement through `fakeTimers.advanceTimers` remains unsupported.
+wall-clock advancement supports the boolean 20 ms default and a numeric cadence.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.

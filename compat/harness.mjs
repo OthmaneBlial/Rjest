@@ -65,6 +65,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-fake-timers-advance',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'coverage-basic',
     category: 'Coverage',
     expectedExit: 0,

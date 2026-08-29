@@ -25,11 +25,11 @@ fields; unsupported options are migration work items and produce an explicit
 error.
 
 The `fakeTimers` configuration supports global modern or legacy activation,
-`doNotFake`, `now`, and `timerLimit`. Explicit
+`advanceTimers`, `doNotFake`, `now`, and `timerLimit`. Explicit
 `jest.useFakeTimers({legacyFakeTimers: true})` retains Jest's zero-based legacy
 clock, mock timer functions, real `Date`/`performance`, and legacy-only
-`runAllImmediates` behavior. Automatic modern advancement through
-`fakeTimers.advanceTimers` remains an explicit migration gap.
+`runAllImmediates` behavior. Automatic modern advancement supports Jest's
+boolean 20 ms default and numeric cadence.
 
 `setupFiles` and `setupFilesAfterEnv` retain their separate Jest lifecycle
 phases. Rjest also accepts Jest's `-w` worker alias and reports per-file heap
