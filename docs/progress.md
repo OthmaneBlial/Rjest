@@ -144,17 +144,24 @@ Last updated: 2026-08-29
 - A pinned AWS Amplify Adapter Next.js/Jest 29 corpus: exact 41/41 suites, 300
   passing and one skipped test, one snapshot, and aggregate plus per-file
   Istanbul parity across 50 source files on the unchanged package.
+- Jest-aligned mock arity, call contexts/instances, recursive result finalization,
+  undefined one-shot fallback behavior, repeated-spy identity, and restoration
+  across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 54/54
+  preserved known incompatibilities. The current generated result is 55/55
   compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Expand the pinned Amplify monorepo corpus beyond Analytics, Core, Auth,
-  Storage, DataStore, Notifications, and Adapter Next.js, then address the next
-  cross-package incompatibilities.
+- The unchanged Amplify API GraphQL package now matches 8/8 suites, 149/149
+  tests, and 15/15 snapshots. Its strict corpus result remains open because a
+  delayed WebSocket cleanup branch executes during Jest's longer file run but
+  after Rjest has finished: Rjest is short by 2 covered statements, 1 branch,
+  and 2 lines in one of 36 instrumented files. Keep the strict comparator red
+  until the scheduling difference is understood without adding an artificial
+  delay or weakening coverage comparison.
 
 ## Compatibility snapshot
 
@@ -162,7 +169,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 54/54 (100%). Coverage is 3/3 in that deliberately bounded
+corpus score is 55/55 (100%). Coverage is 3/3 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -194,7 +201,9 @@ scenario category.
 
 ## Next highest-value tasks
 
-1. Run the next high-impact Amplify workspace package unchanged.
-2. Grow the versioned differential denominator from its real failures.
-3. Implement legacy fake-timer behavior.
-4. Extend native ESM mocking to async factories and unmock/reset semantics.
+1. Resolve the API GraphQL cleanup-timer coverage discrepancy without changing
+   the corpus or relaxing the comparator.
+2. Run the next high-impact Amplify workspace package unchanged.
+3. Grow the versioned differential denominator from its real failures.
+4. Implement legacy fake-timer behavior.
+5. Extend native ESM mocking to async factories and unmock/reset semantics.

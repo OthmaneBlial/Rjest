@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 54,
-    "total": 54,
+    "passing": 55,
+    "total": 55,
     "percentage": 100
   },
   "categories": {
@@ -44,8 +44,8 @@
       "percentage": 100
     },
     "Mocks": {
-      "passing": 6,
-      "total": 6,
+      "passing": 7,
+      "total": 7,
       "percentage": 100
     },
     "Resolution": {
@@ -205,6 +205,12 @@
     },
     {
       "name": "module-mock-cjs",
+      "category": "Mocks",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "mock-reference-semantics",
       "category": "Mocks",
       "compatible": true,
       "differences": []

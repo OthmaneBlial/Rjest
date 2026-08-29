@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 54/54 (100%) across its explicitly listed
+The current generated matrix is 55/55 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 

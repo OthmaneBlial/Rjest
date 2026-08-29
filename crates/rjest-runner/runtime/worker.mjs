@@ -1331,33 +1331,87 @@ function isMock(value) {
   return typeof value === 'function' && value._isMockFunction === true;
 }
 
+function matchMockArity(callback, length) {
+  switch (length) {
+    case 1:
+      return function mockConstructor(_a) {
+        return callback.apply(this, arguments);
+      };
+    case 2:
+      return function mockConstructor(_a, _b) {
+        return callback.apply(this, arguments);
+      };
+    case 3:
+      return function mockConstructor(_a, _b, _c) {
+        return callback.apply(this, arguments);
+      };
+    case 4:
+      return function mockConstructor(_a, _b, _c, _d) {
+        return callback.apply(this, arguments);
+      };
+    case 5:
+      return function mockConstructor(_a, _b, _c, _d, _e) {
+        return callback.apply(this, arguments);
+      };
+    case 6:
+      return function mockConstructor(_a, _b, _c, _d, _e, _f) {
+        return callback.apply(this, arguments);
+      };
+    case 7:
+      return function mockConstructor(_a, _b, _c, _d, _e, _f, _g) {
+        return callback.apply(this, arguments);
+      };
+    case 8:
+      return function mockConstructor(_a, _b, _c, _d, _e, _f, _g, _h) {
+        return callback.apply(this, arguments);
+      };
+    case 9:
+      return function mockConstructor(_a, _b, _c, _d, _e, _f, _g, _h, _i) {
+        return callback.apply(this, arguments);
+      };
+    default:
+      return function mockConstructor() {
+        return callback.apply(this, arguments);
+      };
+  }
+}
+
 function createMock(implementation) {
   let defaultImplementation = implementation;
   const once = [];
   let name = 'jest.fn()';
   let restore;
   let state = newMockState();
-  function mock(...args) {
+  let mock;
+  const mockConstructor = function (...args) {
     const context = this;
     state.calls.push(args);
     state.contexts.push(context);
-    state.instances.push(new.target ? context : undefined);
+    state.instances.push(context);
     state.invocationCallOrder.push(++invocationOrder);
     state.lastCall = args;
     const result = {type: 'incomplete', value: undefined};
     state.results.push(result);
-    const selected = once.length > 0 ? once.shift() : defaultImplementation;
+    let finalReturnValue;
+    let thrownError;
+    let callDidThrowError = false;
     try {
-      const value = selected ? selected.apply(context, args) : undefined;
-      result.type = 'return';
-      result.value = value;
-      return value;
+      finalReturnValue = (() => {
+        let selected = once.shift();
+        if (selected === undefined) selected = defaultImplementation;
+        return selected ? selected.apply(context, args) : undefined;
+      })();
+      return finalReturnValue;
     } catch (error) {
-      result.type = 'throw';
-      result.value = error;
+      thrownError = error;
+      callDidThrowError = true;
       throw error;
+    } finally {
+      result.type = callDidThrowError ? 'throw' : 'return';
+      result.value = callDidThrowError ? thrownError : finalReturnValue;
     }
-  }
+  };
+  mock = matchMockArity(mockConstructor, implementation?.length ?? 0);
   Object.defineProperties(mock, {
     _isMockFunction: {value: true},
     mock: {get: () => state},
@@ -1496,13 +1550,8 @@ function spyOn(target, property, accessType) {
   const mock = createMock(function invokeOriginal(...args) {
     return original.apply(this, args);
   });
-  Object.defineProperty(
-    target,
-    property,
-    'value' in descriptor
-      ? {...descriptor, value: mock}
-      : {...descriptor, get: () => mock},
-  );
+  if ('value' in descriptor) target[property] = mock;
+  else Object.defineProperty(target, property, {...descriptor, get: () => mock});
   mock._setRestore(() => {
     if (hadOwn) Object.defineProperty(target, property, ownDescriptor);
     else delete target[property];
