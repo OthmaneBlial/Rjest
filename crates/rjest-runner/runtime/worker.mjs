@@ -5,13 +5,14 @@ import {
   basename,
   dirname,
   extname,
+  isAbsolute,
   join,
   resolve as resolvePath,
 } from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 17;
+const PROTOCOL_VERSION = 18;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const RESULT_TEST_NODE = Symbol('rjest.testNode');
@@ -36,6 +37,16 @@ const coverageFilter = request.coverageFilter
   ? new Set(request.coverageFilter.map(normalizedRuntimePath))
   : undefined;
 const requireFromTest = createRequire(request.testPath);
+const configuredModuleDirectories = request.moduleDirectories ?? [
+  'node_modules',
+];
+const usesCustomModuleDirectories = !(
+  configuredModuleDirectories.length === 1 &&
+  configuredModuleDirectories[0] === 'node_modules'
+);
+const RuntimeResolverFactory = usesCustomModuleDirectories
+  ? requireFromTest('unrs-resolver').ResolverFactory
+  : undefined;
 let installedJestMajorVersion;
 try {
   installedJestMajorVersion = Number.parseInt(
@@ -2182,6 +2193,98 @@ function requireFrom(path = activeModulePath) {
   return createRequire(path);
 }
 
+let configuredCommonJsResolver;
+let configuredEsmResolver;
+
+function environmentExportConditions() {
+  const configured = request.testEnvironmentOptions?.customExportConditions;
+  if (Array.isArray(configured) && configured.every(value => typeof value === 'string')) {
+    return configured;
+  }
+  return String(request.testEnvironment).includes('jsdom')
+    ? ['browser']
+    : ['node', 'node-addons'];
+}
+
+function configuredResolver(mode) {
+  const key = mode === 'import' ? 'esm' : 'commonjs';
+  const existing = key === 'esm'
+    ? configuredEsmResolver
+    : configuredCommonJsResolver;
+  if (existing) return existing;
+  const environmentConditions = environmentExportConditions();
+  const conditionNames = mode === 'import'
+    ? ['import', 'module-sync', 'default', ...environmentConditions]
+    : ['require', 'module-sync', 'node', 'default', ...environmentConditions];
+  const resolver = new RuntimeResolverFactory({
+    conditionNames: [...new Set(conditionNames)],
+    extensions: (request.moduleFileExtensions ?? []).map(extension =>
+      extension.startsWith('.') ? extension : `.${extension}`,
+    ),
+    modules: configuredModuleDirectories,
+    roots: [request.rootDir],
+  });
+  if (key === 'esm') configuredEsmResolver = resolver;
+  else configuredCommonJsResolver = resolver;
+  return resolver;
+}
+
+function isBareModuleSpecifier(specifier) {
+  const moduleName = String(specifier);
+  return (
+    !Module.isBuiltin(moduleName) &&
+    !moduleName.startsWith('.') &&
+    !/^[A-Za-z][A-Za-z\d+.-]*:/.test(moduleName) &&
+    !isAbsolute(moduleName)
+  );
+}
+
+function configuredModuleResolution(specifier, fromPath, mode) {
+  if (
+    !usesCustomModuleDirectories ||
+    transformerDepth > 0 ||
+    !isBareModuleSpecifier(specifier)
+  ) {
+    return {handled: false};
+  }
+  const result = configuredResolver(mode).sync(
+    dirname(fromPath),
+    String(specifier),
+  );
+  return {
+    error: result.error,
+    handled: true,
+    path: result.path,
+  };
+}
+
+function moduleResolutionError(specifier, fromPath, details) {
+  const error = new Error(
+    details || `Cannot find module '${String(specifier)}' from '${basename(fromPath)}'`,
+  );
+  error.code = 'MODULE_NOT_FOUND';
+  return error;
+}
+
+function resolveCommonJsCandidate(specifier, parent, isMain, options) {
+  const fromPath = parent?.filename ?? request.testPath;
+  const configured = configuredModuleResolution(
+    specifier,
+    fromPath,
+    'require',
+  );
+  if (!configured.handled) {
+    return Reflect.apply(originalModuleResolveFilename, Module, [
+      specifier,
+      parent,
+      isMain,
+      options,
+    ]);
+  }
+  if (configured.path) return configured.path;
+  throw moduleResolutionError(specifier, fromPath, configured.error);
+}
+
 function mappedModuleCandidates(specifier) {
   const moduleName = String(specifier);
   for (const mapping of request.moduleNameMapper ?? []) {
@@ -2209,7 +2312,16 @@ function resolveEsmCandidate(specifier, parentURL) {
   }
   esmResolutionDepth += 1;
   try {
-    const resolved = createRequire(esmParentPath(parentURL)).resolve(moduleName);
+    const parentPath = esmParentPath(parentURL);
+    const configured = configuredModuleResolution(
+      moduleName,
+      parentPath,
+      'import',
+    );
+    const resolved = configured.handled
+      ? configured.path
+      : createRequire(parentPath).resolve(moduleName);
+    if (!resolved) return undefined;
     if (Module.isBuiltin(resolved)) {
       return resolved.startsWith('node:') ? resolved : `node:${resolved}`;
     }
@@ -3028,6 +3140,24 @@ function configureEsmRuntime() {
       if (mapped) {
         return {shortCircuit: true, url: versionedEsmUrl(mapped)};
       }
+      const configured = configuredModuleResolution(
+        specifier,
+        esmParentPath(context.parentURL),
+        'import',
+      );
+      if (configured.handled) {
+        if (!configured.path) {
+          throw moduleResolutionError(
+            specifier,
+            esmParentPath(context.parentURL),
+            configured.error,
+          );
+        }
+        return {
+          shortCircuit: true,
+          url: versionedEsmUrl(pathToFileURL(configured.path).href),
+        };
+      }
       return versionedEsmResolution(nextResolve(specifier, context));
     },
     load(url, context, nextLoad) {
@@ -3072,15 +3202,18 @@ Module._resolveFilename = function rjestResolveFilename(
   isMain,
   options,
 ) {
+  if (transformerDepth > 0) {
+    return Reflect.apply(originalModuleResolveFilename, this, [
+      specifier,
+      parent,
+      isMain,
+      options,
+    ]);
+  }
   const candidates = mappedModuleCandidates(specifier);
   if (!candidates) {
     try {
-      return Reflect.apply(originalModuleResolveFilename, this, [
-        specifier,
-        parent,
-        isMain,
-        options,
-      ]);
+      return resolveCommonJsCandidate(specifier, parent, isMain, options);
     } catch (error) {
       const manualPath = unresolvedManualMockPath(
         specifier,
@@ -3093,12 +3226,7 @@ Module._resolveFilename = function rjestResolveFilename(
   let lastError;
   for (const candidate of candidates) {
     try {
-      return Reflect.apply(originalModuleResolveFilename, this, [
-        candidate,
-        parent,
-        isMain,
-        options,
-      ]);
+      return resolveCommonJsCandidate(candidate, parent, isMain, options);
     } catch (error) {
       lastError = error;
     }
@@ -3946,6 +4074,7 @@ function runtimeTransformOptions(selected, instrument, supportsStaticEsm) {
     rootDir: request.rootDir,
     testEnvironment: effectiveTestEnvironment,
     moduleFileExtensions: request.moduleFileExtensions ?? [],
+    moduleDirectories: configuredModuleDirectories,
     extensionsToTreatAsEsm: request.extensionsToTreatAsEsm ?? [],
   };
   const transformOptions = {

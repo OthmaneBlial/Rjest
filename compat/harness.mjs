@@ -180,6 +180,21 @@ const cases = [
   },
   {name: 'gap-virtual-mock', category: 'Mocks', expectedExit: 0},
   {name: 'resolution-cjs', category: 'Resolution', expectedExit: 0},
+  {
+    name: 'resolution-module-directories',
+    category: 'Resolution',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareNodeModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'resolution-module-directories-exclusive',
+    category: 'Resolution',
+    expectedExit: 0,
+    prepareNodeModules: true,
+    useFixtureConfig: true,
+  },
   {name: 'resolution-esm', category: 'ESM', expectedExit: 0, experimentalVmModules: true},
   {
     name: 'gap-esm-transform',
@@ -552,6 +567,7 @@ function compareCase(testCase) {
       ...process.env,
       CI: '',
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
+      RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
       RJEST_COMPAT_PRETTIER_PATH:
         testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
       NODE_OPTIONS: testCase.experimentalVmModules
@@ -599,6 +615,7 @@ function compareCase(testCase) {
       ...process.env,
       NODE_PATH: join(repository, 'node_modules'),
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
+      RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
       RJEST_COMPAT_PRETTIER_PATH:
         testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
     };

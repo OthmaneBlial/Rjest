@@ -317,6 +317,7 @@ fn run() -> Result<bool> {
         module_file_extensions: config.module_file_extensions.clone(),
         extensions_to_treat_as_esm: config.extensions_to_treat_as_esm.clone(),
         module_name_mapper: config.module_name_mapper.clone(),
+        module_directories: config.module_directories.clone(),
         module_paths: config.module_paths.clone(),
         automock: config.automock,
         reset_modules: config.reset_modules,

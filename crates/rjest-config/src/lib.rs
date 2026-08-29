@@ -100,6 +100,7 @@ pub struct ProjectConfig {
     pub module_file_extensions: Vec<String>,
     pub extensions_to_treat_as_esm: Vec<String>,
     pub module_name_mapper: Vec<ModuleNameMapper>,
+    pub module_directories: Vec<String>,
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
     pub reset_modules: bool,
@@ -142,6 +143,7 @@ struct RawProjectConfig {
     module_file_extensions: Option<Vec<String>>,
     extensions_to_treat_as_esm: Option<Vec<String>>,
     module_name_mapper: Option<serde_json::Map<String, Value>>,
+    module_directories: Option<Vec<String>>,
     module_paths: Option<Vec<String>>,
     automock: Option<bool>,
     reset_modules: Option<bool>,
@@ -282,6 +284,7 @@ impl ProjectConfig {
             .collect(),
             extensions_to_treat_as_esm: Vec::new(),
             module_name_mapper: Vec::new(),
+            module_directories: vec!["node_modules".into()],
             module_paths: Vec::new(),
             automock: false,
             reset_modules: false,
@@ -503,6 +506,12 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .collect::<Result<Vec<_>, ConfigError>>()
     };
     let module_paths = resolve_paths(raw.module_paths)?;
+    let module_directories = raw
+        .module_directories
+        .unwrap_or(defaults.module_directories)
+        .into_iter()
+        .map(|directory| directory.replace("<rootDir>", root_dir.to_string_lossy().as_ref()))
+        .collect();
     let module_name_mapper = normalize_module_name_mapper(
         raw.module_name_mapper,
         &root_dir,
@@ -560,6 +569,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             defaults.extensions_to_treat_as_esm,
         )?,
         module_name_mapper,
+        module_directories,
         module_paths,
         automock: raw.automock.unwrap_or(defaults.automock),
         reset_modules: raw.reset_modules.unwrap_or(defaults.reset_modules),
@@ -1043,6 +1053,7 @@ mod tests {
         let temp = tempdir().expect("temp dir");
         let config = ProjectConfig::defaults(temp.path()).expect("defaults");
         assert!(config.module_file_extensions.contains(&"tsx".to_owned()));
+        assert_eq!(config.module_directories, ["node_modules"]);
         assert_eq!(config.roots, vec![temp.path().to_path_buf()]);
         assert_eq!(config.bail, 0);
     }
@@ -1093,6 +1104,27 @@ mod tests {
         let error = load_inline_json(temp.path(), r#"{"prettierPath":false}"#)
             .expect_err("invalid Prettier path");
         assert!(error.to_string().contains("prettierPath"));
+    }
+
+    #[test]
+    fn normalizes_module_directories_without_rooting_relative_names() {
+        let temp = tempdir().expect("temp dir");
+        let config = load_inline_json(
+            temp.path(),
+            r#"{"moduleDirectories":["<rootDir>/vendor_modules","node_modules"]}"#,
+        )
+        .expect("module directories");
+
+        assert_eq!(
+            config.module_directories,
+            [
+                temp.path()
+                    .join("vendor_modules")
+                    .to_string_lossy()
+                    .into_owned(),
+                "node_modules".to_owned()
+            ]
+        );
     }
 
     #[test]

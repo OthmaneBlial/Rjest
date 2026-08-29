@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 96/96 (100.0%) across its explicitly listed
+The current generated matrix is 98/98 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
 21/21 (100.0%). CLI is 6/6 (100.0%). These are scores for the bounded regression
@@ -75,6 +75,11 @@ default `prettier` module lookup, explicit `prettierPath`, and `null` opt-out
 are normalized. Configured Prettier 2 and 3 format the complete source file and
 then preserve Jest's special multiline snapshot indentation; both branches are
 byte-compared with official Jest.
+Configured `moduleDirectories` preserve Jest's ordered absolute roots and
+ancestor-relative directory names. The Rust-backed resolver applies CommonJS
+and native-ESM export conditions, configured extensions, `require.resolve`,
+mock/actual identity, closest-directory lookup, explicit `node_modules`
+retention, and deliberate exclusion when that name is omitted.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -107,8 +112,7 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Custom module directories and pnpm/Yarn PnP layouts
-remain open work.
+instrumentation. Custom resolvers and pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

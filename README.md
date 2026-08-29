@@ -58,8 +58,10 @@ when available, await asynchronous transformer factories (including ESM
 transformer modules), and prepare transformed static and dynamic graphs before
 Node's synchronous loader hook consumes them. Ordered
 `moduleNameMapper` rules support capture substitution and fallback targets for
-CommonJS, transformed modules, and the covered native-ESM paths. Custom
-resolvers and nonstandard package-manager layouts are not yet covered. When no
+CommonJS, transformed modules, and the covered native-ESM paths. Configured
+`moduleDirectories` names and absolute roots use Jest-compatible lookup order
+for CommonJS, transformed modules, and native ESM. Custom resolvers and
+nonstandard package-manager layouts are not yet covered. When no
 transform is configured, Rjest resolves the Babel-Jest version bundled with the
 project's installed Jest before falling back to a direct project dependency.
 For CommonJS, `jest.mock`/`doMock` factories, manual and virtual mocks,
