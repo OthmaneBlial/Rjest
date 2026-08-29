@@ -30,6 +30,11 @@ assertions. This establishes compatibility for that exact corpus, not for
 unmeasured Jest behavior. The pinned versions and commands are in the
 [Downshift corpus report](corpus/downshift.md).
 
+The pinned [React Select corpus](corpus/react-select.md) adds an older Jest 25,
+Babel 23, React 16, TSX, JSDOM, Emotion-serializer workload: both runners agree
+on 5/5 suites, 255 passing tests, 3 skipped tests, and 5/5 snapshots. Coverage
+reporting from the project's original command is not yet compatible.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

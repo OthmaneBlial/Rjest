@@ -63,6 +63,10 @@ assertions on the recorded dependency tree. The ignored corpus artifacts and
 commands are intentionally separate from the versioned probe percentage. See
 the [Downshift corpus report](docs/corpus/downshift.md).
 
+The pinned [React Select corpus](docs/corpus/react-select.md) separately reaches
+5/5 suites, 255 passing and 3 skipped tests, and 5/5 Emotion snapshots under
+Jest 25. Its original coverage flag remains a CLI/reporting compatibility gap.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

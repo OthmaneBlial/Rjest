@@ -32,6 +32,7 @@ const runtimeTransformers = [];
 const runtimeSnapshotSerializers = [];
 let runtimePrettyFormatter;
 let runtimePrettyFormatPlugins = [];
+let runtimePrettyFormatSupportsBasicPrototype = false;
 let jsdomEnvironment;
 let nativeWindowTimers;
 
@@ -499,13 +500,16 @@ function prettyFormat(value, indentation = '', stack = []) {
 }
 
 function formatSnapshot(value) {
+  const formatterOptions = {
+    escapeRegex: true,
+    plugins: [...runtimeSnapshotSerializers, ...runtimePrettyFormatPlugins],
+    printFunctionName: true,
+  };
+  if (runtimePrettyFormatSupportsBasicPrototype) {
+    formatterOptions.printBasicPrototype = false;
+  }
   const serialized = runtimePrettyFormatter
-    ? runtimePrettyFormatter(value, {
-        escapeRegex: true,
-        plugins: [...runtimeSnapshotSerializers, ...runtimePrettyFormatPlugins],
-        printBasicPrototype: false,
-        printFunctionName: true,
-      })
+    ? runtimePrettyFormatter(value, formatterOptions)
     : prettyFormat(value);
   return serialized.includes('\n') ? `\n${serialized}\n` : serialized;
 }
@@ -1371,6 +1375,15 @@ function configureTransforms() {
   for (const [pattern, configured] of Object.entries(request.transform ?? {})) {
     runtimeTransformers.push(transformerFromConfig(pattern, configured));
   }
+  if (runtimeTransformers.length === 0) {
+    try {
+      runtimeTransformers.push(
+        transformerFromConfig('^.+\\.[jt]sx?$', 'babel-jest'),
+      );
+    } catch (error) {
+      if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    }
+  }
   if (runtimeTransformers.length === 0) return;
   const extensions = new Set(
     (request.moduleFileExtensions ?? []).map(extension => `.${extension}`),
@@ -1389,17 +1402,25 @@ function configureSnapshotFormat() {
     if (
       !serializer ||
       typeof serializer.test !== 'function' ||
-      typeof serializer.print !== 'function'
+      (typeof serializer.print !== 'function' &&
+        typeof serializer.serialize !== 'function')
     ) {
       throw new TypeError(
-        `Snapshot serializer ${moduleName} must expose test() and print()`,
+        `Snapshot serializer ${moduleName} must expose test() and print() or serialize()`,
       );
     }
     runtimeSnapshotSerializers.push(serializer);
   }
   try {
     const loaded = requireFromTest('pretty-format');
-    runtimePrettyFormatter = loaded.format;
+    runtimePrettyFormatter =
+      typeof loaded === 'function' ? loaded : loaded.format;
+    try {
+      runtimePrettyFormatter({}, {printBasicPrototype: false});
+      runtimePrettyFormatSupportsBasicPrototype = true;
+    } catch {
+      runtimePrettyFormatSupportsBasicPrototype = false;
+    }
     runtimePrettyFormatPlugins = [
       loaded.plugins.AsymmetricMatcher,
       loaded.plugins.DOMCollection,
@@ -1414,14 +1435,18 @@ function configureSnapshotFormat() {
   }
 }
 
-function compileRuntimeModule(module, filename) {
+function runtimeTransformerFor(filename) {
   const normalized = filename.replaceAll('\\', '/');
   const ignored = (request.transformIgnorePatterns ?? []).some(pattern =>
     new RegExp(pattern).test(normalized),
   );
-  const selected = ignored
+  return ignored
     ? undefined
     : runtimeTransformers.find(({pattern}) => pattern.test(normalized));
+}
+
+function compileRuntimeModule(module, filename) {
+  const selected = runtimeTransformerFor(filename);
   if (!selected) {
     const extension = filename.slice(filename.lastIndexOf('.'));
     const original =
@@ -1435,18 +1460,24 @@ function compileRuntimeModule(module, filename) {
     cwd: request.rootDir,
     rootDir: request.rootDir,
     testEnvironment: request.testEnvironment,
+    moduleFileExtensions: request.moduleFileExtensions ?? [],
   };
-  const transformed = selected.transformer.process(source, filename, {
+  const transformOptions = {
     cacheFS: new Map(),
     config,
     configString: JSON.stringify(config),
     instrument: false,
+    rootDir: request.rootDir,
     supportsDynamicImport: false,
     supportsExportNamespaceFrom: false,
     supportsStaticESM: false,
     supportsTopLevelAwait: false,
     transformerConfig: selected.transformerConfig,
-  });
+  };
+  const transformed =
+    selected.transformer.process.length >= 4
+      ? selected.transformer.process(source, filename, config, transformOptions)
+      : selected.transformer.process(source, filename, transformOptions);
   if (transformed && typeof transformed.then === 'function') {
     throw new Error(`Async transformer output is not supported for ${filename}`);
   }
@@ -1539,7 +1570,10 @@ function installJsdomEnvironment() {
 }
 
 async function loadRuntimeModule(path) {
-  if (runtimeTransformers.length > 0) return requireFromTest(path);
+  if (runtimeTransformerFor(path)) return requireFromTest(path);
+  if (runtimeTransformers.length > 0 && !/\.(?:mjs|mts)$/.test(path)) {
+    return requireFromTest(path);
+  }
   return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
 }
 
@@ -2210,8 +2244,8 @@ process.on('uncaughtException', error => fileErrors.push(errorText(error)));
 let tests = [];
 try {
   configureTransforms();
-  configureSnapshotFormat();
   installJsdomEnvironment();
+  configureSnapshotFormat();
   for (const setupPath of request.setupFilesAfterEnv ?? []) {
     await loadRuntimeModule(setupPath);
   }

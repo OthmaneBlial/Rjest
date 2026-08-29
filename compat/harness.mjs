@@ -27,6 +27,12 @@ const cases = [
   {name: 'config-cjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {name: 'config-ts', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {name: 'config-package', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {
+    name: 'config-test-regex',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
   {name: 'equality-edge', category: 'Expect', expectedExit: 0},
   {
@@ -56,6 +62,13 @@ const cases = [
   },
   {name: 'timeout', category: 'Core API', expectedExit: 1},
   {name: 'snapshot', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
+  {
+    name: 'snapshot-serializer-modern',
+    category: 'Snapshots',
+    expectedExit: 0,
+    compareSnapshots: true,
+    useFixtureConfig: true,
+  },
   {name: 'snapshot-new', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
   {
     name: 'snapshot-update',
@@ -88,6 +101,7 @@ const cases = [
     useFixtureConfig: true,
   },
   {name: 'gap-snapshot-property', category: 'Snapshots', expectedExit: 0, compatible: false},
+  {name: 'implicit-babel-transform', category: 'Transforms', expectedExit: 0},
   {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0, compatible: false},
 ];
 
@@ -130,6 +144,7 @@ function compareCase(testCase) {
     const jestEnvironment = {
       ...process.env,
       CI: '',
+      RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
       NODE_OPTIONS: testCase.experimentalVmModules
         ? `${process.env.NODE_OPTIONS ?? ''} --experimental-vm-modules`.trim()
         : process.env.NODE_OPTIONS,
@@ -151,6 +166,7 @@ function compareCase(testCase) {
     const rjestEnvironment = {
       ...process.env,
       NODE_PATH: join(repository, 'node_modules'),
+      RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
     };
     if (testCase.unsetNodeEnv) delete rjestEnvironment.NODE_ENV;
     const rjestRun = spawnSync(rjest, rjestArguments, {

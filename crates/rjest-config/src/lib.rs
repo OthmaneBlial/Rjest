@@ -48,6 +48,8 @@ pub enum ConfigError {
     UnsupportedFormat(String),
     #[error("unsupported value for `{field}`: {value}")]
     UnsupportedValue { field: String, value: String },
+    #[error("configuration options `testMatch` and `testRegex` cannot be used together")]
+    ConflictingTestPatterns,
     #[error("cannot start Node config loader: {0}")]
     NodeSpawn(#[source] std::io::Error),
     #[error("cannot write to Node config loader: {0}")]
@@ -206,7 +208,10 @@ pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig
     };
 
     let Some(config_path) = config_path else {
-        return ProjectConfig::defaults(&project_dir);
+        let mut defaults = ProjectConfig::defaults(&project_dir)?;
+        defaults.test_environment =
+            default_test_environment(&project_dir, &defaults.test_environment);
+        return Ok(defaults);
     };
 
     let extension = config_path.extension().and_then(|value| value.to_str());
@@ -348,7 +353,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
 
     let test_environment = raw
         .test_environment
-        .unwrap_or(defaults.test_environment.clone());
+        .unwrap_or_else(|| default_test_environment(&root_dir, &defaults.test_environment));
     if !matches!(
         test_environment.as_str(),
         "node" | "jest-environment-node" | "jsdom" | "jest-environment-jsdom"
@@ -369,14 +374,23 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     };
     let module_paths = resolve_paths(raw.module_paths)?;
     let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
+    if raw.test_match.is_some() && raw.test_regex.is_some() {
+        return Err(ConfigError::ConflictingTestPatterns);
+    }
+    let test_match = if raw.test_regex.is_some() {
+        Vec::new()
+    } else {
+        raw.test_match.unwrap_or(defaults.test_match)
+    };
+    let test_regex = raw
+        .test_regex
+        .map_or(defaults.test_regex, OneOrMany::into_vec);
 
     Ok(ProjectConfig {
         root_dir,
         roots,
-        test_match: raw.test_match.unwrap_or(defaults.test_match),
-        test_regex: raw
-            .test_regex
-            .map_or(defaults.test_regex, OneOrMany::into_vec),
+        test_match,
+        test_regex,
         test_path_ignore_patterns: raw
             .test_path_ignore_patterns
             .unwrap_or(defaults.test_path_ignore_patterns),
@@ -446,6 +460,23 @@ fn resolve_root_token(base: &Path, value: &str) -> PathBuf {
     resolve_from(base, Path::new(value))
 }
 
+fn default_test_environment(root_dir: &Path, fallback: &str) -> String {
+    let package_path = root_dir.join("node_modules/jest/package.json");
+    let Ok(package) = read_json(&package_path) else {
+        return fallback.to_owned();
+    };
+    let major = package
+        .get("version")
+        .and_then(Value::as_str)
+        .and_then(|version| version.split('.').next())
+        .and_then(|value| value.parse::<u64>().ok());
+    if major.is_some_and(|major| major < 27) {
+        "jsdom".into()
+    } else {
+        fallback.to_owned()
+    }
+}
+
 fn resolve_from(base: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
@@ -501,7 +532,37 @@ mod tests {
 
         let config = load(temp.path(), None).expect("load config");
         assert_eq!(config.roots, vec![temp.path().join("src")]);
+        assert!(config.test_match.is_empty());
         assert_eq!(config.test_regex, vec![r"\.check\.js$"]);
+    }
+
+    #[test]
+    fn rejects_explicit_test_match_and_test_regex_together() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(
+            temp.path().join("package.json"),
+            r#"{"jest":{"testMatch":["**/*.test.js"],"testRegex":"\\.test\\.js$"}}"#,
+        )
+        .expect("write config");
+
+        assert!(matches!(
+            load(temp.path(), None),
+            Err(ConfigError::ConflictingTestPatterns)
+        ));
+    }
+
+    #[test]
+    fn preserves_the_pre_jest_27_jsdom_default() {
+        let temp = tempdir().expect("temp dir");
+        fs::create_dir_all(temp.path().join("node_modules/jest")).expect("create Jest package");
+        fs::write(
+            temp.path().join("node_modules/jest/package.json"),
+            r#"{"version":"25.5.4"}"#,
+        )
+        .expect("write Jest package");
+
+        let config = load(temp.path(), None).expect("load defaults");
+        assert_eq!(config.test_environment, "jsdom");
     }
 
     #[test]

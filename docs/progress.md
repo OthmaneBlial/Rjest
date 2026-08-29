@@ -57,16 +57,22 @@ Last updated: 2026-08-29
 - A pinned Downshift real-project corpus: exact discovery and 92/92 passing
   suites, 1,110/1,110 passing tests, and 49/49 matching snapshots under both
   official Jest and Rjest.
+- A locked React Select/Jest 25 corpus: exact discovery and 5/5 passing suites,
+  255 passing tests, 3 skipped tests, and 5/5 Emotion snapshots under both
+  official Jest and Rjest.
+- Historical pre-Jest-27 JSDOM defaults, implicit `babel-jest`, legacy
+  four-argument transformers, legacy Pretty Format, and modern `serialize()`
+  snapshot plugins.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 27/32
-  compatible scenarios (84.375%), with per-category scores in the
+  preserved known incompatibilities. The current generated result is 30/35
+  compatible scenarios (85.714%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Add a second real React corpus with different configuration and dependency
-  characteristics, then fix its highest-frequency incompatibilities.
+- Close the zero-change React Select command gap by implementing coverage CLI
+  and report behavior, then add Node/ESM and monorepo corpora.
 
 ## Compatibility snapshot
 
@@ -74,7 +80,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 27/32 (84.375%).
+corpus score is 30/35 (85.714%).
 
 ## Known blockers
 
@@ -82,7 +88,7 @@ corpus score is 27/32 (84.375%).
   Jest glob semantics are not yet implemented.
 - Config discovery currently starts at the invocation directory and does not yet
   traverse parent directories like Jest; CLI JSON config strings are also absent.
-- Configured synchronous Jest transforms work; implicit `babel-jest`, async
+- Configured synchronous and implicit `babel-jest` transforms work; async
   transformers, transformer caches, decorators outside the project transformer,
   and TypeScript path aliases remain incomplete.
 - Global automocking, transform-time mock hoisting, and ESM module mocking are not
@@ -95,9 +101,9 @@ corpus score is 27/32 (84.375%).
 
 ## Next highest-value tasks
 
-1. Run the pinned React Select corpus with official Jest and unchanged Rjest,
-   then classify and eliminate the largest gaps.
-2. Implement `moduleNameMapper` and Jest's implicit `babel-jest` transform.
+1. Implement coverage reporting so React Select's original `test:jest` command
+   can switch without dropping its coverage contract.
+2. Implement `moduleNameMapper` and add a corpus that depends on aliases.
 3. Complete animation-frame and legacy fake-timer behavior.
 4. Expand CommonJS mocks toward global automocking, then design ESM module
    mocking at the loader boundary.

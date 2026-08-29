@@ -1,0 +1,3 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`loads serialize-style plugins after the environment 1`] = `document-ready:value`;

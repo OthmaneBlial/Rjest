@@ -408,4 +408,53 @@ mod tests {
         assert!(!result.is_success());
         assert!(result.test_results[0].errors[0].contains("wall-clock limit"));
     }
+
+    #[test]
+    fn supports_the_legacy_four_argument_transformer_contract() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("legacy.test.js");
+        let transformer_path = temp.path().join("legacy-transformer.cjs");
+        fs::write(&test_path, "this is intentionally not valid JavaScript")
+            .expect("write source fixture");
+        fs::write(
+            &transformer_path,
+            r#"
+                module.exports = {
+                  process(source, filename, config, transformOptions) {
+                    if (!config.moduleFileExtensions.includes('js')) {
+                      throw new Error('missing legacy moduleFileExtensions');
+                    }
+                    if (config.rootDir !== transformOptions.rootDir) {
+                      throw new Error('legacy rootDir contract differs');
+                    }
+                    return "test('legacy transformer', () => expect(42).toBe(42));";
+                  },
+                };
+            "#,
+        )
+        .expect("write transformer fixture");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical path"),
+        }];
+        let mut transform = BTreeMap::new();
+        transform.insert(
+            r"\.js$".into(),
+            serde_json::Value::String(
+                transformer_path
+                    .canonicalize()
+                    .expect("canonical transformer")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        );
+        let options = RunnerOptions {
+            root_dir: temp.path().to_path_buf(),
+            transform,
+            ..RunnerOptions::default()
+        };
+
+        let result = run(&files, &options).expect("run transformed test");
+        assert!(result.is_success());
+        assert_eq!(result.count(TestStatus::Passed), 1);
+    }
 }
