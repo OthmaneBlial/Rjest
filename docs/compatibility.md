@@ -12,16 +12,19 @@ configuration, native discovery, isolated JS execution, configured synchronous
 Jest transforms for JSX/TypeScript, Node and JSDOM environments, nested hooks,
 async tests, common matchers, function/method/accessor mocks, CommonJS module
 mocks, external Jest v1 snapshots, existing inline snapshots, configured
-serializers, and modern fake timers. Snapshot property matchers, writing new
-inline snapshots, complete resolution/config semantics, global automocking,
-Babel coverage supports parallel Istanbul-map merging, `collectCoverageFrom`,
-common reports, and global thresholds. V8 coverage, path/glob threshold groups,
-and watch mode remain missing, so Rjest does not claim broad or drop-in Jest
+serializers, modern fake timers, and ordered `moduleNameMapper` rules for
+CommonJS and transformed modules. Babel coverage supports parallel Istanbul-map
+merging, `collectCoverageFrom`, common reports, and global thresholds. Snapshot
+property matchers, writing new inline snapshots, complete resolution/config
+semantics, global automocking, V8 coverage, path/glob threshold groups, and
+watch mode remain missing, so Rjest does not claim broad or drop-in Jest
 compatibility yet.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
-Jest-specific mapping/directories and pnpm/Yarn PnP layouts remain open work.
+CommonJS mapping is verified for capture expansion, first-match ordering,
+fallback targets, `require.resolve`, and Jest mock identity. Native-ESM mapping,
+custom module directories, and pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

@@ -5,7 +5,7 @@ import {resolve as resolvePath} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 4;
+const PROTOCOL_VERSION = 5;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -29,6 +29,7 @@ const coverageFilter = request.coverageFilter
   : undefined;
 const requireFromTest = createRequire(request.testPath);
 const originalModuleLoad = Module._load;
+const originalModuleResolveFilename = Module._resolveFilename;
 const moduleMocks = new Map();
 const bypassModuleMocks = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
@@ -1200,6 +1201,49 @@ function spyOn(target, property, accessType) {
 function requireFrom(path = activeModulePath) {
   return createRequire(path);
 }
+
+function mappedModuleCandidates(specifier) {
+  const moduleName = String(specifier);
+  for (const mapping of request.moduleNameMapper ?? []) {
+    const expression = new RegExp(mapping.pattern);
+    if (!expression.test(moduleName)) continue;
+    return mapping.replacements.map(replacement =>
+      moduleName.replace(expression, replacement),
+    );
+  }
+  return undefined;
+}
+
+Module._resolveFilename = function rjestResolveFilename(
+  specifier,
+  parent,
+  isMain,
+  options,
+) {
+  const candidates = mappedModuleCandidates(specifier);
+  if (!candidates) {
+    return Reflect.apply(originalModuleResolveFilename, this, [
+      specifier,
+      parent,
+      isMain,
+      options,
+    ]);
+  }
+  let lastError;
+  for (const candidate of candidates) {
+    try {
+      return Reflect.apply(originalModuleResolveFilename, this, [
+        candidate,
+        parent,
+        isMain,
+        options,
+      ]);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+};
 
 function resolveModuleKey(specifier, fromPath = activeModulePath) {
   return requireFrom(fromPath).resolve(String(specifier));

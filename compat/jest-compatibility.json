@@ -3,15 +3,15 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 32,
+    "passing": 33,
     "total": 37,
-    "percentage": 86.48648648648648
+    "percentage": 89.1891891891892
   },
   "categories": {
     "Configuration": {
-      "passing": 5,
+      "passing": 6,
       "total": 6,
-      "percentage": 83.33333333333334
+      "percentage": 100
     },
     "Core API": {
       "passing": 4,
@@ -272,11 +272,8 @@
     {
       "name": "gap-module-name-mapper",
       "category": "Configuration",
-      "compatible": false,
-      "differences": [
-        "exit Jest=0 Rjest=1",
-        "Rjest JSON unavailable: Unexpected end of JSON input"
-      ]
+      "compatible": true,
+      "differences": []
     },
     {
       "name": "gap-snapshot-property",

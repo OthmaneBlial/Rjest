@@ -113,7 +113,6 @@ const cases = [
     name: 'gap-module-name-mapper',
     category: 'Configuration',
     expectedExit: 0,
-    compatible: false,
     useFixtureConfig: true,
   },
   {name: 'gap-snapshot-property', category: 'Snapshots', expectedExit: 0, compatible: false},

@@ -32,8 +32,10 @@ path/glob-specific threshold groups.
 
 Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.
-Keep Jest for suites relying on `moduleNameMapper`, custom resolvers, pnpm/Yarn
-PnP edge cases, or transform-time path rewriting.
+`moduleNameMapper` supports ordered rules, capture substitution, and fallback
+targets for CommonJS and modules transformed to CommonJS. Keep Jest for suites
+relying on native-ESM mapping, custom resolvers, pnpm/Yarn PnP edge cases, or
+transform-time path rewriting outside configured Jest transforms.
 
 CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 `require`, plus `jest.requireActual`, `jest.requireMock`, and

@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use rjest_core::ModuleNameMapper;
+
 const CONFIG_FILENAMES: &[&str] = &[
     "jest.config.js",
     "jest.config.ts",
@@ -75,6 +77,7 @@ pub struct ProjectConfig {
     pub test_path_ignore_patterns: Vec<String>,
     pub module_path_ignore_patterns: Vec<String>,
     pub module_file_extensions: Vec<String>,
+    pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
     pub test_environment: String,
     pub test_environment_options: Value,
@@ -104,6 +107,7 @@ struct RawProjectConfig {
     test_path_ignore_patterns: Option<Vec<String>>,
     module_path_ignore_patterns: Option<Vec<String>>,
     module_file_extensions: Option<Vec<String>>,
+    module_name_mapper: Option<serde_json::Map<String, Value>>,
     module_paths: Option<Vec<String>>,
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
@@ -184,6 +188,7 @@ impl ProjectConfig {
             .into_iter()
             .map(String::from)
             .collect(),
+            module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
@@ -358,19 +363,8 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     let defaults = ProjectConfig::defaults(&root_dir)?;
     let roots = normalize_roots(raw.roots, &root_dir, &defaults.roots)?;
 
-    let test_environment = raw
-        .test_environment
-        .unwrap_or_else(|| default_test_environment(&root_dir, &defaults.test_environment));
-    if !matches!(
-        test_environment.as_str(),
-        "node" | "jest-environment-node" | "jsdom" | "jest-environment-jsdom"
-    ) && !Path::new(&test_environment).is_absolute()
-    {
-        return Err(ConfigError::UnsupportedValue {
-            field: "testEnvironment".into(),
-            value: test_environment,
-        });
-    }
+    let test_environment =
+        normalize_test_environment(raw.test_environment, &root_dir, &defaults.test_environment)?;
 
     let resolve_paths = |values: Option<Vec<String>>| {
         values
@@ -380,6 +374,11 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .collect::<Result<Vec<_>, ConfigError>>()
     };
     let module_paths = resolve_paths(raw.module_paths)?;
+    let module_name_mapper = normalize_module_name_mapper(
+        raw.module_name_mapper,
+        &root_dir,
+        defaults.module_name_mapper,
+    )?;
     let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
     let (test_match, test_regex) = normalize_test_patterns(
         raw.test_match,
@@ -410,6 +409,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         module_file_extensions: raw
             .module_file_extensions
             .unwrap_or(defaults.module_file_extensions),
+        module_name_mapper,
         module_paths,
         test_environment,
         test_environment_options: raw
@@ -442,6 +442,74 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.coverage_threshold),
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
+}
+
+fn normalize_module_name_mapper(
+    configured: Option<serde_json::Map<String, Value>>,
+    root_dir: &Path,
+    defaults: Vec<ModuleNameMapper>,
+) -> Result<Vec<ModuleNameMapper>, ConfigError> {
+    let Some(configured) = configured else {
+        return Ok(defaults);
+    };
+    configured
+        .into_iter()
+        .map(|(pattern, value)| {
+            let replacements = match value {
+                Value::String(value) => vec![value],
+                Value::Array(values) => values
+                    .into_iter()
+                    .map(|value| match value {
+                        Value::String(value) => Ok(value),
+                        other => Err(ConfigError::UnsupportedValue {
+                            field: format!("moduleNameMapper.{pattern}"),
+                            value: other.to_string(),
+                        }),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                other => {
+                    return Err(ConfigError::UnsupportedValue {
+                        field: format!("moduleNameMapper.{pattern}"),
+                        value: other.to_string(),
+                    });
+                }
+            };
+            if replacements.is_empty() {
+                return Err(ConfigError::UnsupportedValue {
+                    field: format!("moduleNameMapper.{pattern}"),
+                    value: "[]".into(),
+                });
+            }
+            let root = root_dir.to_string_lossy();
+            Ok(ModuleNameMapper {
+                pattern,
+                replacements: replacements
+                    .into_iter()
+                    .map(|replacement| replacement.replace("<rootDir>", &root))
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+fn normalize_test_environment(
+    configured: Option<String>,
+    root_dir: &Path,
+    fallback: &str,
+) -> Result<String, ConfigError> {
+    let environment = configured.unwrap_or_else(|| default_test_environment(root_dir, fallback));
+    if matches!(
+        environment.as_str(),
+        "node" | "jest-environment-node" | "jsdom" | "jest-environment-jsdom"
+    ) || Path::new(&environment).is_absolute()
+    {
+        Ok(environment)
+    } else {
+        Err(ConfigError::UnsupportedValue {
+            field: "testEnvironment".into(),
+            value: environment,
+        })
+    }
 }
 
 fn normalize_test_patterns(
@@ -649,6 +717,10 @@ mod tests {
             temp.path().join("jest.config.json"),
             r#"{
               "modulePaths":["<rootDir>/src"],
+              "moduleNameMapper":{
+                "^@first/(.*)$":"<rootDir>/src/$1",
+                "^@fallback$":["missing-module","<rootDir>/src/fallback.js"]
+              },
               "modulePathIgnorePatterns":["/dist/"],
               "setupFilesAfterEnv":["<rootDir>/test/setup.ts"],
               "snapshotSerializers":["fixture-serializer"],
@@ -670,6 +742,22 @@ mod tests {
 
         let config = load(temp.path(), None).expect("load runtime config");
         assert_eq!(config.module_paths, [temp.path().join("src")]);
+        assert_eq!(config.module_name_mapper[0].pattern, r"^@first/(.*)$");
+        assert_eq!(
+            config.module_name_mapper[0].replacements,
+            [temp.path().join("src/$1").to_string_lossy().into_owned()]
+        );
+        assert_eq!(config.module_name_mapper[1].pattern, r"^@fallback$");
+        assert_eq!(
+            config.module_name_mapper[1].replacements,
+            [
+                "missing-module".to_owned(),
+                temp.path()
+                    .join("src/fallback.js")
+                    .to_string_lossy()
+                    .into_owned()
+            ]
+        );
         assert_eq!(
             config.setup_files_after_env,
             [temp.path().join("test/setup.ts")]

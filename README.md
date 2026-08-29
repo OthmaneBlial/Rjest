@@ -6,10 +6,10 @@ and TypeScript test runner whose coordinator is written in Rust.
 > **Status:** early alpha. JavaScript, configured JSX/TypeScript transforms,
 > Node and JSDOM environments, modern fake timers, CommonJS module factories,
 > and Jest v1 snapshots now execute through isolated workers. Existing inline
-> snapshots, configured snapshot serializers, and Babel/Istanbul coverage are
-> supported. Global
-> automocking, ESM module mocks, writing new inline snapshots,
-> `moduleNameMapper`, V8 coverage, watch mode, and many Jest edge cases remain.
+> snapshots, configured snapshot serializers, Babel/Istanbul coverage, and
+> CommonJS/transformed `moduleNameMapper` rules are supported. Global
+> automocking, ESM module mocks, writing new inline snapshots, native-ESM
+> mapping, V8 coverage, watch mode, and many Jest edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.
 
 ## Why this architecture?
@@ -40,11 +40,12 @@ yet handle TSX or TypeScript features that require code generation.
 
 The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
 package `exports` resolution to Node. Configured synchronous Jest transformers
-can compile JS, JSX, TS, and TSX before CommonJS execution. Jest-specific
-`moduleNameMapper`, custom resolvers, and nonstandard package-manager layouts
-are not yet covered. When no transform is configured,
-Rjest resolves the Babel-Jest version bundled with the project's installed Jest
-before falling back to a direct project dependency. For CommonJS,
+can compile JS, JSX, TS, and TSX before CommonJS execution. Ordered
+`moduleNameMapper` rules support capture substitution and fallback targets for
+CommonJS and transformed modules. Native-ESM mapping, custom resolvers, and
+nonstandard package-manager layouts are not yet covered. When no transform is
+configured, Rjest resolves the Babel-Jest version bundled with the project's
+installed Jest before falling back to a direct project dependency. For CommonJS,
 `jest.mock`/`doMock` factories, `requireActual`, `requireMock`, and recursive
 basic auto-mocks are available; transformed modules retain the declaring-file
 context used to resolve mocks.

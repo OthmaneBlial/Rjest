@@ -210,6 +210,7 @@ fn run() -> Result<bool> {
         default_timeout_ms: config.test_timeout,
         root_dir: config.root_dir.clone(),
         module_file_extensions: config.module_file_extensions.clone(),
+        module_name_mapper: config.module_name_mapper.clone(),
         module_paths: config.module_paths.clone(),
         test_environment: config.test_environment.clone(),
         test_environment_options: config.test_environment_options.clone(),

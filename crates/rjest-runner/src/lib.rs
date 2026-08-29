@@ -12,8 +12,8 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, CoverageMap, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
-    WORKER_PROTOCOL_VERSION, WorkerRequest,
+    AggregatedResult, CoverageMap, ModuleNameMapper, SnapshotResult, SnapshotUpdate, TestFile,
+    TestFileResult, WORKER_PROTOCOL_VERSION, WorkerRequest,
 };
 use thiserror::Error;
 
@@ -29,6 +29,7 @@ pub struct RunnerOptions {
     pub snapshot_update: SnapshotUpdate,
     pub root_dir: PathBuf,
     pub module_file_extensions: Vec<String>,
+    pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
@@ -53,6 +54,7 @@ impl Default for RunnerOptions {
             snapshot_update: SnapshotUpdate::New,
             root_dir: PathBuf::new(),
             module_file_extensions: vec!["js".into(), "json".into(), "node".into()],
+            module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
@@ -272,6 +274,7 @@ fn run_file(
         test_path: path.to_path_buf(),
         root_dir: options.root_dir.clone(),
         module_file_extensions: options.module_file_extensions.clone(),
+        module_name_mapper: options.module_name_mapper.clone(),
         test_environment: options.test_environment.clone(),
         test_environment_options: options.test_environment_options.clone(),
         setup_files_after_env: options.setup_files_after_env.clone(),
@@ -597,6 +600,56 @@ mod tests {
         };
 
         let result = run(&files, &options).expect("run transformed test");
+        assert!(result.is_success());
+        assert_eq!(result.count(TestStatus::Passed), 1);
+    }
+
+    #[test]
+    fn resolves_ordered_module_name_mapper_rules_with_fallbacks() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("mapper.test.cjs");
+        let first_path = temp.path().join("first.js");
+        let fallback_path = temp.path().join("fallback.js");
+        fs::write(&first_path, "module.exports = 'first';").expect("first mapped module");
+        fs::write(&fallback_path, "module.exports = 'fallback';").expect("fallback mapped module");
+        fs::write(
+            &test_path,
+            "test('maps', () => {\n\
+               expect(require('@ordered/value')).toBe('first');\n\
+               expect(require('@fallback')).toBe('fallback');\n\
+             });",
+        )
+        .expect("mapped test");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical test"),
+        }];
+        let options = RunnerOptions {
+            root_dir: temp.path().to_path_buf(),
+            module_name_mapper: vec![
+                ModuleNameMapper {
+                    pattern: r"^@ordered/(.*)$".into(),
+                    replacements: vec![first_path.to_string_lossy().into_owned()],
+                },
+                ModuleNameMapper {
+                    pattern: r"^@ordered/value$".into(),
+                    replacements: vec!["must-not-win".into()],
+                },
+                ModuleNameMapper {
+                    pattern: r"^@fallback$".into(),
+                    replacements: vec![
+                        temp.path()
+                            .join("missing.js")
+                            .to_string_lossy()
+                            .into_owned(),
+                        fallback_path.to_string_lossy().into_owned(),
+                    ],
+                },
+            ],
+            ..RunnerOptions::default()
+        };
+
+        let result = run(&files, &options).expect("run mapped modules");
+
         assert!(result.is_success());
         assert_eq!(result.count(TestStatus::Passed), 1);
     }

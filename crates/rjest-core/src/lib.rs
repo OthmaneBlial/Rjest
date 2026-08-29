@@ -11,10 +11,18 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 4;
+pub const WORKER_PROTOCOL_VERSION: u32 = 5;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
+
+/// One ordered Jest `moduleNameMapper` rule and its fallback targets.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleNameMapper {
+    pub pattern: String,
+    pub replacements: Vec<String>,
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -32,6 +40,7 @@ pub struct WorkerRequest {
     pub test_path: PathBuf,
     pub root_dir: PathBuf,
     pub module_file_extensions: Vec<String>,
+    pub module_name_mapper: Vec<ModuleNameMapper>,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub setup_files_after_env: Vec<PathBuf>,

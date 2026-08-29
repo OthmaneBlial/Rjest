@@ -69,16 +69,19 @@ Last updated: 2026-08-29
   global positive/negative threshold enforcement.
 - Exact React Select coverage parity across 39 files: 1,064/1,438 statements,
   659/1,054 branches, 251/312 functions, and 1,033/1,363 lines.
+- Ordered `moduleNameMapper` rules for CommonJS and transformed modules,
+  including capture substitution, fallback targets, `require.resolve`, and
+  shared mapped identity for explicit Jest mocks.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 32/37
-  compatible scenarios (86.486%), with per-category scores in the
+  preserved known incompatibilities. The current generated result is 33/37
+  compatible scenarios (89.189%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Implement `moduleNameMapper`, then add Node/ESM and monorepo corpora with
-  original Jest configurations.
+- Add Node/ESM and monorepo corpora with original Jest configurations, then use
+  their failures to drive the next compatibility work.
 
 ## Compatibility snapshot
 
@@ -86,7 +89,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 32/37 (86.486%). Coverage is 2/2 in that deliberately bounded
+corpus score is 33/37 (89.189%). Coverage is 2/2 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -98,6 +101,8 @@ scenario category.
 - Configured synchronous and implicit `babel-jest` transforms work; async
   transformers, transformer caches, decorators outside the project transformer,
   and TypeScript path aliases remain incomplete.
+- Native-ESM module-name mapping and custom resolvers are not implemented;
+  CommonJS and transformed `moduleNameMapper` rules support ordered fallbacks.
 - Global automocking, transform-time mock hoisting, and ESM module mocking are not
   implemented; CommonJS explicit factories and manual module generation are
   partial.
@@ -109,8 +114,8 @@ scenario category.
 
 ## Next highest-value tasks
 
-1. Implement `moduleNameMapper` and add a corpus that depends on aliases.
+1. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
 2. Complete animation-frame and legacy fake-timer behavior.
-3. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
+3. Extend `moduleNameMapper` to native ESM and custom resolvers.
 4. Expand CommonJS mocks toward global automocking, then design ESM module
    mocking at the loader boundary.
