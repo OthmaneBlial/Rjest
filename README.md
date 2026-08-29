@@ -127,6 +127,11 @@ adds a mock-dense Node/Next.js server workload. Both runners pass 41/41 suites,
 300 tests with one skipped test, and one snapshot, with exact coverage summaries
 across 50 source files.
 
+The pinned [AWS Amplify API REST corpus](docs/corpus/amplify-api-rest.md) adds
+request signing, cancellation, response parsing, factory mocks, and timeout
+spies. Both runners pass 10/10 suites and 208/208 tests, with exact aggregate
+and per-file coverage summaries across 24 source files.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

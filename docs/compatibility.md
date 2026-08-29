@@ -117,6 +117,12 @@ spies, and package exports. The unchanged suite passes on the first Rjest
 diagnostic, and the strict machine comparison is exact across all test
 identities/statuses and 50 per-file Istanbul summaries.
 
+The pinned [AWS Amplify API REST corpus](corpus/amplify-api-rest.md) adds 10
+suites and 208 tests covering cancellation, request signing, response parsing,
+automatic/factory mocks, `jest.mocked`, and timeout spies. The unchanged suite
+passes on the first Rjest diagnostic, with exact test identity/status and
+aggregate plus per-file Istanbul parity across 24 source files.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

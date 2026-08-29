@@ -144,6 +144,9 @@ Last updated: 2026-08-29
 - A pinned AWS Amplify Adapter Next.js/Jest 29 corpus: exact 41/41 suites, 300
   passing and one skipped test, one snapshot, and aggregate plus per-file
   Istanbul parity across 50 source files on the unchanged package.
+- A pinned AWS Amplify API REST/Jest 29 corpus: exact 10/10 suites, 208/208
+  tests, and aggregate plus per-file Istanbul parity across 24 source files on
+  the unchanged package.
 - Jest-aligned mock arity, call contexts/instances, recursive result finalization,
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
@@ -197,7 +200,7 @@ scenario category.
   times slower than Jest by reported runner time, while Auth is about 19.83
   times slower, Storage is about 14.67 times slower, and DataStore is about
   4.17 times slower. Notifications is about 29.95 times slower and Adapter
-  Next.js is about 35.78 times slower.
+  Next.js is about 35.78 times slower. API REST is about 6.32 times slower.
 
 ## Next highest-value tasks
 
