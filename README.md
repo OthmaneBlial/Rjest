@@ -8,12 +8,12 @@ and TypeScript test runner whose coordinator is written in Rust.
 > factories, and Jest v1 snapshots now execute through isolated workers. Existing inline
 > snapshots, snapshot property matchers, configured serializers,
 > Babel/Istanbul coverage, and CommonJS/transformed `moduleNameMapper` rules are
-> supported. CommonJS and native-ESM automocking, manual CommonJS `__mocks__`
-> resolution,
+> supported. CommonJS and native-ESM automocking, manual CommonJS/native-ESM
+> `__mocks__` resolution,
 > Babel-hoisted and virtual mock factories, native-ESM mapping, and direct
 > synchronous or asynchronous ESM module mocks also work. Writing new inline
-> snapshots, manual ESM mocks, V8 coverage, watch mode, and many Jest edge cases
-> remain.
+> snapshots, generated-mock callbacks, V8 coverage, watch mode, and many Jest
+> edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.
 
 ## Why this architecture?

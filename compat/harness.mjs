@@ -202,9 +202,16 @@ const cases = [
   {
     name: 'gap-esm-manual-mock',
     category: 'Mocks',
-    compatible: false,
     expectedExit: 0,
     experimentalVmModules: true,
+    prepareNodeModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'gap-on-generate-mock',
+    category: 'Mocks',
+    compatible: false,
+    expectedExit: 0,
     useFixtureConfig: true,
   },
   {

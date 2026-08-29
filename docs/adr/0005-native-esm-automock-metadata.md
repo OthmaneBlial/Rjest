@@ -38,5 +38,5 @@ isolation clear or overlay instances while retaining metadata and decisions.
   import evaluates in the live registry.
 - Reset creates a new mock instance without reusing prior mock state; first-use
   instances created in an isolation do not leak out.
-- Sibling/root ESM manual mocks and generated-mock callbacks remain separate
-  compatibility work.
+- Manual ESM lookup/loading is specified separately in ADR 0006; generated-mock
+  callbacks remain compatibility work.

@@ -2297,6 +2297,41 @@ function restoreCommonJsMockEntries(snapshots) {
   }
 }
 
+function beginEsmManualMockScratch() {
+  const state = {
+    commonJsCache: Module._cache,
+    commonJsMocks: snapshotCommonJsMockEntries(),
+    esmGeneration: esmModuleGeneration,
+    esmMockCache: esmModuleMockCache,
+    esmMockEntries: new Map(
+      esmModuleMocks.map(entry => [entry, snapshotMockEntry(entry)]),
+    ),
+    esmMockValueKeys: new Set(esmMockValues.keys()),
+    inheritedEsmMockCache: inheritedEsmModuleMockCache,
+  };
+  Module._cache = Object.create(null);
+  esmModuleGeneration = freshEsmModuleGeneration();
+  inheritedEsmModuleMockCache = undefined;
+  esmModuleMockCache = new Map();
+  return state;
+}
+
+function endEsmManualMockScratch(state) {
+  Module._cache = state.commonJsCache;
+  restoreCommonJsMockEntries(state.commonJsMocks);
+  esmModuleGeneration = state.esmGeneration;
+  esmModuleMockCache = state.esmMockCache;
+  inheritedEsmModuleMockCache = state.inheritedEsmMockCache;
+  for (const entry of esmModuleMocks) {
+    const snapshot = state.esmMockEntries.get(entry);
+    if (snapshot) restoreMockEntry(entry, snapshot);
+    else clearEsmMockEntry(entry);
+  }
+  for (const key of esmMockValues.keys()) {
+    if (!state.esmMockValueKeys.has(key)) esmMockValues.delete(key);
+  }
+}
+
 function beginModuleIsolation() {
   const state = {
     active: true,
@@ -2651,6 +2686,33 @@ async function loadEsmAutomockMetadata(specifier, parentURL) {
   }
 }
 
+function esmManualMockPath(specifier, parentURL, coordinates) {
+  const rootMock = unresolvedManualMockPath(
+    specifier,
+    esmParentPath(parentURL),
+  );
+  if (rootMock) return rootMock;
+  if (!coordinates.canonical?.startsWith('file:')) return undefined;
+  const targetPath = fileURLToPath(coordinates.canonical);
+  const sibling = join(dirname(targetPath), '__mocks__', basename(targetPath));
+  return existsSync(sibling) ? sibling : undefined;
+}
+
+async function loadEsmManualMock(manualPath) {
+  // The authored manual module executes in scratch registries so its native
+  // namespace and generated dependencies do not populate the live caches.
+  // Mock decisions still apply to its imports, matching Jest's manual-mock
+  // loader rather than the mock-free metadata discovery path above.
+  const scratch = beginEsmManualMockScratch();
+  try {
+    const root = pathToFileURL(manualPath).href;
+    await prepareEsmGraph(root);
+    return await nativeDynamicImport(root, root);
+  } finally {
+    endEsmManualMockScratch(scratch);
+  }
+}
+
 async function ensureEsmAutoMock(specifier, parentURL, coordinates) {
   const existing = esmModuleMocks.find(
     entry => entry.automatic && entry.decisionKey === coordinates.decisionKey,
@@ -2659,7 +2721,10 @@ async function ensureEsmAutoMock(specifier, parentURL, coordinates) {
   const inFlight = pendingEsmAutoMocks.get(coordinates.decisionKey);
   if (inFlight) return inFlight;
   const pending = (async () => {
-    const actual = await loadEsmAutomockMetadata(specifier, parentURL);
+    const manualPath = esmManualMockPath(specifier, parentURL, coordinates);
+    const actual = manualPath
+      ? await loadEsmManualMock(manualPath)
+      : await loadEsmAutomockMetadata(specifier, parentURL);
     if (
       !automockEnabled ||
       explicitlyUnmockedEsmModules.has(coordinates.decisionKey)
@@ -2674,15 +2739,18 @@ async function ensureEsmAutoMock(specifier, parentURL, coordinates) {
       canonical: coordinates.canonical,
       decisionKey: coordinates.decisionKey,
       identity: coordinates.identity,
+      manualPath,
       relative: coordinates.relative,
-      factory: () => createAutoMock(actual),
+      factory: manualPath
+        ? () => loadEsmManualMock(manualPath)
+        : () => createAutoMock(actual),
       generation: 0,
       initialized: false,
       url: undefined,
       value: undefined,
       valueKey: undefined,
     };
-    cacheEsmMock(entry, entry.factory());
+    cacheEsmMock(entry, manualPath ? actual : entry.factory());
     const replaced = esmModuleMocks.findIndex(
       candidate =>
         candidate.automatic &&
