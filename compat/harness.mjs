@@ -27,9 +27,21 @@ const cases = [
   {name: 'config-mjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {name: 'config-cjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {name: 'config-ts', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {
+    name: 'config-ts-import',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'config-package', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {
     name: 'config-test-regex',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-rootdir-test-match',
     category: 'Configuration',
     expectedExit: 0,
     useFixtureConfig: true,
@@ -59,6 +71,7 @@ const cases = [
     useFixtureConfig: true,
   },
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
+  {name: 'core-each-name', category: 'Core API', expectedExit: 0},
   {name: 'equality-edge', category: 'Expect', expectedExit: 0},
   {
     name: 'environment-node-env',
@@ -78,6 +91,13 @@ const cases = [
   {name: 'focus', category: 'Core API', expectedExit: 0},
   {name: 'gap-process-stdout', category: 'Core API', expectedExit: 0},
   {name: 'module-mock-cjs', category: 'Mocks', expectedExit: 0},
+  {
+    name: 'gap-manual-mock',
+    category: 'Mocks',
+    expectedExit: 0,
+    prepareNodeModules: true,
+  },
+  {name: 'gap-virtual-mock', category: 'Mocks', expectedExit: 0},
   {name: 'resolution-cjs', category: 'Resolution', expectedExit: 0},
   {name: 'resolution-esm', category: 'ESM', expectedExit: 0, experimentalVmModules: true},
   {
@@ -120,6 +140,7 @@ const cases = [
   },
   {name: 'gap-custom-matcher', category: 'Expect', expectedExit: 0},
   {name: 'gap-promise-to-throw', category: 'Expect', expectedExit: 0},
+  {name: 'gap-expect-assertions', category: 'Expect', expectedExit: 1},
   {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-async', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-performance', category: 'Fake timers', expectedExit: 0},
@@ -156,6 +177,12 @@ const cases = [
     compareSnapshots: true,
   },
   {name: 'implicit-babel-transform', category: 'Transforms', expectedExit: 0},
+  {
+    name: 'transformer-cache-isolation',
+    category: 'Transforms',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0},
 ];
 

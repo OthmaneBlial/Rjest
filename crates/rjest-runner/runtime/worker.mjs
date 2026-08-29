@@ -1,7 +1,13 @@
-import {readFileSync} from 'node:fs';
+import {existsSync, readFileSync} from 'node:fs';
 import Module, {createRequire, registerHooks} from 'node:module';
 import {isDeepStrictEqual, format, inspect} from 'node:util';
-import {resolve as resolvePath} from 'node:path';
+import {
+  basename,
+  dirname,
+  extname,
+  join,
+  resolve as resolvePath,
+} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
@@ -31,6 +37,7 @@ const requireFromTest = createRequire(request.testPath);
 const originalModuleLoad = Module._load;
 const originalModuleResolveFilename = Module._resolveFilename;
 const moduleMocks = new Map();
+const virtualModuleMocks = new Map();
 const esmModuleMocks = [];
 const esmMockValues = new Map();
 const bypassModuleMocks = new Set();
@@ -194,12 +201,45 @@ test.each = table => (name, callback, timeout) =>
 const it = test;
 
 function interpolateName(name, values, index) {
+  const escapedPercent = '@@__RJEST_EACH_PERCENT__@@';
   let valueIndex = 0;
-  return String(name).replace(/%[#sdifjo]/g, token => {
-    if (token === '%#') return String(index);
-    const value = values[valueIndex++];
-    return token === '%j' ? JSON.stringify(value) : String(value);
-  });
+  let interpolated = String(name)
+    .replaceAll('%%', escapedPercent)
+    .replace(/%[#\$Odfijops]/g, token => {
+      if (token === '%#') return String(index);
+      if (token === '%$') return String(index + 1);
+      const value = values[valueIndex++];
+      if (token === '%p') return formatEachValue(value);
+      return format(token, value);
+    })
+    .replaceAll(escapedPercent, '%');
+  const row = values.length === 1 ? values[0] : undefined;
+  if (!row || typeof row !== 'object') return interpolated;
+  interpolated = interpolated.replace(
+    /\$([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|#)/g,
+    (placeholder, path) => {
+      if (path === '#') return String(index);
+      let value = row;
+      for (const key of path.split('.')) {
+        if (value === null || value === undefined || !(key in Object(value))) {
+          return placeholder;
+        }
+        value = value[key];
+      }
+      return isPrimitive(value) ? String(value) : formatEachValue(value);
+    },
+  );
+  return interpolated;
+}
+
+function isPrimitive(value) {
+  return value === null || (typeof value !== 'object' && typeof value !== 'function');
+}
+
+function formatEachValue(value) {
+  return runtimePrettyFormatter
+    ? runtimePrettyFormatter(value, {maxDepth: 1, min: true})
+    : inspect(value, {breakLength: Infinity, compact: true, depth: 1});
 }
 
 function beforeAll(callback, timeout) {
@@ -528,11 +568,12 @@ function prettyFormat(value, indentation = '', stack = []) {
   return `${prefix}{\n${properties}\n${indentation}}`;
 }
 
-function formatSnapshot(value) {
+function formatSnapshot(value, escapeString = false) {
   const formatterOptions = {
     escapeRegex: true,
+    escapeString,
     plugins: [...runtimeSnapshotSerializers, ...runtimePrettyFormatPlugins],
-    printFunctionName: true,
+    printFunctionName: false,
   };
   if (runtimePrettyFormatSupportsBasicPrototype) {
     formatterOptions.printBasicPrototype = false;
@@ -541,6 +582,27 @@ function formatSnapshot(value) {
     ? runtimePrettyFormatter(value, formatterOptions)
     : prettyFormat(value);
   return serialized.includes('\n') ? `\n${serialized}\n` : serialized;
+}
+
+function stripInlineSnapshotIndentation(inlineSnapshot) {
+  const match = inlineSnapshot.match(/^([^\S\n]*)\S/m);
+  if (!match?.[1]) return inlineSnapshot;
+  const indentation = match[1];
+  const lines = inlineSnapshot.split('\n');
+  if (
+    lines.length <= 2 ||
+    lines[0].trim() !== '' ||
+    lines.at(-1).trim() !== ''
+  ) {
+    return inlineSnapshot;
+  }
+  for (let index = 1; index < lines.length - 1; index += 1) {
+    if (lines[index] === '') continue;
+    if (!lines[index].startsWith(indentation)) return inlineSnapshot;
+    lines[index] = lines[index].slice(indentation.length);
+  }
+  lines[lines.length - 1] = '';
+  return lines.join('\n');
 }
 
 function normalizeSnapshotName(value) {
@@ -636,7 +698,13 @@ function matchSnapshot(received, hint) {
   const hasSnapshot = Object.prototype.hasOwnProperty.call(snapshotState.data, key);
   const expected = snapshotState.data[key];
 
-  if (hasSnapshot && expected === receivedSerialized) {
+  const legacySerialized = hasSnapshot
+    ? formatSnapshot(received, true)
+    : undefined;
+  if (
+    hasSnapshot &&
+    (expected === receivedSerialized || expected === legacySerialized)
+  ) {
     snapshotState.matched += 1;
     snapshotState.data[key] = receivedSerialized;
     return {pass: true, key};
@@ -787,6 +855,10 @@ function matcherMessage(name, received, expected, isNot) {
   return `expect(received)${isNot ? '.not' : ''}.${name}()${expectedLabel}${receivedLabel}`;
 }
 
+function recordAssertion() {
+  if (activeTest) activeTest.assertionCalls += 1;
+}
+
 function makeExpectation(actual, isNot = false, promiseMode = undefined) {
   const expectation = {};
   Object.defineProperty(expectation, 'not', {
@@ -800,6 +872,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
   });
   for (const [name, matcher] of Object.entries(matchers)) {
     expectation[name] = (...expected) => {
+      recordAssertion();
       const evaluate = received => {
         const args =
           name === 'toHaveProperty'
@@ -861,6 +934,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
   }
   for (const [name, matcher] of customMatchers) {
     expectation[name] = (...expected) => {
+      recordAssertion();
       const evaluate = received => {
         const outcome = matcher.call(
           {
@@ -922,6 +996,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
     };
   }
   expectation.toMatchSnapshot = (...arguments_) => {
+    recordAssertion();
     if (isNot) {
       throw new Error('Snapshot matchers cannot be used with .not');
     }
@@ -978,6 +1053,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
     );
   };
   expectation.toMatchInlineSnapshot = (...arguments_) => {
+    recordAssertion();
     if (isNot) {
       throw new Error('Snapshot matchers cannot be used with .not');
     }
@@ -990,7 +1066,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
       arguments_.length > 1 ||
       (arguments_.length === 1 && typeof arguments_[0] !== 'string');
     const properties = hasProperties ? arguments_[0] : undefined;
-    const inlineSnapshot = arguments_.at(-1);
+    const inlineSnapshot = stripInlineSnapshotIndentation(arguments_.at(-1));
     if (typeof inlineSnapshot !== 'string') {
       throw new Error(
         'Writing new inline snapshots is not supported yet; provide an existing inline snapshot',
@@ -1030,6 +1106,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
     ).toMatchInlineSnapshot(inlineSnapshot);
   };
   expectation.toThrowErrorMatchingSnapshot = hint => {
+    recordAssertion();
     if (typeof actual !== 'function') {
       throw new TypeError('Received value must be a function');
     }
@@ -1051,6 +1128,23 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
 function expect(actual) {
   return makeExpectation(actual);
 }
+expect.assertions = expected => {
+  if (!Number.isSafeInteger(expected) || expected < 0) {
+    throw new TypeError(
+      'The expected assertion count must be a non-negative integer.',
+    );
+  }
+  if (!activeTest) {
+    throw new Error('expect.assertions() must be called from within a test.');
+  }
+  activeTest.expectedAssertions = expected;
+};
+expect.hasAssertions = () => {
+  if (!activeTest) {
+    throw new Error('expect.hasAssertions() must be called from within a test.');
+  }
+  activeTest.requiresAssertions = true;
+};
 expect.anything = () =>
   asymmetric(
     value => value !== null && value !== undefined,
@@ -1202,7 +1296,12 @@ function createMock(implementation) {
   };
   mock.mockRestore = () => {
     mock.mockReset();
-    restore?.();
+    const callback = restore;
+    restore = undefined;
+    if (callback) {
+      restoreRegistry.delete(callback);
+      callback();
+    }
     return mock;
   };
   mock.mockImplementation = fn => {
@@ -1237,7 +1336,7 @@ function createMock(implementation) {
     restore = callback;
     restoreRegistry.add(callback);
   };
-  mockRegistry.add(mock);
+  mockRegistry.add(new WeakRef(mock));
   return mock;
 }
 
@@ -1250,6 +1349,14 @@ function newMockState() {
     results: [],
     lastCall: undefined,
   };
+}
+
+function forEachRegisteredMock(callback) {
+  for (const reference of mockRegistry) {
+    const mock = reference.deref();
+    if (mock) callback(mock);
+    else mockRegistry.delete(reference);
+  }
 }
 
 function findPropertyDescriptor(target, property) {
@@ -1513,12 +1620,21 @@ Module._resolveFilename = function rjestResolveFilename(
 ) {
   const candidates = mappedModuleCandidates(specifier);
   if (!candidates) {
-    return Reflect.apply(originalModuleResolveFilename, this, [
-      specifier,
-      parent,
-      isMain,
-      options,
-    ]);
+    try {
+      return Reflect.apply(originalModuleResolveFilename, this, [
+        specifier,
+        parent,
+        isMain,
+        options,
+      ]);
+    } catch (error) {
+      const manualPath = unresolvedManualMockPath(
+        specifier,
+        parent?.filename ?? request.testPath,
+      );
+      if (manualPath) return manualPath;
+      throw error;
+    }
   }
   let lastError;
   for (const candidate of candidates) {
@@ -1535,6 +1651,33 @@ Module._resolveFilename = function rjestResolveFilename(
   }
   throw lastError;
 };
+
+function unresolvedManualMockPath(specifier, fromPath) {
+  const moduleName = String(specifier);
+  if (
+    Module.isBuiltin(moduleName) ||
+    moduleName.startsWith('.') ||
+    moduleName.startsWith('/')
+  ) {
+    return undefined;
+  }
+  let directory = dirname(fromPath);
+  const root = resolvePath(request.rootDir);
+  while (directory === root || directory.startsWith(`${root}/`)) {
+    const base = join(directory, '__mocks__', moduleName);
+    const candidates = [base];
+    for (const extension of request.moduleFileExtensions ?? []) {
+      candidates.push(`${base}.${extension}`, join(base, `index.${extension}`));
+    }
+    const match = candidates.find(candidate => existsSync(candidate));
+    if (match) return match;
+    if (directory === root) break;
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return undefined;
+}
 
 function resolveModuleKey(specifier, fromPath = activeModulePath) {
   return requireFrom(fromPath).resolve(String(specifier));
@@ -1625,25 +1768,68 @@ function createAutoMock(value, seen = new WeakMap()) {
   return result;
 }
 
+function manualMockPath(resolvedModule, specifier, fromPath) {
+  const resolved = String(resolvedModule);
+  const candidates = [];
+  if (Module.isBuiltin(resolved)) {
+    const moduleName = resolved.replace(/^node:/, '');
+    for (const extension of request.moduleFileExtensions ?? []) {
+      candidates.push(join(request.rootDir, '__mocks__', `${moduleName}.${extension}`));
+    }
+  } else if (resolvePath(resolved) === resolved) {
+    const mockDirectory = join(dirname(resolved), '__mocks__');
+    candidates.push(join(mockDirectory, basename(resolved)));
+    const stem = basename(resolved, extname(resolved));
+    for (const extension of request.moduleFileExtensions ?? []) {
+      candidates.push(join(mockDirectory, `${stem}.${extension}`));
+    }
+  }
+  return (
+    candidates.find(candidate => existsSync(candidate)) ??
+    unresolvedManualMockPath(specifier, fromPath)
+  );
+}
+
+function virtualMockKey(specifier, fromPath) {
+  const value = String(specifier);
+  if (value.startsWith('.')) return resolvePath(dirname(fromPath), value);
+  if (value.startsWith('/')) return resolvePath(value);
+  return value;
+}
+
 function registerModuleMock(
   specifier,
   factory,
   fromPath = activeModulePath,
   returnValue = jest,
+  options = undefined,
 ) {
-  const key = resolveModuleKey(specifier, fromPath);
   if (factory !== undefined && typeof factory !== 'function') {
     throw new TypeError('The second argument of jest.mock must be a function');
   }
-  moduleMocks.set(key, {
+  const virtual = options?.virtual === true;
+  const key = virtual
+    ? virtualMockKey(specifier, fromPath)
+    : resolveModuleKey(specifier, fromPath);
+  const registry = virtual ? virtualModuleMocks : moduleMocks;
+  registry.set(key, {
     factory,
     initialized: false,
     value: undefined,
     specifier: String(specifier),
     fromPath,
+    virtual,
   });
-  explicitlyUnmockedModules.delete(key);
-  delete Module._cache[key];
+  if (virtual && process.env.RJEST_DEBUG_MODULE_MOCKS === '1') {
+    consoleEntries.push({
+      level: 'debug',
+      message: `virtual module mock registered: ${key}`,
+    });
+  }
+  if (!virtual) {
+    explicitlyUnmockedModules.delete(key);
+    delete Module._cache[key];
+  }
   return returnValue;
 }
 
@@ -1675,13 +1861,22 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
 }
 
 function requireMock(specifier, fromPath = activeModulePath) {
+  if (virtualModuleMocks.has(virtualMockKey(specifier, fromPath))) {
+    return requireFrom(fromPath)(specifier);
+  }
   const key = resolveModuleKey(specifier, fromPath);
   if (!moduleMocks.has(key)) registerModuleMock(specifier, undefined, fromPath);
   return requireFrom(fromPath)(specifier);
 }
 
 function unmockModule(specifier, fromPath, returnValue) {
-  const key = resolveModuleKey(specifier, fromPath);
+  virtualModuleMocks.delete(virtualMockKey(specifier, fromPath));
+  let key;
+  try {
+    key = resolveModuleKey(specifier, fromPath);
+  } catch {
+    return returnValue;
+  }
   moduleMocks.delete(key);
   explicitlyUnmockedModules.add(key);
   return returnValue;
@@ -1711,6 +1906,41 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
       xtest: test.skip,
     };
   }
+  const virtualKey = virtualMockKey(
+    specifier,
+    parent?.filename ?? request.testPath,
+  );
+  const virtualEntry = virtualModuleMocks.get(virtualKey);
+  if (
+    !virtualEntry &&
+    process.env.RJEST_DEBUG_MODULE_MOCKS === '1' &&
+    virtualKey.includes('/foo/')
+  ) {
+    consoleEntries.push({
+      level: 'debug',
+      message: `virtual module mock missed: ${virtualKey}; registered: ${[
+        ...virtualModuleMocks.keys(),
+      ].join(', ')}`,
+    });
+  }
+  if (virtualEntry) {
+    if (!virtualEntry.initialized) {
+      virtualEntry.initialized = true;
+      const previousModulePath = activeModulePath;
+      activeModulePath = virtualEntry.fromPath;
+      try {
+        virtualEntry.value = virtualEntry.factory
+          ? virtualEntry.factory()
+          : {};
+      } catch (error) {
+        virtualEntry.initialized = false;
+        throw error;
+      } finally {
+        activeModulePath = previousModulePath;
+      }
+    }
+    return virtualEntry.value;
+  }
   let key;
   try {
     key = Module._resolveFilename(specifier, parent, isMain);
@@ -1736,9 +1966,14 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
     const previousModulePath = activeModulePath;
     activeModulePath = entry.fromPath;
     try {
+      const manualPath = entry.factory
+        ? undefined
+        : manualMockPath(key, entry.specifier, entry.fromPath);
       entry.value = entry.factory
         ? entry.factory()
-        : createAutoMock(loadActualModule(entry.specifier, entry.fromPath));
+        : manualPath
+          ? loadActualModule(manualPath, entry.fromPath)
+          : createAutoMock(loadActualModule(entry.specifier, entry.fromPath));
       if (process.env.RJEST_DEBUG_MODULE_MOCKS === '1') {
         consoleEntries.push({
           level: 'debug',
@@ -1758,11 +1993,11 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
 function scopedJest(fromPath) {
   const scoped = Object.create(jest);
   Object.assign(scoped, {
-    mock(specifier, factory) {
-      return registerModuleMock(specifier, factory, fromPath, scoped);
+    mock(specifier, factory, options) {
+      return registerModuleMock(specifier, factory, fromPath, scoped, options);
     },
-    doMock(specifier, factory) {
-      return registerModuleMock(specifier, factory, fromPath, scoped);
+    doMock(specifier, factory, options) {
+      return registerModuleMock(specifier, factory, fromPath, scoped, options);
     },
     unmock(specifier) {
       return unmockModule(specifier, fromPath, scoped);
@@ -1808,12 +2043,22 @@ function transformerFromConfig(pattern, configured) {
   if (typeof moduleName !== 'string') {
     throw new TypeError(`Transformer for ${pattern} must name a module`);
   }
-  const loaded = requireFromTest(moduleName);
-  const exported = loaded?.default ?? loaded;
-  const transformer =
-    typeof exported?.createTransformer === 'function'
-      ? exported.createTransformer(transformerConfig ?? {})
-      : exported;
+  const cachedBefore = new Set(Object.keys(Module._cache));
+  let transformer;
+  transformerDepth += 1;
+  try {
+    const loaded = requireFromTest(moduleName);
+    const exported = loaded?.default ?? loaded;
+    transformer =
+      typeof exported?.createTransformer === 'function'
+        ? exported.createTransformer(transformerConfig ?? {})
+        : exported;
+  } finally {
+    transformerDepth -= 1;
+    for (const path of Object.keys(Module._cache)) {
+      if (!cachedBefore.has(path)) delete Module._cache[path];
+    }
+  }
   if (!transformer || typeof transformer.process !== 'function') {
     throw new TypeError(`Transformer ${moduleName} does not expose process()`);
   }
@@ -1989,6 +2234,7 @@ function transformRuntimeSource(
     transformerConfig: selected.transformerConfig,
   };
   let transformed;
+  const cachedBeforeTransform = new Set(Object.keys(Module._cache));
   transformerDepth += 1;
   try {
     transformed =
@@ -1997,6 +2243,9 @@ function transformRuntimeSource(
         : selected.transformer.process(source, filename, transformOptions);
   } finally {
     transformerDepth -= 1;
+    for (const path of Object.keys(Module._cache)) {
+      if (!cachedBeforeTransform.has(path)) delete Module._cache[path];
+    }
   }
   if (transformed && typeof transformed.then === 'function') {
     throw new Error(`Async transformer output is not supported for ${filename}`);
@@ -2511,11 +2760,23 @@ const jest = {
   mocked(value) {
     return value;
   },
-  mock(specifier, factory) {
-    return registerModuleMock(specifier, factory);
+  mock(specifier, factory, options) {
+    return registerModuleMock(
+      specifier,
+      factory,
+      activeModulePath,
+      jest,
+      options,
+    );
   },
-  doMock(specifier, factory) {
-    return registerModuleMock(specifier, factory);
+  doMock(specifier, factory, options) {
+    return registerModuleMock(
+      specifier,
+      factory,
+      activeModulePath,
+      jest,
+      options,
+    );
   },
   unmock(specifier) {
     return unmockModule(specifier, activeModulePath, jest);
@@ -2671,11 +2932,11 @@ const jest = {
     return NativeDate.now();
   },
   clearAllMocks() {
-    for (const mock of mockRegistry) mock.mockClear();
+    forEachRegisteredMock(mock => mock.mockClear());
     return jest;
   },
   resetAllMocks() {
-    for (const mock of mockRegistry) mock.mockReset();
+    forEachRegisteredMock(mock => mock.mockReset());
     return jest;
   },
   restoreAllMocks() {
@@ -2845,6 +3106,9 @@ async function runTest(
     return result;
   }
   activeTest = node;
+  node.assertionCalls = 0;
+  node.expectedAssertions = undefined;
+  node.requiresAssertions = false;
   const testStarted = performance.now();
   const failures = beforeAllError ? [beforeAllError] : [];
   if (!beforeAllError) {
@@ -2874,6 +3138,23 @@ async function runTest(
       } catch (error) {
         failures.push(error);
       }
+    }
+    if (
+      node.expectedAssertions !== undefined &&
+      node.assertionCalls !== node.expectedAssertions
+    ) {
+      failures.push(
+        new RjestAssertionError(
+          `Expected ${node.expectedAssertions} assertion${node.expectedAssertions === 1 ? '' : 's'} to be called but received ${node.assertionCalls}.`,
+        ),
+      );
+    }
+    if (node.requiresAssertions && node.assertionCalls === 0) {
+      failures.push(
+        new RjestAssertionError(
+          'Expected at least one assertion to be called but received none.',
+        ),
+      );
     }
   }
   result.durationMs = Math.max(
@@ -2928,6 +3209,7 @@ async function runSuite(
       results.push(
         await runTest(child, focusExists, selected, skipped, beforeAllError),
       );
+      await new Promise(resolve => nativeSetImmediate(resolve));
     }
   }
   for (const hook of suite.hooks.afterAll) {

@@ -34,16 +34,18 @@ path/glob-specific threshold groups.
 Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.
 `moduleNameMapper` supports ordered rules, capture substitution, and fallback
-targets for CommonJS and modules transformed to CommonJS. Keep Jest for suites
-relying on native-ESM mapping, custom resolvers, pnpm/Yarn PnP edge cases, or
+targets for CommonJS, transformed CommonJS, and the covered native-ESM paths.
+Keep Jest for suites relying on custom resolvers, pnpm/Yarn PnP edge cases, or
 transform-time path rewriting outside configured Jest transforms.
 
 CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 `require`, plus `jest.requireActual`, `jest.requireMock`, and
 `jest.createMockFromModule`. Configured and runtime CommonJS automocking covers
-nested exports and classes, and Babel-Jest hoists standard mock factories. Rjest
-does not yet resolve manual `__mocks__` directories, deeply unmock transitive
-dependencies, or implement Jest's ESM module-mocking API.
+nested exports and classes, manual `__mocks__` files are resolved for adjacent
+and ancestor/bare-module cases, and Babel-Jest hoists standard mock factories.
+Virtual CommonJS mocks and synchronous `jest.unstable_mockModule` factories are
+supported. Deeply unmocked transitive dependencies and async ESM mock factories
+remain incomplete.
 
 External and existing inline snapshots accept nested property matchers and
 serialize their asymmetric placeholders like Jest. Rjest still cannot write a

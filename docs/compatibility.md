@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 42/42 (100%) across its explicitly listed
+The current generated matrix is 49/49 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 
@@ -21,10 +21,11 @@ serializers, snapshot property matchers, modern fake timers, and ordered
 runtime CommonJS automocking covers recursive exports and classes, while
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
-thresholds. Manual `__mocks__` lookup, writing new inline snapshots, complete
-resolution/config semantics, V8 coverage, path/glob threshold groups, and watch
-mode remain missing, so Rjest does not claim broad or drop-in Jest compatibility
-yet.
+thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
+counts, and transformer/test cache isolation are covered. Writing new inline
+snapshots, complete resolution/config semantics, V8 coverage, path/glob
+threshold groups, and watch mode remain missing, so Rjest does not claim broad
+or drop-in Jest compatibility yet.
 
 The modern timer surface includes animation-frame scheduling, cancellation,
 timestamps, and `advanceTimersToNextFrame` in JSDOM. Legacy fake-timer mode is a
@@ -60,6 +61,12 @@ and 25 `unstable_mockModule` registrations. Both runners pass 7/7 suites and
 94/94 tests with identical aggregate and per-file coverage summaries across
 nine TypeScript sources. Rjest is materially slower on this workload; the
 result is compatibility evidence, not a benchmark win.
+
+The pinned [ts-jest corpus](corpus/ts-jest.md) adds a compiler-heavy TypeScript
+transformer project with executable TypeScript configuration, 116 tests in its
+largest suite, parameterized snapshot keys, manual and virtual mocks, and
+transformer-runtime isolation. Both runners pass 20/20 suites, 358/358 tests,
+and 137/137 snapshots without modifying the checkout.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

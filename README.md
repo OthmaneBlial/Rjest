@@ -8,9 +8,10 @@ and TypeScript test runner whose coordinator is written in Rust.
 > and Jest v1 snapshots now execute through isolated workers. Existing inline
 > snapshots, snapshot property matchers, configured serializers,
 > Babel/Istanbul coverage, and CommonJS/transformed `moduleNameMapper` rules are
-> supported. CommonJS automocking and Babel-hoisted mock factories also work.
-> Manual `__mocks__` resolution, ESM module mocks, writing new inline snapshots,
-> native-ESM mapping, V8 coverage, watch mode, and many Jest edge cases remain.
+> supported. CommonJS automocking, manual `__mocks__` resolution,
+> Babel-hoisted and virtual mock factories, native-ESM mapping, and synchronous
+> ESM module mocks also work. Writing new inline snapshots, async ESM mock
+> factories, V8 coverage, watch mode, and many Jest edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.
 
 ## Why this architecture?
@@ -44,13 +45,13 @@ The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
 package `exports` resolution to Node. Configured synchronous Jest transformers
 can compile JS, JSX, TS, and TSX before CommonJS execution. Ordered
 `moduleNameMapper` rules support capture substitution and fallback targets for
-CommonJS and transformed modules. Native-ESM mapping, custom resolvers, and
-nonstandard package-manager layouts are not yet covered. When no transform is
-configured, Rjest resolves the Babel-Jest version bundled with the project's
-installed Jest before falling back to a direct project dependency. For CommonJS,
-`jest.mock`/`doMock` factories, `requireActual`, `requireMock`, and recursive
-basic auto-mocks are available; transformed modules retain the declaring-file
-context used to resolve mocks.
+CommonJS, transformed modules, and the covered native-ESM paths. Custom
+resolvers and nonstandard package-manager layouts are not yet covered. When no
+transform is configured, Rjest resolves the Babel-Jest version bundled with the
+project's installed Jest before falling back to a direct project dependency.
+For CommonJS, `jest.mock`/`doMock` factories, manual and virtual mocks,
+`requireActual`, `requireMock`, and recursive basic auto-mocks are available;
+transformed modules retain the declaring-file context used to resolve mocks.
 
 ## Local validation
 
@@ -80,6 +81,12 @@ The pinned [setup-matlab corpus](docs/corpus/setup-matlab.md) adds native ESM,
 `ts-jest`, top-level await, and ESM module mocks. Official Jest and Rjest both
 pass 7/7 suites and 94/94 tests with identical coverage summaries across nine
 TypeScript source files.
+
+The pinned [ts-jest corpus](docs/corpus/ts-jest.md) exercises a large TypeScript
+transformer unit suite, executable TypeScript configuration, parameterized
+snapshot names, virtual/manual mocks, and compiler-heavy memory behavior.
+Official Jest and Rjest both pass 20/20 suites, 358/358 tests, and 137/137
+snapshots on the untouched checkout.
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current

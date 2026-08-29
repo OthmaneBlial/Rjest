@@ -413,6 +413,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         raw.test_regex,
         defaults.test_match,
         defaults.test_regex,
+        &root_dir,
     )?;
 
     let (coverage_provider, coverage_directory) = normalize_coverage(
@@ -608,6 +609,7 @@ fn normalize_test_patterns(
     configured_regex: Option<OneOrMany>,
     default_match: Vec<String>,
     default_regex: Vec<String>,
+    root_dir: &Path,
 ) -> Result<(Vec<String>, Vec<String>), ConfigError> {
     if configured_match.is_some() && configured_regex.is_some() {
         return Err(ConfigError::ConflictingTestPatterns);
@@ -618,7 +620,12 @@ fn normalize_test_patterns(
         configured_match.unwrap_or(default_match)
     };
     let test_regex = configured_regex.map_or(default_regex, OneOrMany::into_vec);
-    Ok((test_match, test_regex))
+    let root = root_dir.to_string_lossy();
+    let replace_root = |pattern: String| pattern.replace("<rootDir>", &root);
+    Ok((
+        test_match.into_iter().map(&replace_root).collect(),
+        test_regex.into_iter().map(replace_root).collect(),
+    ))
 }
 
 fn normalize_roots(

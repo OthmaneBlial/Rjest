@@ -3,19 +3,19 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 42,
-    "total": 42,
+    "passing": 49,
+    "total": 49,
     "percentage": 100
   },
   "categories": {
     "Configuration": {
-      "passing": 7,
-      "total": 7,
+      "passing": 9,
+      "total": 9,
       "percentage": 100
     },
     "Core API": {
-      "passing": 5,
-      "total": 5,
+      "passing": 6,
+      "total": 6,
       "percentage": 100
     },
     "Coverage": {
@@ -34,8 +34,8 @@
       "percentage": 100
     },
     "Expect": {
-      "passing": 3,
-      "total": 3,
+      "passing": 4,
+      "total": 4,
       "percentage": 100
     },
     "Fake timers": {
@@ -44,8 +44,8 @@
       "percentage": 100
     },
     "Mocks": {
-      "passing": 2,
-      "total": 2,
+      "passing": 4,
+      "total": 4,
       "percentage": 100
     },
     "Resolution": {
@@ -59,8 +59,8 @@
       "percentage": 100
     },
     "Transforms": {
-      "passing": 2,
-      "total": 2,
+      "passing": 3,
+      "total": 3,
       "percentage": 100
     }
   },
@@ -84,6 +84,12 @@
       "differences": []
     },
     {
+      "name": "config-ts-import",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "config-package",
       "category": "Configuration",
       "compatible": true,
@@ -91,6 +97,12 @@
     },
     {
       "name": "config-test-regex",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-rootdir-test-match",
       "category": "Configuration",
       "compatible": true,
       "differences": []
@@ -115,6 +127,12 @@
     },
     {
       "name": "core-pass",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "core-each-name",
       "category": "Core API",
       "compatible": true,
       "differences": []
@@ -169,6 +187,18 @@
     },
     {
       "name": "module-mock-cjs",
+      "category": "Mocks",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-manual-mock",
+      "category": "Mocks",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-virtual-mock",
       "category": "Mocks",
       "compatible": true,
       "differences": []
@@ -246,6 +276,12 @@
       "differences": []
     },
     {
+      "name": "gap-expect-assertions",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "gap-fake-timers",
       "category": "Fake timers",
       "compatible": true,
@@ -307,6 +343,12 @@
     },
     {
       "name": "implicit-babel-transform",
+      "category": "Transforms",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "transformer-cache-isolation",
       "category": "Transforms",
       "compatible": true,
       "differences": []
