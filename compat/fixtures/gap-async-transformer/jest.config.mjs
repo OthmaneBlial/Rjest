@@ -1,6 +1,6 @@
 export default {
   testEnvironment: 'node',
   transform: {
-    '^.+\\.mjs$': ['<rootDir>/async-transformer.cjs', {value: 73}],
+    '^.+\\.mjs$': ['<rootDir>/async-transformer.mjs', {value: 73}],
   },
 };

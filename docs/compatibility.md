@@ -7,16 +7,17 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 66/67 (98.5%) across its explicitly listed
-scenarios and categories. ESM is 7/7 (100.0%); transforms are 3/4 (75.0%)
-because the preserved processAsync-only transformer probe still differs. These
-are scores for the bounded regression set, not claims about the unmeasured full
-Jest API.
+The current generated matrix is 68/69 (98.6%) across its explicitly listed
+scenarios and categories. ESM is 7/7 (100.0%) and transforms are 5/5 (100.0%);
+mocks are 7/8 (87.5%) because the preserved native-ESM automocking probe still
+differs. These are scores for the bounded regression set, not claims about the
+unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous
-Jest transforms for JSX/TypeScript, Node and JSDOM environments, nested hooks,
-async tests, common matchers, function/method/accessor mocks, CommonJS module
+and asynchronous Jest transforms for JSX/TypeScript, Node and JSDOM
+environments, nested hooks, async tests, common matchers,
+function/method/accessor mocks, CommonJS module
 mocks, external Jest v1 snapshots, existing inline snapshots, configured
 serializers, snapshot property matchers, modern and legacy fake timers, and ordered
 `moduleNameMapper` rules for CommonJS and transformed modules. Configured and
@@ -51,8 +52,11 @@ registries, including Jest's retained evaluated-mock cache.
 `isolateModulesAsync` covers fresh successive ESM graphs, CommonJS caches held
 across awaits, isolated first-use mocks, inherited outer mock instances, nested
 call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
-lifecycle. Custom module directories, async-only transformers, and pnpm/Yarn
-PnP layouts remain open work.
+lifecycle. Async transformer coverage verifies an ESM transformer module with
+top-level await, an asynchronous factory, processAsync-only static and dynamic
+graphs, transformer-injected dependencies, and post-transform Istanbul
+instrumentation. Custom module directories, native-ESM automocking, and
+pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

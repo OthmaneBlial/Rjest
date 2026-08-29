@@ -192,6 +192,14 @@ const cases = [
     experimentalVmModules: true,
   },
   {
+    name: 'gap-esm-automock',
+    category: 'Mocks',
+    compatible: false,
+    expectedExit: 0,
+    experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
+  {
     name: 'resolution-node-package',
     category: 'Resolution',
     expectedExit: 0,
@@ -271,7 +279,16 @@ const cases = [
   {
     name: 'gap-async-transformer',
     category: 'Transforms',
-    compatible: false,
+    expectedExit: 0,
+    experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'gap-async-transformer',
+    label: 'gap-async-transformer-coverage',
+    category: 'Transforms',
+    coverage: true,
+    compareCoverage: true,
     expectedExit: 0,
     experimentalVmModules: true,
     useFixtureConfig: true,

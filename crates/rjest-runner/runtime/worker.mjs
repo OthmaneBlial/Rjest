@@ -60,6 +60,7 @@ const originalModuleExtensions = new Map(Object.entries(Module._extensions));
 const runtimeTransformers = [];
 const transformCacheFs = new Map();
 const transformedSourceCache = new Map();
+const pendingAsyncTransforms = new Map();
 const instrumentedFiles = new Set();
 const runtimeSnapshotSerializers = [];
 let runtimePrettyFormatter;
@@ -1756,7 +1757,7 @@ async function nativeDynamicImport(parentURL, specifier, options) {
 async function importEsmModule(parentURL, specifier, options) {
   const mock = registeredEsmMock(specifier, parentURL);
   if (mock) return import(await initializeEsmMockAsync(mock));
-  await initializeReachableEsmMocks(parentURL, specifier);
+  await prepareReachableEsmGraph(parentURL, specifier);
   return nativeDynamicImport(parentURL, specifier, options);
 }
 
@@ -2045,7 +2046,7 @@ function rewriteLoadedEsmSource(loaded) {
   return rewritten === source ? loaded : {...loaded, source: rewritten};
 }
 
-function staticEsmSpecifiers(url) {
+async function staticEsmSpecifiers(url) {
   if (!url.startsWith('file:') || isDynamicImportBridgeUrl(url)) return [];
   const filename = fileURLToPath(url);
   const cached = esmStaticDependencyCache.get(filename);
@@ -2058,13 +2059,13 @@ function staticEsmSpecifiers(url) {
   }
   const selected = runtimeTransformerFor(filename);
   if (selected && isEsmRuntimePath(filename)) {
-    source = transformRuntimeSource(
+    source = (await transformRuntimeSourceAsync(
       selected,
       source,
       filename,
       shouldInstrument(filename),
       true,
-    ).code;
+    )).code;
   }
   const specifiers = [];
   rewriteDynamicImports(source, specifiers);
@@ -2077,16 +2078,14 @@ async function resolveFromEsmParent(parentURL, specifier) {
   return bridge.resolveFromParent(specifier);
 }
 
-async function initializeReachableEsmMocks(parentURL, specifier) {
-  if (!esmModuleMocks.some(entry => !entry.initialized)) return;
-  const root = await resolveFromEsmParent(parentURL, specifier);
+async function prepareEsmGraph(root) {
   const queue = [root];
   const visited = new Set();
   for (let index = 0; index < queue.length; index += 1) {
     const url = queue[index];
     if (visited.has(url)) continue;
     visited.add(url);
-    for (const dependency of staticEsmSpecifiers(url)) {
+    for (const dependency of await staticEsmSpecifiers(url)) {
       const mock = registeredEsmMock(dependency, url);
       if (mock) {
         await initializeEsmMockAsync(mock);
@@ -2096,6 +2095,11 @@ async function initializeReachableEsmMocks(parentURL, specifier) {
       }
     }
   }
+}
+
+async function prepareReachableEsmGraph(parentURL, specifier) {
+  const root = await resolveFromEsmParent(parentURL, specifier);
+  await prepareEsmGraph(root);
 }
 
 function jestGlobalsSource() {
@@ -2864,7 +2868,7 @@ function scopedJest(fromPath) {
   return scoped;
 }
 
-function transformerFromConfig(pattern, configured) {
+async function transformerFromConfig(pattern, configured) {
   const [moduleName, transformerConfig] = Array.isArray(configured)
     ? configured
     : [configured, {}];
@@ -2875,11 +2879,23 @@ function transformerFromConfig(pattern, configured) {
   let transformer;
   transformerDepth += 1;
   try {
-    const loaded = requireFromTest(moduleName);
+    let loaded;
+    try {
+      loaded = requireFromTest(moduleName);
+    } catch (error) {
+      if (
+        error?.code !== 'ERR_REQUIRE_ESM' &&
+        error?.code !== 'ERR_REQUIRE_ASYNC_MODULE'
+      ) {
+        throw error;
+      }
+      const resolved = requireFromTest.resolve(moduleName);
+      loaded = await import(pathToFileURL(resolved).href);
+    }
     const exported = loaded?.default ?? loaded;
     transformer =
       typeof exported?.createTransformer === 'function'
-        ? exported.createTransformer(transformerConfig ?? {})
+        ? await exported.createTransformer(transformerConfig ?? {})
         : exported;
   } finally {
     transformerDepth -= 1;
@@ -2887,19 +2903,26 @@ function transformerFromConfig(pattern, configured) {
       if (!cachedBefore.has(path)) delete Module._cache[path];
     }
   }
-  if (!transformer || typeof transformer.process !== 'function') {
-    throw new TypeError(`Transformer ${moduleName} does not expose process()`);
+  if (
+    !transformer ||
+    (typeof transformer.process !== 'function' &&
+      typeof transformer.processAsync !== 'function')
+  ) {
+    throw new TypeError(
+      `Transformer ${moduleName} does not expose process() or processAsync()`,
+    );
   }
   return {
+    moduleName,
     pattern: new RegExp(pattern),
     transformer,
     transformerConfig: transformerConfig ?? {},
   };
 }
 
-function configureTransforms() {
+async function configureTransforms() {
   for (const [pattern, configured] of Object.entries(request.transform ?? {})) {
-    runtimeTransformers.push(transformerFromConfig(pattern, configured));
+    runtimeTransformers.push(await transformerFromConfig(pattern, configured));
   }
   if (runtimeTransformers.length === 0) {
     try {
@@ -2912,7 +2935,9 @@ function configureTransforms() {
       } catch {
         // Projects without Jest can still provide Babel-Jest directly.
       }
-      runtimeTransformers.push(transformerFromConfig('^.+\\.[jt]sx?$', babelJest));
+      runtimeTransformers.push(
+        await transformerFromConfig('^.+\\.[jt]sx?$', babelJest),
+      );
     } catch (error) {
       if (error?.code !== 'MODULE_NOT_FOUND') throw error;
     }
@@ -3032,16 +3057,11 @@ function compileRuntimeModule(module, filename) {
   }
 }
 
-function transformRuntimeSource(
-  selected,
-  source,
-  filename,
-  instrument,
-  supportsStaticEsm = false,
-) {
-  const cacheKey = `${filename}\0${instrument ? 'coverage' : 'plain'}\0${supportsStaticEsm ? 'esm' : 'cjs'}`;
-  const cached = transformedSourceCache.get(cacheKey);
-  if (cached) return cached;
+function runtimeTransformCacheKey(filename, instrument, supportsStaticEsm) {
+  return `${filename}\0${instrument ? 'coverage' : 'plain'}\0${supportsStaticEsm ? 'esm' : 'cjs'}`;
+}
+
+function runtimeTransformOptions(selected, instrument, supportsStaticEsm) {
   const config = {
     cwd: request.rootDir,
     rootDir: request.rootDir,
@@ -3061,20 +3081,80 @@ function transformRuntimeSource(
     supportsTopLevelAwait: supportsStaticEsm,
     transformerConfig: selected.transformerConfig,
   };
-  let transformed;
+  return {config, transformOptions};
+}
+
+function callTransformerProcess(
+  transformer,
+  process,
+  source,
+  filename,
+  config,
+  transformOptions,
+) {
+  return process.length >= 4
+    ? process.call(transformer, source, filename, config, transformOptions)
+    : process.call(transformer, source, filename, transformOptions);
+}
+
+function cleanupTransformerModules(cachedBeforeTransform) {
+  for (const path of Object.keys(Module._cache)) {
+    if (!cachedBeforeTransform.has(path)) delete Module._cache[path];
+  }
+}
+
+function invokeTransformerSync(selected, source, filename, context) {
+  const process = selected.transformer.process;
+  if (typeof process !== 'function') {
+    throw new TypeError(
+      `Transformer ${selected.moduleName} cannot synchronously transform ${filename} without process()`,
+    );
+  }
   const cachedBeforeTransform = new Set(Object.keys(Module._cache));
   transformerDepth += 1;
   try {
-    transformed =
-      selected.transformer.process.length >= 4
-        ? selected.transformer.process(source, filename, config, transformOptions)
-        : selected.transformer.process(source, filename, transformOptions);
+    return callTransformerProcess(
+      selected.transformer,
+      process,
+      source,
+      filename,
+      context.config,
+      context.transformOptions,
+    );
   } finally {
     transformerDepth -= 1;
-    for (const path of Object.keys(Module._cache)) {
-      if (!cachedBeforeTransform.has(path)) delete Module._cache[path];
-    }
+    cleanupTransformerModules(cachedBeforeTransform);
   }
+}
+
+async function invokeTransformerAsync(selected, source, filename, context) {
+  const process =
+    selected.transformer.processAsync ?? selected.transformer.process;
+  const cachedBeforeTransform = new Set(Object.keys(Module._cache));
+  transformerDepth += 1;
+  try {
+    return await callTransformerProcess(
+      selected.transformer,
+      process,
+      source,
+      filename,
+      context.config,
+      context.transformOptions,
+    );
+  } finally {
+    transformerDepth -= 1;
+    cleanupTransformerModules(cachedBeforeTransform);
+  }
+}
+
+function finalizeRuntimeTransform(
+  selected,
+  transformed,
+  filename,
+  instrument,
+  supportsStaticEsm,
+  cacheKey,
+) {
   if (transformed && typeof transformed.then === 'function') {
     throw new Error(`Async transformer output is not supported for ${filename}`);
   }
@@ -3140,7 +3220,87 @@ function transformRuntimeSource(
   return result;
 }
 
-function collectUncoveredCoverage() {
+function transformRuntimeSource(
+  selected,
+  source,
+  filename,
+  instrument,
+  supportsStaticEsm = false,
+) {
+  const cacheKey = runtimeTransformCacheKey(
+    filename,
+    instrument,
+    supportsStaticEsm,
+  );
+  const cached = transformedSourceCache.get(cacheKey);
+  if (cached) return cached;
+  const context = runtimeTransformOptions(
+    selected,
+    instrument,
+    supportsStaticEsm,
+  );
+  const transformed = invokeTransformerSync(
+    selected,
+    source,
+    filename,
+    context,
+  );
+  return finalizeRuntimeTransform(
+    selected,
+    transformed,
+    filename,
+    instrument,
+    supportsStaticEsm,
+    cacheKey,
+  );
+}
+
+async function transformRuntimeSourceAsync(
+  selected,
+  source,
+  filename,
+  instrument,
+  supportsStaticEsm = false,
+) {
+  const cacheKey = runtimeTransformCacheKey(
+    filename,
+    instrument,
+    supportsStaticEsm,
+  );
+  const cached = transformedSourceCache.get(cacheKey);
+  if (cached) return cached;
+  const inFlight = pendingAsyncTransforms.get(cacheKey);
+  if (inFlight) return inFlight;
+  const pending = (async () => {
+    const context = runtimeTransformOptions(
+      selected,
+      instrument,
+      supportsStaticEsm,
+    );
+    const transformed = await invokeTransformerAsync(
+      selected,
+      source,
+      filename,
+      context,
+    );
+    return finalizeRuntimeTransform(
+      selected,
+      transformed,
+      filename,
+      instrument,
+      supportsStaticEsm,
+      cacheKey,
+    );
+  })();
+  pendingAsyncTransforms.set(cacheKey, pending);
+  try {
+    return await pending;
+  } finally {
+    pendingAsyncTransforms.delete(cacheKey);
+  }
+}
+
+async function collectUncoveredCoverage() {
   if (!request.collectCoverage || !(request.coverageSources ?? []).length) {
     return;
   }
@@ -3161,7 +3321,13 @@ function collectUncoveredCoverage() {
       );
     }
     const source = readFileSync(filename, 'utf8');
-    const transformed = transformRuntimeSource(selected, source, filename, true);
+    const transformed = await transformRuntimeSourceAsync(
+      selected,
+      source,
+      filename,
+      true,
+      isEsmRuntimePath(filename),
+    );
     const extracted = readInitialCoverage(transformed.code);
     if (extracted?.coverageData) {
       globalThis.__coverage__[extracted.coverageData.path ?? filename] =
@@ -3431,7 +3597,9 @@ function installJsdomEnvironment() {
 
 async function loadRuntimeModule(path) {
   if (isEsmRuntimePath(path)) {
-    return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
+    const url = `${pathToFileURL(path).href}?rjest=${Date.now()}`;
+    await prepareEsmGraph(url);
+    return import(url);
   }
   if (runtimeTransformerFor(path)) return requireFromTest(path);
   if (runtimeTransformers.length > 0 && !/\.(?:mjs|mts)$/.test(path)) {
@@ -4614,7 +4782,7 @@ process.on('uncaughtException', error => fileErrors.push(errorText(error)));
 let tests = [];
 try {
   configureFileEnvironment();
-  configureTransforms();
+  await configureTransforms();
   installJsdomEnvironment();
   if (jsdomEnvironment) {
     // Let JSDOM finish its initial ready-state and load events before user code
@@ -4663,7 +4831,7 @@ try {
   definitionComplete = true;
   tests = await runSuite(rootSuite, hasOnly(rootSuite));
   await Promise.resolve();
-  collectUncoveredCoverage();
+  await collectUncoveredCoverage();
 } catch (error) {
   fileErrors.push(errorText(error));
 }

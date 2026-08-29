@@ -4,8 +4,8 @@ Rjest is not ready for production migration yet. Node and JSDOM projects can
 already try replacing `jest` with the built `rjest` binary when they use global
 `describe`/`test`/`it`, hooks, async tests, common matchers, `jest.fn`,
 method/accessor spies, explicit CommonJS module mock factories, configured
-synchronous Jest transforms, modern or legacy fake timers, and ordinary external or
-existing inline snapshots.
+Jest transforms, modern or legacy fake timers, and ordinary external or existing
+inline snapshots.
 
 Start with `rjest --listTests`, then use `rjest --runInBand` before enabling the
 default bounded parallel execution. Follow the compatibility matrix rather than
@@ -74,6 +74,14 @@ exports, and standard `node_modules` packages can exercise those paths today.
 targets for CommonJS, transformed CommonJS, and the covered native-ESM paths.
 Keep Jest for suites relying on custom resolvers, pnpm/Yarn PnP edge cases, or
 transform-time path rewriting outside configured Jest transforms.
+
+Native ESM transformation awaits `processAsync` when a transformer provides it
+and otherwise falls back to `process`. Rjest also awaits asynchronous
+`createTransformer` factories and can load ESM transformer modules with top-level
+await. Static dependencies introduced by transformed output and later dynamic
+imports are prepared before Node's synchronous in-process loader hook consumes
+them. Keep Jest as the gate for custom transform cache-key behavior not covered
+by the differential suite.
 
 CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 `require`, plus `jest.requireActual`, `jest.requireMock`, and
