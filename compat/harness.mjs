@@ -223,8 +223,14 @@ const cases = [
   {
     name: 'gap-replace-property',
     category: 'Mocks',
+    expectedExit: 0,
+  },
+  {
+    name: 'config-restore-mocks',
+    category: 'Configuration',
     compatible: false,
     expectedExit: 0,
+    useFixtureConfig: true,
   },
   {
     name: 'resolution-node-package',

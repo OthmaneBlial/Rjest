@@ -7,11 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 72/73 (98.6%) across its explicitly listed
+The current generated matrix is 73/74 (98.6%) across its explicitly listed
 scenarios and categories. ESM is 7/7 (100.0%) and transforms are 5/5 (100.0%);
-mocks are 11/12 (91.7%) because the preserved `jest.replaceProperty` probe still
-differs. These are scores for the bounded regression set, not claims about the
-unmeasured full Jest API.
+mocks are 12/12 (100.0%), while configuration is 13/14 (92.9%) because the
+preserved `restoreMocks` probe still differs. These are scores for the bounded
+regression set, not claims about the unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous
@@ -31,6 +31,8 @@ callbacks in order while authored manual mocks and explicit factories bypass
 them.
 CommonJS `deepUnmock` propagates actual-module decisions through dependencies
 and cycles while retaining explicit-factory priority and ordinary-parent mocks.
+`jest.replaceProperty` covers prototype lookup, repeated handles, descriptor
+validation, symbol/number keys, and restoration alongside spies.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -64,7 +66,7 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Custom module directories, `jest.replaceProperty`, and
+instrumentation. Custom module directories, `restoreMocks` configuration, and
 pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.

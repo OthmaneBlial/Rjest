@@ -93,6 +93,7 @@ const consoleEntries = [];
 const fileErrors = [];
 const mockRegistry = new Set();
 const restoreRegistry = new Set();
+const replacedPropertyRegistry = new WeakMap();
 const customMatchers = new Map();
 let invocationOrder = 0;
 let defaultTimeout = request.defaultTimeoutMs;
@@ -1573,6 +1574,87 @@ function spyOn(target, property, accessType) {
     else delete target[property];
   });
   return mock;
+}
+
+function replaceProperty(target, property, value) {
+  if (
+    target === null ||
+    (typeof target !== 'object' && typeof target !== 'function')
+  ) {
+    const type = target === null ? 'null' : typeof target;
+    throw new Error(
+      `Cannot use replaceProperty on a primitive value; ${type} given`,
+    );
+  }
+  if (property === null || property === undefined) {
+    throw new Error('No property name supplied');
+  }
+
+  let descriptor = Object.getOwnPropertyDescriptor(target, property);
+  let prototype = Object.getPrototypeOf(target);
+  while (!descriptor && prototype !== null) {
+    descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  if (!descriptor) {
+    throw new Error(
+      `Property \`${String(property)}\` does not exist in the provided object`,
+    );
+  }
+  if (!descriptor.configurable) {
+    throw new Error(
+      `Property \`${String(property)}\` is not declared configurable`,
+    );
+  }
+  if (descriptor.get !== undefined) {
+    throw new Error(
+      `Cannot replace the \`${String(property)}\` property because it has a getter. ` +
+        `Use \`jest.spyOn(object, '${String(property)}', 'get').mockReturnValue(value)\` instead.`,
+    );
+  }
+  if (descriptor.set !== undefined) {
+    throw new Error(
+      `Cannot replace the \`${String(property)}\` property because it has a setter. ` +
+        `Use \`jest.spyOn(object, '${String(property)}', 'set').mockReturnValue(value)\` instead.`,
+    );
+  }
+  if (typeof descriptor.value === 'function') {
+    throw new TypeError(
+      `Cannot replace the \`${String(property)}\` property because it is a function. ` +
+        `Use \`jest.spyOn(object, '${String(property)}')\` instead.`,
+    );
+  }
+
+  let replacements = replacedPropertyRegistry.get(target);
+  const existing = replacements?.get(property);
+  if (existing) return existing.replaceValue(value);
+
+  const owned = Object.hasOwn(target, property);
+  const originalValue = descriptor.value;
+  let active = true;
+  const restore = () => {
+    if (!active) return;
+    active = false;
+    if (owned) target[property] = originalValue;
+    else delete target[property];
+    replacements.delete(property);
+    if (replacements.size === 0) replacedPropertyRegistry.delete(target);
+    restoreRegistry.delete(restore);
+  };
+  const replaced = {
+    replaceValue(nextValue) {
+      target[property] = nextValue;
+      return replaced;
+    },
+    restore,
+  };
+  if (!replacements) {
+    replacements = new Map();
+    replacedPropertyRegistry.set(target, replacements);
+  }
+  replacements.set(property, replaced);
+  restoreRegistry.add(restore);
+  return replaced.replaceValue(value);
 }
 
 function requireFrom(path = activeModulePath) {
@@ -4447,6 +4529,7 @@ function restoreRealTimers() {
 const jest = {
   fn: createMock,
   spyOn,
+  replaceProperty,
   isMockFunction: isMock,
   mocked(value) {
     return value;
