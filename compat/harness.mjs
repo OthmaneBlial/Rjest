@@ -209,6 +209,14 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
+  {
+    name: 'resolution-custom-resolver-async',
+    category: 'Resolution',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareNodeModules: true,
+    useFixtureConfig: true,
+  },
   {name: 'resolution-esm', category: 'ESM', expectedExit: 0, experimentalVmModules: true},
   {
     name: 'gap-esm-transform',

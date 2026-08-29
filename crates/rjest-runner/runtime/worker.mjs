@@ -69,6 +69,7 @@ const esmMockValues = new Map();
 const onGenerateMockCallbacks = new Set();
 const dynamicImportBridges = new Map();
 const esmStaticDependencyCache = new Map();
+const asyncCustomResolverCache = new Map();
 const bypassModuleMocks = new Set();
 const explicitlyUnmockedModules = new Set();
 const deeplyUnmockedModules = new Set();
@@ -2335,9 +2336,40 @@ function isBareModuleSpecifier(specifier) {
   );
 }
 
+function customResolverCacheKey(specifier, fromPath, mode) {
+  return `${mode}\0${normalizedRuntimePath(fromPath)}\0${String(specifier)}`;
+}
+
+function cachedAsyncCustomResolution(specifier, fromPath, mode) {
+  return asyncCustomResolverCache.get(
+    customResolverCacheKey(specifier, fromPath, mode),
+  );
+}
+
+async function configuredModuleResolutionAsync(specifier, fromPath, mode) {
+  if (transformerDepth > 0) return {handled: false};
+  if (customResolverAsync) {
+    const path = await customResolverAsync(
+      String(specifier),
+      customResolverOptions(fromPath, mode),
+    );
+    const resolution = {handled: true, path};
+    asyncCustomResolverCache.set(
+      customResolverCacheKey(specifier, fromPath, mode),
+      resolution,
+    );
+    return resolution;
+  }
+  return configuredModuleResolution(specifier, fromPath, mode);
+}
+
 function configuredModuleResolution(specifier, fromPath, mode) {
   if (transformerDepth > 0) {
     return {handled: false};
+  }
+  if (mode === 'import' && customResolverAsync) {
+    const cached = cachedAsyncCustomResolution(specifier, fromPath, mode);
+    if (cached) return cached;
   }
   if (customResolverSync) {
     const path = customResolverSync(
@@ -2350,6 +2382,12 @@ function configuredModuleResolution(specifier, fromPath, mode) {
       );
     }
     return {handled: true, path};
+  }
+  if (mode === 'import' && customResolverAsync) {
+    return {
+      error: `Async custom resolution for ${String(specifier)} was not prepared`,
+      handled: true,
+    };
   }
   if (!usesCustomModuleDirectories || !isBareModuleSpecifier(specifier)) {
     return {handled: false};
@@ -2412,6 +2450,14 @@ function esmParentPath(parentURL) {
   return request.testPath;
 }
 
+function esmUrlForResolvedPath(path) {
+  if (Module.isBuiltin(path)) {
+    return path.startsWith('node:') ? path : `node:${path}`;
+  }
+  if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(path)) return path;
+  return pathToFileURL(path).href;
+}
+
 function resolveEsmCandidate(specifier, parentURL) {
   const moduleName = String(specifier);
   if (Module.isBuiltin(moduleName)) {
@@ -2429,10 +2475,7 @@ function resolveEsmCandidate(specifier, parentURL) {
       ? configured.path
       : createRequire(parentPath).resolve(moduleName);
     if (!resolved) return undefined;
-    if (Module.isBuiltin(resolved)) {
-      return resolved.startsWith('node:') ? resolved : `node:${resolved}`;
-    }
-    return pathToFileURL(resolved).href;
+    return esmUrlForResolvedPath(resolved);
   } catch {
     return undefined;
   } finally {
@@ -2968,6 +3011,33 @@ async function staticEsmSpecifiers(url) {
 }
 
 async function resolveFromEsmParent(parentURL, specifier) {
+  if (specifier === '@jest/globals') return esmDataUrl(jestGlobalsSource());
+  if (customResolverAsync) {
+    const fromPath = esmParentPath(parentURL);
+    const candidates = mappedModuleCandidates(specifier) ?? [specifier];
+    let lastResolution;
+    for (const candidate of candidates) {
+      const resolution = await configuredModuleResolutionAsync(
+        candidate,
+        fromPath,
+        'import',
+      );
+      lastResolution = resolution;
+      if (!resolution.path) continue;
+      asyncCustomResolverCache.set(
+        customResolverCacheKey(specifier, fromPath, 'import'),
+        resolution,
+      );
+      return esmUrlForResolvedPath(resolution.path);
+    }
+    if (lastResolution?.handled) {
+      throw moduleResolutionError(
+        specifier,
+        fromPath,
+        lastResolution.error,
+      );
+    }
+  }
   const bridge = await dynamicImportBridge(parentURL);
   return bridge.resolveFromParent(specifier);
 }
@@ -3266,11 +3336,7 @@ function configureEsmRuntime() {
             configured.error,
           );
         }
-        const url = Module.isBuiltin(configured.path)
-          ? configured.path.startsWith('node:')
-            ? configured.path
-            : `node:${configured.path}`
-          : pathToFileURL(configured.path).href;
+        const url = esmUrlForResolvedPath(configured.path);
         return {
           shortCircuit: true,
           url: versionedEsmUrl(url),

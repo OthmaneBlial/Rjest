@@ -63,8 +63,9 @@ CommonJS, transformed modules, and the covered native-ESM paths. Configured
 for CommonJS, transformed modules, and native ESM. Configured synchronous
 custom resolver functions and `{sync}` exports can delegate through Jest-shaped
 default resolver callbacks, including preloaded top-level-await ESM resolver
-modules. Async-only resolvers and nonstandard package-manager layouts are not
-yet covered. When no
+modules. Async-only exports are awaited during static and dynamic native-ESM
+graph preparation. Nonstandard package-manager layouts are not yet covered.
+When no
 transform is configured, Rjest resolves the Babel-Jest version bundled with the
 project's installed Jest before falling back to a direct project dependency.
 For CommonJS, `jest.mock`/`doMock` factories, manual and virtual mocks,

@@ -42,7 +42,8 @@ existing default ESM registry-generation path is unchanged.
   `jest.requireActual`, static ESM, and dynamic ESM.
 - Custom resolvers can delegate unchanged requests through familiar Jest
   default callbacks.
-- Async-only resolver exports cannot yet drive Rjest's synchronous Node hook;
-  supporting them requires an asynchronously prepared resolution cache.
+- Async-only resolver exports are awaited by ESM graph preparation and cached
+  for the synchronous Node hook; CommonJS intentionally falls back to default
+  sync resolution when no `sync` export exists.
 - Some less common mutable default-resolver options need additional oracle
   fixtures before broad custom-resolver compatibility can be claimed.
