@@ -1,0 +1,30 @@
+# Third-party reference repositories and compatibility corpora
+base/
+
+# Rust build output
+target/
+
+# JavaScript dependencies and generated reports
+node_modules/
+coverage/
+
+# Rjest generated data
+.rjest-cache/
+benchmarks/generated/
+benchmarks/results/local/
+compat/tmp/
+tmp/
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Platform and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

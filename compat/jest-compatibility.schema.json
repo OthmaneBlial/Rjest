@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["generatedFrom", "categories"],
+  "properties": {
+    "generatedFrom": {"type": "string"},
+    "categories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "passing", "total"],
+        "properties": {
+          "status": {
+            "enum": ["supported", "mostly-supported", "partial", "planned", "unsupported", "intentionally-different"]
+          },
+          "passing": {"type": "integer", "minimum": 0},
+          "total": {"type": "integer", "minimum": 0},
+          "features": {"type": "object", "additionalProperties": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

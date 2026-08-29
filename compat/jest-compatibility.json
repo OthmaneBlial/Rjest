@@ -1,0 +1,53 @@
+{
+  "$schema": "./jest-compatibility.schema.json",
+  "generatedFrom": "executable compatibility tests only",
+  "categories": {
+    "cli": {
+      "status": "partial",
+      "passing": 2,
+      "total": 2,
+      "features": {
+        "--listTests": "supported",
+        "--showConfig": "supported",
+        "--passWithNoTests": "supported",
+        "test execution": "planned"
+      }
+    },
+    "config": {
+      "status": "partial",
+      "passing": 3,
+      "total": 3,
+      "features": {
+        "jest.config.json": "supported",
+        "package.json jest field": "supported",
+        "unknown option rejection": "supported",
+        "JavaScript and TypeScript config": "planned"
+      }
+    },
+    "discovery": {
+      "status": "partial",
+      "passing": 3,
+      "total": 3,
+      "features": {
+        "default testMatch": "supported",
+        "custom testMatch globs": "partial",
+        "testRegex": "supported",
+        "roots": "supported",
+        "testPathIgnorePatterns": "supported",
+        "deterministic ordering": "supported"
+      }
+    },
+    "coreTestApi": {"status": "planned", "passing": 0, "total": 0},
+    "assertions": {"status": "planned", "passing": 0, "total": 0},
+    "snapshots": {"status": "planned", "passing": 0, "total": 0},
+    "mocks": {"status": "planned", "passing": 0, "total": 0},
+    "resolver": {"status": "planned", "passing": 0, "total": 0},
+    "transforms": {"status": "planned", "passing": 0, "total": 0},
+    "esm": {"status": "planned", "passing": 0, "total": 0},
+    "timers": {"status": "planned", "passing": 0, "total": 0},
+    "coverage": {"status": "planned", "passing": 0, "total": 0},
+    "watch": {"status": "planned", "passing": 0, "total": 0},
+    "reporters": {"status": "planned", "passing": 0, "total": 0},
+    "environments": {"status": "planned", "passing": 0, "total": 0}
+  }
+}
