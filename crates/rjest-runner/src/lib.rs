@@ -29,9 +29,11 @@ pub struct RunnerOptions {
     pub snapshot_update: SnapshotUpdate,
     pub root_dir: PathBuf,
     pub module_file_extensions: Vec<String>,
+    pub extensions_to_treat_as_esm: Vec<String>,
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
+    pub clear_mocks: bool,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub setup_files_after_env: Vec<PathBuf>,
@@ -55,9 +57,11 @@ impl Default for RunnerOptions {
             snapshot_update: SnapshotUpdate::New,
             root_dir: PathBuf::new(),
             module_file_extensions: vec!["js".into(), "json".into(), "node".into()],
+            extensions_to_treat_as_esm: Vec::new(),
             module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
             automock: false,
+            clear_mocks: false,
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files_after_env: Vec::new(),
@@ -276,8 +280,10 @@ fn run_file(
         test_path: path.to_path_buf(),
         root_dir: options.root_dir.clone(),
         module_file_extensions: options.module_file_extensions.clone(),
+        extensions_to_treat_as_esm: options.extensions_to_treat_as_esm.clone(),
         module_name_mapper: options.module_name_mapper.clone(),
         automock: options.automock,
+        clear_mocks: options.clear_mocks,
         test_environment: options.test_environment.clone(),
         test_environment_options: options.test_environment_options.clone(),
         setup_files_after_env: options.setup_files_after_env.clone(),
@@ -320,9 +326,8 @@ fn run_file(
     }
     let stdout = String::from_utf8_lossy(&stdout);
     let payload = stdout
-        .lines()
-        .rev()
-        .find_map(|line| line.strip_prefix(RESULT_PREFIX))
+        .rfind(RESULT_PREFIX)
+        .and_then(|index| stdout[index + RESULT_PREFIX.len()..].lines().next())
         .ok_or_else(|| RunnerError::MissingResult {
             path: path.to_path_buf(),
             details: worker_details(&stdout, &String::from_utf8_lossy(&stderr)),
@@ -513,6 +518,26 @@ mod tests {
                 .as_deref()
                 .is_some_and(|message| message.contains("Expected"))
         );
+    }
+
+    #[test]
+    fn parses_the_protocol_after_raw_stdout_without_a_line_break() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("stdout.test.js");
+        fs::write(
+            &test_path,
+            "process.stdout.write('application output');\n\
+             test('still reports', () => expect(true).toBe(true));",
+        )
+        .expect("write test");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical path"),
+        }];
+
+        let result = run(&files, &RunnerOptions::default()).expect("parse worker result");
+
+        assert!(result.is_success());
+        assert_eq!(result.count(TestStatus::Passed), 1);
     }
 
     #[test]

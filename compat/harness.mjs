@@ -50,6 +50,14 @@ const cases = [
     compareCoverage: true,
     useFixtureConfig: true,
   },
+  {
+    name: 'coverage-post-transform',
+    category: 'Coverage',
+    expectedExit: 0,
+    coverage: true,
+    compareCoverage: true,
+    useFixtureConfig: true,
+  },
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
   {name: 'equality-edge', category: 'Expect', expectedExit: 0},
   {
@@ -68,9 +76,17 @@ const cases = [
   {name: 'fake-timers-clock', category: 'Fake timers', expectedExit: 0},
   {name: 'fake-timers-queues', category: 'Fake timers', expectedExit: 0},
   {name: 'focus', category: 'Core API', expectedExit: 0},
+  {name: 'gap-process-stdout', category: 'Core API', expectedExit: 0},
   {name: 'module-mock-cjs', category: 'Mocks', expectedExit: 0},
   {name: 'resolution-cjs', category: 'Resolution', expectedExit: 0},
   {name: 'resolution-esm', category: 'ESM', expectedExit: 0, experimentalVmModules: true},
+  {
+    name: 'gap-esm-transform',
+    category: 'ESM',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
   {
     name: 'resolution-node-package',
     category: 'Resolution',
@@ -103,6 +119,7 @@ const cases = [
     updateSnapshots: true,
   },
   {name: 'gap-custom-matcher', category: 'Expect', expectedExit: 0},
+  {name: 'gap-promise-to-throw', category: 'Expect', expectedExit: 0},
   {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-async', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-performance', category: 'Fake timers', expectedExit: 0},
@@ -122,6 +139,12 @@ const cases = [
   },
   {
     name: 'gap-module-name-mapper',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'gap-clear-mocks',
     category: 'Configuration',
     expectedExit: 0,
     useFixtureConfig: true,

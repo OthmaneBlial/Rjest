@@ -3,24 +3,24 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 37,
-    "total": 37,
+    "passing": 42,
+    "total": 42,
     "percentage": 100
   },
   "categories": {
     "Configuration": {
-      "passing": 6,
-      "total": 6,
+      "passing": 7,
+      "total": 7,
       "percentage": 100
     },
     "Core API": {
-      "passing": 4,
-      "total": 4,
+      "passing": 5,
+      "total": 5,
       "percentage": 100
     },
     "Coverage": {
-      "passing": 2,
-      "total": 2,
+      "passing": 3,
+      "total": 3,
       "percentage": 100
     },
     "Environment": {
@@ -29,13 +29,13 @@
       "percentage": 100
     },
     "ESM": {
-      "passing": 1,
-      "total": 1,
+      "passing": 2,
+      "total": 2,
       "percentage": 100
     },
     "Expect": {
-      "passing": 2,
-      "total": 2,
+      "passing": 3,
+      "total": 3,
       "percentage": 100
     },
     "Fake timers": {
@@ -108,6 +108,12 @@
       "differences": []
     },
     {
+      "name": "coverage-post-transform",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "core-pass",
       "category": "Core API",
       "compatible": true,
@@ -156,6 +162,12 @@
       "differences": []
     },
     {
+      "name": "gap-process-stdout",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "module-mock-cjs",
       "category": "Mocks",
       "compatible": true,
@@ -169,6 +181,12 @@
     },
     {
       "name": "resolution-esm",
+      "category": "ESM",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-esm-transform",
       "category": "ESM",
       "compatible": true,
       "differences": []
@@ -222,6 +240,12 @@
       "differences": []
     },
     {
+      "name": "gap-promise-to-throw",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "gap-fake-timers",
       "category": "Fake timers",
       "compatible": true,
@@ -265,6 +289,12 @@
     },
     {
       "name": "gap-module-name-mapper",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-clear-mocks",
       "category": "Configuration",
       "compatible": true,
       "differences": []

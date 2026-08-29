@@ -76,6 +76,11 @@ Jest 25. Its original `--coverage` command now runs unchanged; Jest and Rjest
 also agree exactly on the 39-file Istanbul summary and all statement, branch,
 function, and line totals.
 
+The pinned [setup-matlab corpus](docs/corpus/setup-matlab.md) adds native ESM,
+`ts-jest`, top-level await, and ESM module mocks. Official Jest and Rjest both
+pass 7/7 suites and 94/94 tests with identical coverage summaries across nine
+TypeScript source files.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

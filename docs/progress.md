@@ -81,16 +81,24 @@ Last updated: 2026-08-29
   transform-tooling isolation.
 - Jest-style inline JSON `--config`, with the differential harness now passing
   equivalent canonical roots and Babel transforms to both runners.
+- Native transformed ESM execution with `extensionsToTreatAsEsm`, top-level
+  await, `@jest/globals`, native-ESM `moduleNameMapper`, and synchronous
+  `jest.unstable_mockModule` factories for relative modules, packages, and Node
+  built-ins.
+- Jest-compatible post-transform Babel/Istanbul instrumentation and source-map
+  remapping for transformers such as `ts-jest` that do not instrument output.
+- A pinned setup-matlab/Jest 30 corpus: 7/7 suites, 94/94 tests, and exact
+  aggregate and per-file coverage parity across nine TypeScript source files.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 37/37
+  preserved known incompatibilities. The current generated result is 42/42
   compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Add Node/ESM and monorepo corpora with original Jest configurations and grow
-  the differential denominator from their observed incompatibilities.
+- Add the pinned ts-jest and Amplify monorepo corpora with original Jest
+  configurations and grow the differential denominator from observed gaps.
 
 ## Compatibility snapshot
 
@@ -98,7 +106,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 37/37 (100%). Coverage is 2/2 in that deliberately bounded
+corpus score is 42/42 (100%). Coverage is 3/3 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -110,11 +118,13 @@ scenario category.
 - Configured synchronous and implicit `babel-jest` transforms work; async
   transformers, transformer caches, decorators outside the project transformer,
   and TypeScript path aliases remain incomplete.
-- Native-ESM module-name mapping and custom resolvers are not implemented;
-  CommonJS and transformed `moduleNameMapper` rules support ordered fallbacks.
+- Custom resolvers are not implemented; CommonJS and native-ESM
+  `moduleNameMapper` rules support the covered mappings, while complete Jest
+  resolver conditions and fallback semantics need broader probes.
 - Manual `__mocks__` lookup, deeply unmocked dependency graphs, and ESM module
-  mocking are not implemented; CommonJS automocking and Babel-hoisted explicit
-  factories are covered by differential tests.
+  automocking are not implemented; CommonJS automocking, Babel-hoisted explicit
+  factories, and synchronous ESM module factories are covered by differential
+  tests. Async ESM factories remain unsupported.
 - New/updated inline snapshot source writes, V8 coverage, non-global threshold
   groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
@@ -122,7 +132,7 @@ scenario category.
 
 ## Next highest-value tasks
 
-1. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
+1. Add the ts-jest unit corpus and Amplify Analytics monorepo workspace.
 2. Grow the versioned differential denominator from their real failures.
 3. Implement legacy fake-timer behavior.
-4. Extend `moduleNameMapper` and module mocking to native ESM.
+4. Extend native ESM mocking to async factories and unmock/reset semantics.

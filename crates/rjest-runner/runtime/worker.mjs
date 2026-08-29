@@ -1,11 +1,11 @@
 import {readFileSync} from 'node:fs';
-import Module, {createRequire} from 'node:module';
+import Module, {createRequire, registerHooks} from 'node:module';
 import {isDeepStrictEqual, format, inspect} from 'node:util';
 import {resolve as resolvePath} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 6;
+const PROTOCOL_VERSION = 7;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -31,10 +31,14 @@ const requireFromTest = createRequire(request.testPath);
 const originalModuleLoad = Module._load;
 const originalModuleResolveFilename = Module._resolveFilename;
 const moduleMocks = new Map();
+const esmModuleMocks = [];
+const esmMockValues = new Map();
 const bypassModuleMocks = new Set();
 const explicitlyUnmockedModules = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
 const runtimeTransformers = [];
+const transformCacheFs = new Map();
+const transformedSourceCache = new Map();
 const instrumentedFiles = new Set();
 const runtimeSnapshotSerializers = [];
 let runtimePrettyFormatter;
@@ -45,6 +49,8 @@ let nativeWindowTimers;
 let nativeAnimationFrame;
 let transformerDepth = 0;
 let automockEnabled = false;
+let esmHooksInstalled = false;
+let nextEsmMockId = 1;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
   throw new Error(`Unsupported Rjest worker protocol ${request.protocolVersion}`);
@@ -256,6 +262,13 @@ function asymmetric(match, description, sample, inverse = false) {
 function isAsymmetric(value) {
   return Boolean(
     value && value[ASYMMETRIC] && typeof value.asymmetricMatch === 'function',
+  );
+}
+
+function isErrorLike(value) {
+  return (
+    value instanceof Error ||
+    Object.prototype.toString.call(value) === '[object Error]'
   );
 }
 
@@ -792,12 +805,16 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
           name === 'toHaveProperty'
             ? [...expected, expected.length > 1]
             : expected;
-        const matcherReceived =
-          promiseMode === 'rejects' && name === 'toThrow'
+        let matcherReceived = received;
+        if (promiseMode && name === 'toThrow') {
+          matcherReceived = isErrorLike(received)
             ? () => {
                 throw received;
               }
-            : received;
+            : typeof received === 'function'
+              ? received
+              : () => {};
+        }
         const pass = Boolean(matcher(matcherReceived, ...args));
         if (pass === isNot) {
           throw new RjestAssertionError(
@@ -1315,6 +1332,179 @@ function mappedModuleCandidates(specifier) {
   return undefined;
 }
 
+function esmParentPath(parentURL) {
+  if (parentURL?.startsWith('file:')) return fileURLToPath(parentURL);
+  return request.testPath;
+}
+
+function resolveEsmCandidate(specifier, parentURL) {
+  const moduleName = String(specifier);
+  if (Module.isBuiltin(moduleName)) {
+    return moduleName.startsWith('node:') ? moduleName : `node:${moduleName}`;
+  }
+  try {
+    const resolved = createRequire(esmParentPath(parentURL)).resolve(moduleName);
+    if (Module.isBuiltin(resolved)) {
+      return resolved.startsWith('node:') ? resolved : `node:${resolved}`;
+    }
+    return pathToFileURL(resolved).href;
+  } catch {
+    return undefined;
+  }
+}
+
+function mappedEsmResolution(specifier, parentURL) {
+  const candidates = mappedModuleCandidates(specifier);
+  if (!candidates) return undefined;
+  for (const candidate of candidates) {
+    const resolved = resolveEsmCandidate(candidate, parentURL);
+    if (resolved) return resolved;
+  }
+  return undefined;
+}
+
+function registeredEsmMock(specifier, parentURL) {
+  const moduleName = String(specifier);
+  const direct = esmModuleMocks.find(entry => entry.specifier === moduleName);
+  if (direct) return direct;
+  if (!moduleName.startsWith('.') && !moduleName.startsWith('/')) return undefined;
+  if (!esmModuleMocks.some(entry => entry.relative)) return undefined;
+  const canonical = resolveEsmCandidate(moduleName, parentURL);
+  return esmModuleMocks.find(
+    entry => entry.relative && entry.canonical && entry.canonical === canonical,
+  );
+}
+
+function esmDataUrl(source) {
+  return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+}
+
+function initializeEsmMock(entry) {
+  if (!entry.initialized) {
+    const value = entry.factory();
+    if (value && typeof value.then === 'function') {
+      throw new Error(
+        `Async jest.unstable_mockModule factories are not supported yet for ${entry.specifier}`,
+      );
+    }
+    if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+      throw new TypeError(
+        `jest.unstable_mockModule factory for ${entry.specifier} must return an object`,
+      );
+    }
+    entry.value = value;
+    entry.initialized = true;
+    esmMockValues.set(entry.id, value);
+  }
+  return esmDataUrl(esmMockSource(entry));
+}
+
+function validEsmExportName(name) {
+  return /^[A-Za-z_$][\w$]*$/.test(name) && name !== 'default';
+}
+
+function esmMockSource(entry) {
+  const value = esmMockValues.get(entry.id);
+  const lines = [
+    `const value = globalThis[Symbol.for('rjest.esmRuntime')].mockValues.get(${entry.id});`,
+  ];
+  if (Object.prototype.hasOwnProperty.call(value, 'default')) {
+    lines.push('export default value.default;');
+  }
+  for (const name of Object.keys(value).filter(validEsmExportName)) {
+    lines.push(`export const ${name} = value[${JSON.stringify(name)}];`);
+  }
+  return lines.join('\n');
+}
+
+function jestGlobalsSource() {
+  const names = [
+    'afterAll',
+    'afterEach',
+    'beforeAll',
+    'beforeEach',
+    'describe',
+    'expect',
+    'fit',
+    'it',
+    'jest',
+    'test',
+    'xdescribe',
+    'xit',
+    'xtest',
+  ];
+  return [
+    `const api = globalThis[Symbol.for('rjest.esmRuntime')].globals;`,
+    ...names.map(name => `export const ${name} = api.${name};`),
+  ].join('\n');
+}
+
+function isEsmRuntimePath(filename) {
+  const normalized = normalizedRuntimePath(filename);
+  return (
+    /\.(?:mjs|mts)$/.test(normalized) ||
+    (request.extensionsToTreatAsEsm ?? []).some(extension =>
+      normalized.endsWith(extension),
+    )
+  );
+}
+
+function configureEsmRuntime() {
+  if (esmHooksInstalled || !isEsmRuntimePath(request.testPath)) return;
+  globalThis[Symbol.for('rjest.esmRuntime')] = {
+    globals: {
+      afterAll,
+      afterEach,
+      beforeAll,
+      beforeEach,
+      describe,
+      expect,
+      fit: test.only,
+      it,
+      jest,
+      test,
+      xdescribe: describe.skip,
+      xit: test.skip,
+      xtest: test.skip,
+    },
+    mockValues: esmMockValues,
+  };
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (transformerDepth > 0) return nextResolve(specifier, context);
+      if (specifier === '@jest/globals') {
+        return {shortCircuit: true, url: esmDataUrl(jestGlobalsSource())};
+      }
+      const mock = registeredEsmMock(specifier, context.parentURL);
+      if (mock) {
+        return {shortCircuit: true, url: initializeEsmMock(mock)};
+      }
+      const mapped = mappedEsmResolution(specifier, context.parentURL);
+      if (mapped) return {shortCircuit: true, url: mapped};
+      return nextResolve(specifier, context);
+    },
+    load(url, context, nextLoad) {
+      if (url.startsWith('file:')) {
+        const filename = fileURLToPath(url);
+        const selected = runtimeTransformerFor(filename);
+        if (selected && isEsmRuntimePath(filename)) {
+          const source = readFileSync(filename, 'utf8');
+          const transformed = transformRuntimeSource(
+            selected,
+            source,
+            filename,
+            shouldInstrument(filename),
+            true,
+          );
+          return {format: 'module', shortCircuit: true, source: transformed.code};
+        }
+      }
+      return nextLoad(url, context);
+    },
+  });
+  esmHooksInstalled = true;
+}
+
 Module._resolveFilename = function rjestResolveFilename(
   specifier,
   parent,
@@ -1457,6 +1647,33 @@ function registerModuleMock(
   return returnValue;
 }
 
+function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
+  if (typeof factory !== 'function') {
+    throw new TypeError('The second argument of jest.unstable_mockModule must be a function');
+  }
+  const moduleName = String(specifier);
+  const parentURL = pathToFileURL(fromPath).href;
+  const entry = {
+    id: nextEsmMockId++,
+    specifier: moduleName,
+    canonical:
+      mappedEsmResolution(moduleName, parentURL) ??
+      resolveEsmCandidate(moduleName, parentURL),
+    relative: moduleName.startsWith('.') || moduleName.startsWith('/'),
+    factory,
+    initialized: false,
+    value: undefined,
+  };
+  const existing = esmModuleMocks.findIndex(candidate =>
+    entry.relative
+      ? candidate.canonical === entry.canonical
+      : !candidate.relative && candidate.specifier === entry.specifier,
+  );
+  if (existing === -1) esmModuleMocks.push(entry);
+  else esmModuleMocks[existing] = entry;
+  return returnValue;
+}
+
 function requireMock(specifier, fromPath = activeModulePath) {
   const key = resolveModuleKey(specifier, fromPath);
   if (!moduleMocks.has(key)) registerModuleMock(specifier, undefined, fromPath);
@@ -1576,6 +1793,9 @@ function scopedJest(fromPath) {
     },
     deepUnmock(specifier) {
       return unmockModule(specifier, fromPath, scoped);
+    },
+    unstable_mockModule(specifier, factory) {
+      return registerEsmModuleMock(specifier, factory, fromPath, scoped);
     },
   });
   return scoped;
@@ -1739,23 +1959,33 @@ function compileRuntimeModule(module, filename) {
   }
 }
 
-function transformRuntimeSource(selected, source, filename, instrument) {
+function transformRuntimeSource(
+  selected,
+  source,
+  filename,
+  instrument,
+  supportsStaticEsm = false,
+) {
+  const cacheKey = `${filename}\0${instrument ? 'coverage' : 'plain'}\0${supportsStaticEsm ? 'esm' : 'cjs'}`;
+  const cached = transformedSourceCache.get(cacheKey);
+  if (cached) return cached;
   const config = {
     cwd: request.rootDir,
     rootDir: request.rootDir,
     testEnvironment: request.testEnvironment,
     moduleFileExtensions: request.moduleFileExtensions ?? [],
+    extensionsToTreatAsEsm: request.extensionsToTreatAsEsm ?? [],
   };
   const transformOptions = {
-    cacheFS: new Map(),
+    cacheFS: transformCacheFs,
     config,
     configString: JSON.stringify(config),
     instrument,
     rootDir: request.rootDir,
-    supportsDynamicImport: false,
-    supportsExportNamespaceFrom: false,
-    supportsStaticESM: false,
-    supportsTopLevelAwait: false,
+    supportsDynamicImport: supportsStaticEsm,
+    supportsExportNamespaceFrom: supportsStaticEsm,
+    supportsStaticESM: supportsStaticEsm,
+    supportsTopLevelAwait: supportsStaticEsm,
     transformerConfig: selected.transformerConfig,
   };
   let transformed;
@@ -1771,14 +2001,66 @@ function transformRuntimeSource(selected, source, filename, instrument) {
   if (transformed && typeof transformed.then === 'function') {
     throw new Error(`Async transformer output is not supported for ${filename}`);
   }
-  const code = typeof transformed === 'string' ? transformed : transformed?.code;
+  let code = typeof transformed === 'string' ? transformed : transformed?.code;
   if (typeof code !== 'string') {
     throw new TypeError(`Transformer returned no code for ${filename}`);
+  }
+  let sourceMap = typeof transformed === 'string' ? undefined : transformed?.map;
+  if (!sourceMap) {
+    transformerDepth += 1;
+    try {
+      const convertSourceMap = requireFromTest('convert-source-map');
+      sourceMap = convertSourceMap.fromSource(code)?.toObject();
+    } catch {
+      sourceMap = undefined;
+    } finally {
+      transformerDepth -= 1;
+    }
+  }
+  if (instrument && selected.transformer.canInstrument !== true) {
+    transformerDepth += 1;
+    try {
+      const babel = requireFromTest('@babel/core');
+      const loadedPlugin = requireFromTest('babel-plugin-istanbul');
+      const plugin = loadedPlugin?.default ?? loadedPlugin;
+      const instrumented = babel.transformSync(code, {
+        auxiliaryCommentBefore: ' istanbul ignore next ',
+        babelrc: false,
+        caller: {
+          name: '@jest/transform',
+          supportsDynamicImport: supportsStaticEsm,
+          supportsExportNamespaceFrom: supportsStaticEsm,
+          supportsStaticESM: supportsStaticEsm,
+          supportsTopLevelAwait: supportsStaticEsm,
+        },
+        configFile: false,
+        filename,
+        plugins: [
+          [
+            plugin,
+            {
+              compact: false,
+              cwd: request.rootDir,
+              exclude: [],
+              extension: false,
+              inputSourceMap: sourceMap,
+              useInlineSourceMaps: false,
+            },
+          ],
+        ],
+        sourceMaps: sourceMap ? 'both' : false,
+      });
+      if (typeof instrumented?.code === 'string') code = instrumented.code;
+    } finally {
+      transformerDepth -= 1;
+    }
   }
   if (instrument) {
     instrumentedFiles.add(normalizedRuntimePath(filename));
   }
-  return {code};
+  const result = {code};
+  transformedSourceCache.set(cacheKey, result);
+  return result;
 }
 
 function collectUncoveredCoverage() {
@@ -1811,13 +2093,27 @@ function collectUncoveredCoverage() {
   }
 }
 
-function collectedCoverage() {
+async function collectedCoverage() {
   if (!request.collectCoverage) return {};
-  return Object.fromEntries(
+  const collected = Object.fromEntries(
     Object.entries(globalThis.__coverage__ ?? {}).filter(([filename]) =>
       instrumentedFiles.has(normalizedRuntimePath(filename)),
     ),
   );
+  if (!Object.values(collected).some(coverage => coverage.inputSourceMap)) {
+    return collected;
+  }
+  transformerDepth += 1;
+  try {
+    const {createCoverageMap} = requireFromTest('istanbul-lib-coverage');
+    const {createSourceMapStore} = requireFromTest('istanbul-lib-source-maps');
+    const store = createSourceMapStore({baseDir: request.rootDir});
+    const remapped = await store.transformCoverage(createCoverageMap(collected));
+    store.dispose();
+    return remapped.toJSON();
+  } finally {
+    transformerDepth -= 1;
+  }
 }
 
 function installJsdomEnvironment() {
@@ -1898,6 +2194,9 @@ function installJsdomEnvironment() {
 }
 
 async function loadRuntimeModule(path) {
+  if (isEsmRuntimePath(path)) {
+    return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
+  }
   if (runtimeTransformerFor(path)) return requireFromTest(path);
   if (runtimeTransformers.length > 0 && !/\.(?:mjs|mts)$/.test(path)) {
     return requireFromTest(path);
@@ -2244,6 +2543,9 @@ const jest = {
   deepUnmock(specifier) {
     return unmockModule(specifier, activeModulePath, jest);
   },
+  unstable_mockModule(specifier, factory) {
+    return registerEsmModuleMock(specifier, factory, activeModulePath, jest);
+  },
   resetModules() {
     for (const path of Object.keys(Module._cache)) {
       if (!path.includes('/node_modules/')) delete Module._cache[path];
@@ -2546,6 +2848,7 @@ async function runTest(
   const testStarted = performance.now();
   const failures = beforeAllError ? [beforeAllError] : [];
   if (!beforeAllError) {
+    if (request.clearMocks) jest.clearAllMocks();
     for (const hook of hookChain(node, 'beforeEach')) {
       try {
         await callAsync(hook.callback, hook.timeout, 'beforeEach hook');
@@ -2645,6 +2948,7 @@ try {
   configureTransforms();
   installJsdomEnvironment();
   configureSnapshotFormat();
+  configureEsmRuntime();
   automockEnabled = Boolean(request.automock);
   for (const setupPath of request.setupFilesAfterEnv ?? []) {
     await loadRuntimeModule(setupPath);

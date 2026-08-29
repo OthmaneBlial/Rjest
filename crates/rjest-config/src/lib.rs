@@ -77,9 +77,11 @@ pub struct ProjectConfig {
     pub test_path_ignore_patterns: Vec<String>,
     pub module_path_ignore_patterns: Vec<String>,
     pub module_file_extensions: Vec<String>,
+    pub extensions_to_treat_as_esm: Vec<String>,
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
+    pub clear_mocks: bool,
     pub test_environment: String,
     pub test_environment_options: Value,
     pub setup_files_after_env: Vec<PathBuf>,
@@ -108,9 +110,11 @@ struct RawProjectConfig {
     test_path_ignore_patterns: Option<Vec<String>>,
     module_path_ignore_patterns: Option<Vec<String>>,
     module_file_extensions: Option<Vec<String>>,
+    extensions_to_treat_as_esm: Option<Vec<String>>,
     module_name_mapper: Option<serde_json::Map<String, Value>>,
     module_paths: Option<Vec<String>>,
     automock: Option<bool>,
+    clear_mocks: Option<bool>,
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
     setup_files_after_env: Option<Vec<String>>,
@@ -190,9 +194,11 @@ impl ProjectConfig {
             .into_iter()
             .map(String::from)
             .collect(),
+            extensions_to_treat_as_esm: Vec::new(),
             module_name_mapper: Vec::new(),
             module_paths: Vec::new(),
             automock: false,
+            clear_mocks: false,
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files_after_env: Vec::new(),
@@ -416,6 +422,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         defaults.coverage_directory,
         &root_dir,
     )?;
+    let transform = normalize_transform(raw.transform, &root_dir, defaults.transform)?;
 
     Ok(ProjectConfig {
         root_dir,
@@ -431,9 +438,14 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         module_file_extensions: raw
             .module_file_extensions
             .unwrap_or(defaults.module_file_extensions),
+        extensions_to_treat_as_esm: normalize_esm_extensions(
+            raw.extensions_to_treat_as_esm,
+            defaults.extensions_to_treat_as_esm,
+        )?,
         module_name_mapper,
         module_paths,
         automock: raw.automock.unwrap_or(defaults.automock),
+        clear_mocks: raw.clear_mocks.unwrap_or(defaults.clear_mocks),
         test_environment,
         test_environment_options: raw
             .test_environment_options
@@ -442,7 +454,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         snapshot_serializers: raw
             .snapshot_serializers
             .unwrap_or(defaults.snapshot_serializers),
-        transform: raw.transform.unwrap_or(defaults.transform),
+        transform,
         transform_ignore_patterns: raw
             .transform_ignore_patterns
             .unwrap_or(defaults.transform_ignore_patterns),
@@ -465,6 +477,62 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.coverage_threshold),
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
+}
+
+fn normalize_esm_extensions(
+    configured: Option<Vec<String>>,
+    defaults: Vec<String>,
+) -> Result<Vec<String>, ConfigError> {
+    let extensions = configured.unwrap_or(defaults);
+    for extension in &extensions {
+        if !extension.starts_with('.') || extension.len() == 1 {
+            return Err(ConfigError::UnsupportedValue {
+                field: "extensionsToTreatAsEsm".into(),
+                value: extension.clone(),
+            });
+        }
+        if matches!(extension.as_str(), ".js" | ".cjs" | ".mjs") {
+            return Err(ConfigError::UnsupportedValue {
+                field: "extensionsToTreatAsEsm".into(),
+                value: extension.clone(),
+            });
+        }
+    }
+    Ok(extensions)
+}
+
+fn normalize_transform(
+    configured: Option<BTreeMap<String, Value>>,
+    root_dir: &Path,
+    defaults: BTreeMap<String, Value>,
+) -> Result<BTreeMap<String, Value>, ConfigError> {
+    let mut transforms = configured.unwrap_or(defaults);
+    let root = root_dir.to_string_lossy();
+    for (pattern, value) in &mut transforms {
+        let module_name = match value {
+            Value::String(module_name) => module_name,
+            Value::Array(values) => {
+                if !matches!(values.first(), Some(Value::String(_))) {
+                    return Err(ConfigError::UnsupportedValue {
+                        field: format!("transform.{pattern}"),
+                        value: Value::Array(values.clone()).to_string(),
+                    });
+                }
+                let Value::String(module_name) = &mut values[0] else {
+                    unreachable!("validated transform module name")
+                };
+                module_name
+            }
+            other => {
+                return Err(ConfigError::UnsupportedValue {
+                    field: format!("transform.{pattern}"),
+                    value: other.to_string(),
+                });
+            }
+        };
+        *module_name = module_name.replace("<rootDir>", &root);
+    }
+    Ok(transforms)
 }
 
 fn normalize_module_name_mapper(
@@ -765,7 +833,9 @@ mod tests {
                 "^@first/(.*)$":"<rootDir>/src/$1",
                 "^@fallback$":["missing-module","<rootDir>/src/fallback.js"]
               },
+              "extensionsToTreatAsEsm":[".ts"],
               "automock":true,
+              "clearMocks":true,
               "modulePathIgnorePatterns":["/dist/"],
               "setupFilesAfterEnv":["<rootDir>/test/setup.ts"],
               "snapshotSerializers":["fixture-serializer"],
@@ -804,6 +874,8 @@ mod tests {
             ]
         );
         assert!(config.automock);
+        assert!(config.clear_mocks);
+        assert_eq!(config.extensions_to_treat_as_esm, [".ts"]);
         assert_eq!(
             config.setup_files_after_env,
             [temp.path().join("test/setup.ts")]
@@ -817,6 +889,19 @@ mod tests {
             temp.path().join("artifacts/coverage")
         );
         assert_eq!(config.coverage_reporters, ["json-summary", "lcov"]);
+    }
+
+    #[test]
+    fn rejects_extensions_with_javascript_inferred_semantics() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(
+            temp.path().join("jest.config.json"),
+            r#"{"extensionsToTreatAsEsm":[".js"]}"#,
+        )
+        .expect("write config");
+
+        let error = load(temp.path(), None).expect_err(".js semantics come from package type");
+        assert!(error.to_string().contains("extensionsToTreatAsEsm"));
     }
 
     #[test]
