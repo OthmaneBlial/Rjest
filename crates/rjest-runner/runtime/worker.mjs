@@ -12,7 +12,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 18;
+const PROTOCOL_VERSION = 19;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const RESULT_TEST_NODE = Symbol('rjest.testNode');
@@ -44,7 +44,7 @@ const usesCustomModuleDirectories = !(
   configuredModuleDirectories.length === 1 &&
   configuredModuleDirectories[0] === 'node_modules'
 );
-const RuntimeResolverFactory = usesCustomModuleDirectories
+const RuntimeResolverFactory = usesCustomModuleDirectories || request.resolver
   ? requireFromTest('unrs-resolver').ResolverFactory
   : undefined;
 let installedJestMajorVersion;
@@ -2195,6 +2195,8 @@ function requireFrom(path = activeModulePath) {
 
 let configuredCommonJsResolver;
 let configuredEsmResolver;
+let customResolverSync;
+let customResolverAsync;
 
 function environmentExportConditions() {
   const configured = request.testEnvironmentOptions?.customExportConditions;
@@ -2206,18 +2208,21 @@ function environmentExportConditions() {
     : ['node', 'node-addons'];
 }
 
+function resolverConditions(mode) {
+  const environmentConditions = environmentExportConditions();
+  return mode === 'import'
+    ? [...new Set(['import', 'module-sync', 'default', ...environmentConditions])]
+    : [...new Set(['require', 'module-sync', 'node', 'default', ...environmentConditions])];
+}
+
 function configuredResolver(mode) {
   const key = mode === 'import' ? 'esm' : 'commonjs';
   const existing = key === 'esm'
     ? configuredEsmResolver
     : configuredCommonJsResolver;
   if (existing) return existing;
-  const environmentConditions = environmentExportConditions();
-  const conditionNames = mode === 'import'
-    ? ['import', 'module-sync', 'default', ...environmentConditions]
-    : ['require', 'module-sync', 'node', 'default', ...environmentConditions];
   const resolver = new RuntimeResolverFactory({
-    conditionNames: [...new Set(conditionNames)],
+    conditionNames: resolverConditions(mode),
     extensions: (request.moduleFileExtensions ?? []).map(extension =>
       extension.startsWith('.') ? extension : `.${extension}`,
     ),
@@ -2227,6 +2232,97 @@ function configuredResolver(mode) {
   if (key === 'esm') configuredEsmResolver = resolver;
   else configuredCommonJsResolver = resolver;
   return resolver;
+}
+
+function runtimeDefaultResolver(specifier, options) {
+  const moduleName = String(specifier);
+  if (Module.isBuiltin(moduleName)) return moduleName;
+  const {
+    basedir,
+    conditions,
+    defaultAsyncResolver: _defaultAsyncResolver,
+    defaultResolver: _defaultResolver,
+    extensions,
+    moduleDirectory,
+    paths,
+    rootDir,
+    ...resolverOptions
+  } = options;
+  const resolveWithModules = modules => {
+    const resolver = new RuntimeResolverFactory({
+      ...resolverOptions,
+      conditionNames: conditions,
+      extensions,
+      modules,
+      roots: rootDir ? [rootDir] : undefined,
+    });
+    return resolver.sync(basedir, moduleName);
+  };
+  let result = resolveWithModules(moduleDirectory);
+  if (!result.path && paths?.length) {
+    const fallbackPaths = paths.filter(
+      path => !(moduleDirectory ?? []).includes(path),
+    );
+    if (fallbackPaths.length > 0) result = resolveWithModules(fallbackPaths);
+  }
+  if (result.path) return result.path;
+  throw moduleResolutionError(moduleName, join(basedir, 'resolver.js'), result.error);
+}
+
+async function runtimeDefaultAsyncResolver(specifier, options) {
+  return runtimeDefaultResolver(specifier, options);
+}
+
+function customResolverOptions(fromPath, mode) {
+  return {
+    basedir: dirname(fromPath),
+    conditions: resolverConditions(mode),
+    defaultAsyncResolver: runtimeDefaultAsyncResolver,
+    defaultResolver: runtimeDefaultResolver,
+    extensions: (request.moduleFileExtensions ?? []).map(extension =>
+      extension.startsWith('.') ? extension : `.${extension}`,
+    ),
+    moduleDirectory: configuredModuleDirectories,
+    paths: request.modulePaths?.length ? request.modulePaths : undefined,
+    rootDir: request.rootDir,
+  };
+}
+
+async function configureCustomResolver() {
+  if (!request.resolver) return;
+  const sourceRequire = createRequire(request.testPath);
+  const resolved = sourceRequire.resolve(request.resolver);
+  let loaded;
+  try {
+    loaded = sourceRequire(resolved);
+  } catch (error) {
+    if (
+      error?.code !== 'ERR_REQUIRE_ESM' &&
+      error?.code !== 'ERR_REQUIRE_ASYNC_MODULE'
+    ) {
+      throw error;
+    }
+    loaded = await import(pathToFileURL(resolved).href);
+  }
+  const exported = loaded?.default ?? loaded;
+  if (typeof exported === 'function') {
+    customResolverSync = exported;
+    customResolverAsync = exported;
+    return;
+  }
+  if (exported && typeof exported === 'object') {
+    customResolverSync =
+      typeof exported.sync === 'function' ? exported.sync : undefined;
+    customResolverAsync =
+      typeof exported.async === 'function'
+        ? exported.async
+        : customResolverSync;
+  }
+  if (!customResolverSync && !customResolverAsync) {
+    throw new TypeError(
+      `Resolver located at ${resolved} does not export a function or an object with "sync" and "async" props`,
+    );
+  }
 }
 
 function isBareModuleSpecifier(specifier) {
@@ -2240,11 +2336,22 @@ function isBareModuleSpecifier(specifier) {
 }
 
 function configuredModuleResolution(specifier, fromPath, mode) {
-  if (
-    !usesCustomModuleDirectories ||
-    transformerDepth > 0 ||
-    !isBareModuleSpecifier(specifier)
-  ) {
+  if (transformerDepth > 0) {
+    return {handled: false};
+  }
+  if (customResolverSync) {
+    const path = customResolverSync(
+      String(specifier),
+      customResolverOptions(fromPath, mode),
+    );
+    if (path && typeof path.then === 'function') {
+      throw new TypeError(
+        `Custom resolver returned a promise while resolving ${String(specifier)} synchronously`,
+      );
+    }
+    return {handled: true, path};
+  }
+  if (!usesCustomModuleDirectories || !isBareModuleSpecifier(specifier)) {
     return {handled: false};
   }
   const result = configuredResolver(mode).sync(
@@ -3129,6 +3236,12 @@ function configureEsmRuntime() {
       if (transformerDepth > 0 || esmResolutionDepth > 0) {
         return nextResolve(specifier, context);
       }
+      if (request.resolver && String(specifier).startsWith('file:')) {
+        return nextResolve(specifier, context);
+      }
+      if (!context.parentURL && request.resolver) {
+        return nextResolve(specifier, context);
+      }
       if (specifier === '@jest/globals') {
         return {shortCircuit: true, url: esmDataUrl(jestGlobalsSource())};
       }
@@ -3153,9 +3266,14 @@ function configureEsmRuntime() {
             configured.error,
           );
         }
+        const url = Module.isBuiltin(configured.path)
+          ? configured.path.startsWith('node:')
+            ? configured.path
+            : `node:${configured.path}`
+          : pathToFileURL(configured.path).href;
         return {
           shortCircuit: true,
-          url: versionedEsmUrl(pathToFileURL(configured.path).href),
+          url: versionedEsmUrl(url),
         };
       }
       return versionedEsmResolution(nextResolve(specifier, context));
@@ -6008,6 +6126,7 @@ process.on('uncaughtException', error => {
 let tests = [];
 try {
   configureFileEnvironment();
+  await configureCustomResolver();
   await configureTransforms();
   installJsdomEnvironment();
   if (jsdomEnvironment) {

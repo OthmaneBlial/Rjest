@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 98/98 (100.0%) across its explicitly listed
+The current generated matrix is 100/100 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
 21/21 (100.0%). CLI is 6/6 (100.0%). These are scores for the bounded regression
@@ -80,6 +80,12 @@ ancestor-relative directory names. The Rust-backed resolver applies CommonJS
 and native-ESM export conditions, configured extensions, `require.resolve`,
 mock/actual identity, closest-directory lookup, explicit `node_modules`
 retention, and deliberate exclusion when that name is omitted.
+Configured custom resolvers are preloaded from CommonJS or native ESM, including
+top-level await, and accept either a function or `{sync}` export. Rjest supplies
+Jest-shaped basedir, require/import conditions, extensions, module directories,
+module paths, root, `defaultResolver`, and `defaultAsyncResolver` options. The
+differential covers custom CommonJS/ESM targets, ordinary fallback packages,
+mock/actual identities, static/dynamic imports, and synchronous object exports.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -112,7 +118,8 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Custom resolvers and pnpm/Yarn PnP layouts remain open work.
+instrumentation. Async-only custom resolver hooks and pnpm/Yarn PnP layouts
+remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

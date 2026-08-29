@@ -102,6 +102,7 @@ pub struct ProjectConfig {
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub module_directories: Vec<String>,
     pub module_paths: Vec<PathBuf>,
+    pub resolver: Option<String>,
     pub automock: bool,
     pub reset_modules: bool,
     #[serde(flatten)]
@@ -145,6 +146,7 @@ struct RawProjectConfig {
     module_name_mapper: Option<serde_json::Map<String, Value>>,
     module_directories: Option<Vec<String>>,
     module_paths: Option<Vec<String>>,
+    resolver: Option<String>,
     automock: Option<bool>,
     reset_modules: Option<bool>,
     clear_mocks: Option<bool>,
@@ -286,6 +288,7 @@ impl ProjectConfig {
             module_name_mapper: Vec::new(),
             module_directories: vec!["node_modules".into()],
             module_paths: Vec::new(),
+            resolver: None,
             automock: false,
             reset_modules: false,
             mock_lifecycle: MockLifecycleConfig::default(),
@@ -506,6 +509,9 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .collect::<Result<Vec<_>, ConfigError>>()
     };
     let module_paths = resolve_paths(raw.module_paths)?;
+    let resolver = raw
+        .resolver
+        .map(|value| normalize_module_reference(&value, &root_dir));
     let module_directories = raw
         .module_directories
         .unwrap_or(defaults.module_directories)
@@ -571,6 +577,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         module_name_mapper,
         module_directories,
         module_paths,
+        resolver,
         automock: raw.automock.unwrap_or(defaults.automock),
         reset_modules: raw.reset_modules.unwrap_or(defaults.reset_modules),
         mock_lifecycle,
@@ -1125,6 +1132,29 @@ mod tests {
                 "node_modules".to_owned()
             ]
         );
+    }
+
+    #[test]
+    fn normalizes_custom_resolver_module_references() {
+        let temp = tempdir().expect("temp dir");
+        let rooted = load_inline_json(
+            temp.path(),
+            r#"{"resolver":"<rootDir>/tools/resolver.cjs"}"#,
+        )
+        .expect("rooted resolver");
+        assert_eq!(
+            rooted.resolver,
+            Some(
+                temp.path()
+                    .join("tools/resolver.cjs")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+
+        let package = load_inline_json(temp.path(), r#"{"resolver":"fixture-resolver"}"#)
+            .expect("package resolver");
+        assert_eq!(package.resolver.as_deref(), Some("fixture-resolver"));
     }
 
     #[test]

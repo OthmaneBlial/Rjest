@@ -319,6 +319,7 @@ fn run() -> Result<bool> {
         module_name_mapper: config.module_name_mapper.clone(),
         module_directories: config.module_directories.clone(),
         module_paths: config.module_paths.clone(),
+        resolver: config.resolver.clone(),
         automock: config.automock,
         reset_modules: config.reset_modules,
         mock_lifecycle: config.mock_lifecycle.clone(),
@@ -334,11 +335,7 @@ fn run() -> Result<bool> {
         collect_coverage,
         coverage_path_ignore_patterns,
         coverage_filter,
-        snapshot_update: if cli.update_snapshot {
-            SnapshotUpdate::All
-        } else {
-            SnapshotUpdate::New
-        },
+        snapshot_update: snapshot_update(&cli),
         ..rjest_runner::RunnerOptions::default()
     };
     let result = rjest_runner::run(&tests, &options)?;
@@ -358,6 +355,14 @@ fn run() -> Result<bool> {
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn snapshot_update(cli: &Cli) -> SnapshotUpdate {
+    if cli.update_snapshot {
+        SnapshotUpdate::All
+    } else {
+        SnapshotUpdate::New
+    }
 }
 
 fn shard_tests(
