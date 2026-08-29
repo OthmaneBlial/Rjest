@@ -7,9 +7,9 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 63/64 (98.4%) across its explicitly listed
-scenarios and categories. ESM is 4/5 (80.0%) because the preserved
-`unstable_unmockModule` probe still differs. These are scores for the bounded
+The current generated matrix is 65/66 (98.5%) across its explicitly listed
+scenarios and categories. ESM is 6/7 (85.7%) because the preserved
+`isolateModulesAsync` probe still differs. These are scores for the bounded
 regression set, not claims about the unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
@@ -45,8 +45,9 @@ asynchronous `unstable_mockModule` factories are also verified. The async probe
 covers relative modules, scoped packages, Node built-ins, default/named/exotic
 exports, factory caching, rejection retries, concurrent first imports,
 transitive static graphs, re-exports, transformed TypeScript, and unused-factory
-laziness. Custom module directories, ESM unmock/reset semantics, and pnpm/Yarn
-PnP layouts remain open work.
+laziness. `unstable_unmockModule` and `resetModules` cover actual and mocked ESM
+registries, including Jest's retained evaluated-mock cache. Custom module
+directories, `isolateModulesAsync`, and pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

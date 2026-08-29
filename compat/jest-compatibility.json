@@ -3,9 +3,9 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 63,
-    "total": 64,
-    "percentage": 98.4375
+    "passing": 65,
+    "total": 66,
+    "percentage": 98.48484848484848
   },
   "categories": {
     "Configuration": {
@@ -29,9 +29,9 @@
       "percentage": 100
     },
     "ESM": {
-      "passing": 4,
-      "total": 5,
-      "percentage": 80
+      "passing": 6,
+      "total": 7,
+      "percentage": 85.71428571428571
     },
     "Expect": {
       "passing": 4,
@@ -307,6 +307,18 @@
     },
     {
       "name": "gap-esm-unmock",
+      "category": "ESM",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-esm-reset-modules",
+      "category": "ESM",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-esm-isolate-modules-async",
       "category": "ESM",
       "compatible": false,
       "differences": [

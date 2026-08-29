@@ -49,6 +49,7 @@ const originalModuleResolveFilename = Module._resolveFilename;
 const moduleMocks = new Map();
 const virtualModuleMocks = new Map();
 const esmModuleMocks = [];
+const esmModuleMockCache = new Map();
 const esmMockValues = new Map();
 const dynamicImportBridges = new Map();
 const esmStaticDependencyCache = new Map();
@@ -69,6 +70,7 @@ let nativeAnimationFrame;
 let transformerDepth = 0;
 let automockEnabled = false;
 let esmHooksInstalled = false;
+let esmModuleGeneration = 0;
 let esmResolutionDepth = 0;
 let nextEsmMockId = 1;
 
@@ -1625,8 +1627,9 @@ function registeredEsmMock(specifier, parentURL) {
   }
   if (!esmModuleMocks.some(entry => entry.relative)) return undefined;
   const canonical = resolveEsmCandidate(moduleName, parentURL);
+  const identity = canonical ?? new URL(moduleName, parentURL).href;
   return esmModuleMocks.find(
-    entry => entry.relative && entry.canonical && entry.canonical === canonical,
+    entry => entry.relative && entry.identity === identity,
   );
 }
 
@@ -1646,6 +1649,7 @@ function cacheEsmMock(entry, value) {
   entry.initialized = true;
   esmMockValues.set(entry.valueKey, value);
   entry.url = esmDataUrl(esmMockSource(entry));
+  esmModuleMockCache.set(entry.cacheKey, entry);
   return entry.url;
 }
 
@@ -2103,6 +2107,33 @@ function isEsmRuntimePath(filename) {
   );
 }
 
+const esmGenerationParameter = '__rjest_esm_generation__';
+
+function versionedEsmUrl(url) {
+  if (esmModuleGeneration === 0 || !url.startsWith('file:')) return url;
+  const versioned = new URL(url);
+  versioned.searchParams.set(esmGenerationParameter, String(esmModuleGeneration));
+  return versioned.href;
+}
+
+function versionedEsmResolution(resolution) {
+  if (!resolution?.url) return resolution;
+  const url = versionedEsmUrl(resolution.url);
+  return url === resolution.url ? resolution : {...resolution, url};
+}
+
+function resetEsmModules() {
+  esmModuleGeneration += 1;
+  esmModuleMockCache.clear();
+  esmMockValues.clear();
+  for (const entry of esmModuleMocks) {
+    entry.initialized = false;
+    entry.url = undefined;
+    entry.value = undefined;
+    entry.valueKey = undefined;
+  }
+}
+
 function configureEsmRuntime() {
   if (esmHooksInstalled || !isEsmRuntimePath(request.testPath)) return;
   globalThis[Symbol.for('rjest.esmRuntime')] = {
@@ -2137,8 +2168,10 @@ function configureEsmRuntime() {
         return {shortCircuit: true, url: initializeEsmMock(mock)};
       }
       const mapped = mappedEsmResolution(specifier, context.parentURL);
-      if (mapped) return {shortCircuit: true, url: mapped};
-      return nextResolve(specifier, context);
+      if (mapped) {
+        return {shortCircuit: true, url: versionedEsmUrl(mapped)};
+      }
+      return versionedEsmResolution(nextResolve(specifier, context));
     },
     load(url, context, nextLoad) {
       if (isDynamicImportBridgeUrl(url)) {
@@ -2457,13 +2490,21 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
   }
   const moduleName = String(specifier);
   const parentURL = pathToFileURL(fromPath).href;
+  const relative = moduleName.startsWith('.') || moduleName.startsWith('/');
+  const canonical =
+    mappedEsmResolution(moduleName, parentURL) ??
+    resolveEsmCandidate(moduleName, parentURL);
+  const identity = relative
+    ? canonical ?? new URL(moduleName, parentURL).href
+    : moduleName;
+  const cacheKey = relative ? `path:${identity}` : `name:${identity}`;
   const entry = {
     id: nextEsmMockId++,
     specifier: moduleName,
-    canonical:
-      mappedEsmResolution(moduleName, parentURL) ??
-      resolveEsmCandidate(moduleName, parentURL),
-    relative: moduleName.startsWith('.') || moduleName.startsWith('/'),
+    cacheKey,
+    canonical,
+    identity,
+    relative,
     factory,
     generation: 0,
     initialized: false,
@@ -2471,13 +2512,41 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
     value: undefined,
     valueKey: undefined,
   };
+  const cached = esmModuleMockCache.get(cacheKey);
+  if (cached?.initialized) {
+    entry.generation = cached.generation;
+    entry.initialized = true;
+    entry.url = cached.url;
+    entry.value = cached.value;
+    entry.valueKey = cached.valueKey;
+  }
   const existing = esmModuleMocks.findIndex(candidate =>
     entry.relative
-      ? candidate.canonical === entry.canonical
+      ? candidate.identity === entry.identity
       : !candidate.relative && candidate.specifier === entry.specifier,
   );
   if (existing === -1) esmModuleMocks.push(entry);
   else esmModuleMocks[existing] = entry;
+  return returnValue;
+}
+
+function unregisterEsmModuleMock(specifier, fromPath, returnValue) {
+  const moduleName = String(specifier);
+  const relative = moduleName.startsWith('.') || moduleName.startsWith('/');
+  const parentURL = pathToFileURL(fromPath).href;
+  const canonical = relative
+    ? mappedEsmResolution(moduleName, parentURL) ??
+      resolveEsmCandidate(moduleName, parentURL)
+    : undefined;
+  const identity = relative
+    ? canonical ?? new URL(moduleName, parentURL).href
+    : moduleName;
+  const existing = esmModuleMocks.findIndex(entry =>
+    relative
+      ? entry.relative && entry.identity === identity
+      : !entry.relative && entry.specifier === moduleName,
+  );
+  if (existing !== -1) esmModuleMocks.splice(existing, 1);
   return returnValue;
 }
 
@@ -2655,6 +2724,9 @@ function scopedJest(fromPath) {
     },
     unstable_mockModule(specifier, factory) {
       return registerEsmModuleMock(specifier, factory, fromPath, scoped);
+    },
+    unstable_unmockModule(specifier) {
+      return unregisterEsmModuleMock(specifier, fromPath, scoped);
     },
   });
   return scoped;
@@ -3868,10 +3940,14 @@ const jest = {
   unstable_mockModule(specifier, factory) {
     return registerEsmModuleMock(specifier, factory, activeModulePath, jest);
   },
+  unstable_unmockModule(specifier) {
+    return unregisterEsmModuleMock(specifier, activeModulePath, jest);
+  },
   resetModules() {
     for (const path of Object.keys(Module._cache)) {
       if (!path.includes('/node_modules/')) delete Module._cache[path];
     }
+    resetEsmModules();
     return jest;
   },
   isolateModules(callback) {

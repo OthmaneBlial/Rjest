@@ -175,6 +175,19 @@ const cases = [
   {
     name: 'gap-esm-unmock',
     category: 'ESM',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareNodeModules: true,
+  },
+  {
+    name: 'gap-esm-reset-modules',
+    category: 'ESM',
+    expectedExit: 0,
+    experimentalVmModules: true,
+  },
+  {
+    name: 'gap-esm-isolate-modules-async',
+    category: 'ESM',
     compatible: false,
     expectedExit: 0,
     experimentalVmModules: true,

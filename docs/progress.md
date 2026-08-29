@@ -96,7 +96,8 @@ Last updated: 2026-08-29
   packages, and Node built-ins. Differential coverage preserves successful
   caching, rejected-factory retries, concurrent first imports, exotic export
   names, import attributes, conditional package exports, transformed static
-  dependency graphs, re-exports, and unused-factory laziness.
+  dependency graphs, re-exports, unused-factory laziness, parent-aware
+  `unstable_unmockModule`, and fresh actual/mock registries after `resetModules`.
 - Jest-compatible post-transform Babel/Istanbul instrumentation and source-map
   remapping for transformers such as `ts-jest` that do not instrument output.
 - A pinned setup-matlab/Jest 30 corpus: 7/7 suites, 94/94 tests, and exact
@@ -180,8 +181,8 @@ Last updated: 2026-08-29
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 63/64
-  compatible scenarios (98.4%), with ESM at 4/5 (80.0%) and per-category
+  preserved known incompatibilities. The current generated result is 65/66
+  compatible scenarios (98.5%), with ESM at 6/7 (85.7%) and per-category
   scores in the machine-readable report. This is a score for the versioned
   probe corpus, not all Jest behavior.
 
@@ -202,7 +203,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 63/64 (98.4%). ESM is 4/5 (80.0%); coverage is 3/3 in its bounded
+corpus score is 65/66 (98.5%). ESM is 6/7 (85.7%); coverage is 3/3 in its bounded
 scenario category.
 
 ## Known blockers
@@ -220,8 +221,8 @@ scenario category.
 - Deeply unmocked dependency graphs and ESM module automocking are not
   implemented; manual CommonJS mocks, CommonJS automocking, Babel-hoisted and
   virtual factories, and direct/transitive synchronous or asynchronous ESM
-  module factories are covered by differential tests. ESM
-  `unstable_unmockModule` and module-registry reset semantics remain unsupported.
+  module factories are covered by differential tests. ESM unmock/reset behavior
+  is covered; asynchronous isolated module registries remain unsupported.
 - New/updated inline snapshot source writes, V8 coverage, non-global threshold
   groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
@@ -240,7 +241,7 @@ scenario category.
 1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from deterministic real-project
    failures.
-3. Implement `unstable_unmockModule` and ESM module-registry reset semantics.
+3. Implement `isolateModulesAsync` across CommonJS and ESM registries.
 4. Add broader timer edge-case probes and modern timer tick-mode controls.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
    stable across a broader independent corpus.
