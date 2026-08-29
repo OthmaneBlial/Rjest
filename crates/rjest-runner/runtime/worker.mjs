@@ -823,8 +823,12 @@ const matchers = {
     if (expected instanceof RegExp) {
       return expected.test(String(thrown?.message ?? thrown));
     }
+    if (isAsymmetric(expected)) return expected.asymmetricMatch(thrown);
     if (typeof expected === 'function') return thrown instanceof expected;
     if (expected instanceof Error) return thrown?.message === expected.message;
+    if (typeof expected === 'object' && expected !== null) {
+      return subsetEqual(thrown, expected);
+    }
     return false;
   },
   toHaveBeenCalled: received =>
@@ -881,6 +885,31 @@ function matcherMessage(name, received, expected, isNot) {
     ? `\nReceived calls: ${printable(received.mock.calls)}`
     : `\nReceived: ${printable(received)}`;
   return `expect(received)${isNot ? '.not' : ''}.${name}()${expectedLabel}${receivedLabel}`;
+}
+
+function validateCustomMatcherOutcome(
+  name,
+  outcome,
+  received,
+  expected,
+  isNot,
+) {
+  if (
+    !outcome ||
+    typeof outcome !== 'object' ||
+    typeof outcome.pass !== 'boolean'
+  ) {
+    throw new TypeError(
+      `Unexpected return from a matcher function: ${name} must return an object with a boolean pass property`,
+    );
+  }
+  if (outcome.pass === isNot) {
+    const message =
+      typeof outcome.message === 'function'
+        ? outcome.message()
+        : matcherMessage(name, received, expected, isNot);
+    throw new RjestAssertionError(message);
+  }
 }
 
 function recordAssertion() {
@@ -978,22 +1007,18 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
           received,
           ...expected,
         );
-        if (
-          !outcome ||
-          typeof outcome !== 'object' ||
-          typeof outcome.pass !== 'boolean'
-        ) {
-          throw new TypeError(
-            `Unexpected return from a matcher function: ${name} must return an object with a boolean pass property`,
+        if (outcome && typeof outcome.then === 'function') {
+          return Promise.resolve(outcome).then(result =>
+            validateCustomMatcherOutcome(name, result, received, expected, isNot),
           );
         }
-        if (outcome.pass === isNot) {
-          const message =
-            typeof outcome.message === 'function'
-              ? outcome.message()
-              : matcherMessage(name, received, expected, isNot);
-          throw new RjestAssertionError(message);
-        }
+        return validateCustomMatcherOutcome(
+          name,
+          outcome,
+          received,
+          expected,
+          isNot,
+        );
       };
       if (!promiseMode) return evaluate(actual);
       if (!actual || typeof actual.then !== 'function') {
@@ -1023,6 +1048,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
       );
     };
   }
+
   expectation.toMatchSnapshot = (...arguments_) => {
     recordAssertion();
     if (isNot) {
@@ -2464,20 +2490,77 @@ async function collectedCoverage() {
 
 function installJsdomEnvironment() {
   if (!String(request.testEnvironment).includes('jsdom')) return;
+  const existingGlobalDescriptors = Object.getOwnPropertyDescriptors(globalThis);
   const {JSDOM} = requireFromTest('jsdom');
   const environmentOptions = request.testEnvironmentOptions ?? {};
   jsdomEnvironment = new JSDOM(
     '<!doctype html><html><head></head><body></body></html>',
     {
       pretendToBeVisual: true,
+      runScripts: 'outside-only',
       url: environmentOptions.url ?? 'http://localhost/',
     },
   );
   const window = jsdomEnvironment.window;
   const protectedGlobals = new Set([
+    'AggregateError',
+    'Array',
+    'Atomics',
+    'BigInt',
+    'BigInt64Array',
+    'BigUint64Array',
+    'Boolean',
+    'DataView',
+    'Date',
+    'Error',
+    'EvalError',
+    'FinalizationRegistry',
+    'Float32Array',
+    'Float64Array',
+    'Function',
+    'Int8Array',
+    'Int16Array',
+    'Int32Array',
+    'Intl',
+    'JSON',
+    'Map',
+    'Math',
+    'Number',
+    'Object',
+    'Promise',
+    'Proxy',
+    'RangeError',
+    'ReferenceError',
+    'Reflect',
+    'RegExp',
+    'Set',
+    'SharedArrayBuffer',
+    'String',
+    'Symbol',
+    'SyntaxError',
+    'TypeError',
+    'URIError',
+    'Uint8Array',
+    'Uint8ClampedArray',
+    'Uint16Array',
+    'Uint32Array',
+    'WeakMap',
+    'WeakRef',
+    'WeakSet',
+    'WebAssembly',
     'console',
+    'decodeURI',
+    'decodeURIComponent',
+    'encodeURI',
+    'encodeURIComponent',
+    'escape',
+    'eval',
     'global',
     'globalThis',
+    'isFinite',
+    'isNaN',
+    'parseFloat',
+    'parseInt',
     'setTimeout',
     'clearTimeout',
     'setInterval',
@@ -2490,12 +2573,13 @@ function installJsdomEnvironment() {
     'self',
     'document',
     'navigator',
+    'unescape',
   ]);
   for (const key of Reflect.ownKeys(window)) {
     if (protectedGlobals.has(key)) continue;
     const descriptor = Object.getOwnPropertyDescriptor(window, key);
     if (!descriptor) continue;
-    const current = Object.getOwnPropertyDescriptor(globalThis, key);
+    const current = existingGlobalDescriptors[key];
     if (current && !current.configurable) continue;
     try {
       Object.defineProperty(globalThis, key, descriptor);
@@ -2541,6 +2625,21 @@ function installJsdomEnvironment() {
       });
     },
   });
+  for (const key of ['XMLHttpRequest', 'FileReader', 'ReadableStream']) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      enumerable: true,
+      get: () => window[key],
+      set: value => {
+        Object.defineProperty(window, key, {
+          configurable: true,
+          enumerable: true,
+          value,
+          writable: true,
+        });
+      },
+    });
+  }
   for (const key of [
     'localStorage',
     'sessionStorage',

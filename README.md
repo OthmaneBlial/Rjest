@@ -105,6 +105,11 @@ unchanged monorepo proof to 101/101 suites and 1,150/1,150 tests. Its automated
 comparison finds exact suite paths, test identities/statuses, and aggregate plus
 per-file coverage parity across 198 source files, with zero Rjest file errors.
 
+The pinned [AWS Amplify Storage corpus](docs/corpus/amplify-storage.md) adds
+85/85 suites and 850/850 tests from the unchanged package. Jest and Rjest agree
+on every test identity/status and every Istanbul summary across 129 source
+files after exercising async custom matchers, XHR mocks, and cross-realm data.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

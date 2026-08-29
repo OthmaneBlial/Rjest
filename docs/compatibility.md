@@ -88,6 +88,13 @@ and aggregate plus per-file Istanbul summaries across 198 source files, with
 zero Rjest file errors. Run it with `npm run compare:corpus` against captured
 Jest and Rjest JSON results.
 
+The pinned [AWS Amplify Storage corpus](corpus/amplify-storage.md) adds 85/85
+suites and 850/850 tests from the unchanged package. The machine comparison is
+exact across all test identities/statuses and 129 per-file Istanbul summaries.
+This corpus covers asynchronous custom matchers, asymmetric and object
+`toThrow` expectations, mutable JSDOM XHR constructors, and Node/JSDOM realm
+separation.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

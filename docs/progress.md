@@ -120,6 +120,12 @@ Last updated: 2026-08-29
 - A reusable machine comparator for captured real-project results, checking
   exact suite paths, test names/statuses, snapshots, file errors, and aggregate
   plus per-file coverage summaries.
+- A pinned AWS Amplify Storage/Jest 29 corpus: exact 85/85 suites, 850/850
+  tests, and aggregate plus per-file Istanbul parity across 129 source files on
+  the unchanged package.
+- Asynchronous custom matcher results with matcher context, asymmetric and
+  object `toThrow` expectations, live JSDOM XHR/FileReader/ReadableStream
+  aliases, and a separate observable JSDOM `ArrayBuffer` realm.
 - An automated differential denominator containing both passing probes and
   preserved known incompatibilities. The current generated result is 53/53
   compatible scenarios (100%), with per-category scores in the
@@ -128,8 +134,8 @@ Last updated: 2026-08-29
 
 ## Current work
 
-- Expand the pinned Amplify monorepo corpus beyond Analytics, Core, and Auth,
-  then address the next cross-package incompatibilities.
+- Expand the pinned Amplify monorepo corpus beyond Analytics, Core, Auth, and
+  Storage, then address the next cross-package incompatibilities.
 
 ## Compatibility snapshot
 
@@ -163,11 +169,11 @@ scenario category.
 - Fresh Node/JSDOM/transformer startup per test file is a major performance
   bottleneck: the pinned Amplify Core serial run is compatible but about 19.35
   times slower than Jest by reported runner time, while Auth is about 19.83
-  times slower.
+  times slower and Storage is about 14.67 times slower.
 
 ## Next highest-value tasks
 
-1. Run the Amplify Storage workspace package unchanged.
+1. Run the Amplify DataStore workspace package unchanged.
 2. Grow the versioned differential denominator from its real failures.
 3. Implement legacy fake-timer behavior.
 4. Extend native ESM mocking to async factories and unmock/reset semantics.

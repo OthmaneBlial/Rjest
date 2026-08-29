@@ -37,6 +37,12 @@ constructor mocks and does not expose Node-only `TextEncoder` or `TextDecoder`
 when the installed JSDOM window omits them. Complete custom environment
 behavior remains outside the current compatibility claim.
 
+Assignments to `window.XMLHttpRequest`, `window.FileReader`, and
+`window.ReadableStream` remain visible through their bare global names. JSDOM's
+`ArrayBuffer` realm is also distinct from buffers returned by Node-only
+constructors, matching the covered Jest behavior while transformer tooling
+continues to use Node host intrinsics.
+
 `rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
 positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
 JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global
@@ -63,6 +69,11 @@ and metadata discovery is isolated from the active mock registry. Ordinary
 accessor spies. `jest.isolateModules` provides a temporary CommonJS module
 registry. Deeply unmocked transitive dependencies and async ESM mock factories
 remain incomplete.
+
+Custom matchers registered through `expect.extend` may return promises and use
+the matcher context such as `this.equals`. `toThrow` and promise-modified
+`toThrow` accept the covered asymmetric matchers and plain error-property
+objects as well as strings, regular expressions, constructors, and errors.
 
 External and existing inline snapshots accept nested property matchers and
 serialize their asymmetric placeholders like Jest. Rjest still cannot write a
