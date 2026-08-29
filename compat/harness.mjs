@@ -159,6 +159,20 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'gap-esm-async-mock',
+    category: 'ESM',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareNodeModules: true,
+  },
+  {
+    name: 'gap-esm-async-mock-transitive',
+    category: 'ESM',
+    compatible: false,
+    expectedExit: 0,
+    experimentalVmModules: true,
+  },
+  {
     name: 'resolution-node-package',
     category: 'Resolution',
     expectedExit: 0,

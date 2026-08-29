@@ -80,13 +80,17 @@ CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 `jest.createMockFromModule`. Configured and runtime CommonJS automocking covers
 nested exports and classes, manual `__mocks__` files are resolved for adjacent
 and ancestor/bare-module cases, and Babel-Jest hoists standard mock factories.
-Virtual CommonJS mocks and synchronous `jest.unstable_mockModule` factories are
-supported. Jest 29's legacy `jest.genMockFromModule` alias is also available,
-and metadata discovery is isolated from the active mock registry. Ordinary
-`jest.spyOn` supports getter-backed function exports as well as explicit
-accessor spies. `jest.isolateModules` provides a temporary CommonJS module
-registry. Deeply unmocked transitive dependencies and async ESM mock factories
-remain incomplete.
+Virtual CommonJS mocks and direct synchronous or asynchronous
+`jest.unstable_mockModule` factories are supported when the mocked relative,
+package, or built-in module is loaded with dynamic `import()`. Successful async
+factories are cached, rejected factories remain retryable, and Jest's concurrent
+first-import factory race is preserved. Jest 29's legacy
+`jest.genMockFromModule` alias is also available, and metadata discovery is
+isolated from the active mock registry. Ordinary `jest.spyOn` supports
+getter-backed function exports as well as explicit accessor spies.
+`jest.isolateModules` provides a temporary CommonJS module registry. Deeply
+unmocked transitive dependencies and async factories reached through a static
+ESM dependency graph remain incomplete.
 
 Custom matchers registered through `expect.extend` may return promises and use
 the matcher context such as `this.equals`. `toThrow` and promise-modified

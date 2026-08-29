@@ -49,6 +49,7 @@ const moduleMocks = new Map();
 const virtualModuleMocks = new Map();
 const esmModuleMocks = [];
 const esmMockValues = new Map();
+const dynamicImportBridges = new Map();
 const bypassModuleMocks = new Set();
 const explicitlyUnmockedModules = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
@@ -66,6 +67,7 @@ let nativeAnimationFrame;
 let transformerDepth = 0;
 let automockEnabled = false;
 let esmHooksInstalled = false;
+let esmResolutionDepth = 0;
 let nextEsmMockId = 1;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
@@ -1588,6 +1590,7 @@ function resolveEsmCandidate(specifier, parentURL) {
   if (Module.isBuiltin(moduleName)) {
     return moduleName.startsWith('node:') ? moduleName : `node:${moduleName}`;
   }
+  esmResolutionDepth += 1;
   try {
     const resolved = createRequire(esmParentPath(parentURL)).resolve(moduleName);
     if (Module.isBuiltin(resolved)) {
@@ -1596,6 +1599,8 @@ function resolveEsmCandidate(specifier, parentURL) {
     return pathToFileURL(resolved).href;
   } catch {
     return undefined;
+  } finally {
+    esmResolutionDepth -= 1;
   }
 }
 
@@ -1611,9 +1616,11 @@ function mappedEsmResolution(specifier, parentURL) {
 
 function registeredEsmMock(specifier, parentURL) {
   const moduleName = String(specifier);
-  const direct = esmModuleMocks.find(entry => entry.specifier === moduleName);
-  if (direct) return direct;
-  if (!moduleName.startsWith('.') && !moduleName.startsWith('/')) return undefined;
+  if (!moduleName.startsWith('.') && !moduleName.startsWith('/')) {
+    return esmModuleMocks.find(
+      entry => !entry.relative && entry.specifier === moduleName,
+    );
+  }
   if (!esmModuleMocks.some(entry => entry.relative)) return undefined;
   const canonical = resolveEsmCandidate(moduleName, parentURL);
   return esmModuleMocks.find(
@@ -1625,42 +1632,319 @@ function esmDataUrl(source) {
   return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 }
 
-function initializeEsmMock(entry) {
-  if (!entry.initialized) {
-    const value = entry.factory();
-    if (value && typeof value.then === 'function') {
-      throw new Error(
-        `Async jest.unstable_mockModule factories are not supported yet for ${entry.specifier}`,
-      );
-    }
-    if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
-      throw new TypeError(
-        `jest.unstable_mockModule factory for ${entry.specifier} must return an object`,
-      );
-    }
-    entry.value = value;
-    entry.initialized = true;
-    esmMockValues.set(entry.id, value);
+function cacheEsmMock(entry, value) {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+    throw new TypeError(
+      `jest.unstable_mockModule factory for ${entry.specifier} must return an object`,
+    );
   }
-  return esmDataUrl(esmMockSource(entry));
+  entry.generation += 1;
+  entry.valueKey = `${entry.id}:${entry.generation}`;
+  entry.value = value;
+  entry.initialized = true;
+  esmMockValues.set(entry.valueKey, value);
+  entry.url = esmDataUrl(esmMockSource(entry));
+  return entry.url;
 }
 
-function validEsmExportName(name) {
-  return /^[A-Za-z_$][\w$]*$/.test(name) && name !== 'default';
+function initializeEsmMock(entry) {
+  if (entry.initialized) return entry.url;
+  const value = entry.factory();
+  if (value && typeof value.then === 'function') {
+    throw new Error(
+      `Async jest.unstable_mockModule factories require a dynamic import for ${entry.specifier}`,
+    );
+  }
+  return cacheEsmMock(entry, value);
+}
+
+async function initializeEsmMockAsync(entry) {
+  if (entry.initialized) return entry.url;
+  return cacheEsmMock(entry, await entry.factory());
 }
 
 function esmMockSource(entry) {
-  const value = esmMockValues.get(entry.id);
+  const value = esmMockValues.get(entry.valueKey);
   const lines = [
-    `const value = globalThis[Symbol.for('rjest.esmRuntime')].mockValues.get(${entry.id});`,
+    `const value = globalThis[Symbol.for('rjest.esmRuntime')].mockValues.get(${JSON.stringify(entry.valueKey)});`,
   ];
   if (Object.prototype.hasOwnProperty.call(value, 'default')) {
     lines.push('export default value.default;');
   }
-  for (const name of Object.keys(value).filter(validEsmExportName)) {
-    lines.push(`export const ${name} = value[${JSON.stringify(name)}];`);
+  let exportIndex = 0;
+  for (const name of Object.keys(value).filter(name => name !== 'default')) {
+    const binding = `__rjestExport${exportIndex++}`;
+    lines.push(`const ${binding} = value[${JSON.stringify(name)}];`);
+    lines.push(`export {${binding} as ${JSON.stringify(name)}};`);
   }
   return lines.join('\n');
+}
+
+const dynamicImportBridgeParameter = '__rjest_dynamic_import_bridge__';
+
+// Node's in-process customization hook is synchronous, but an ESM mock's export
+// names are not known until an async factory settles. File-backed ESM sources
+// therefore route dynamic import() through the worker. Non-mocked imports are
+// delegated to a virtual module at the original parent URL so Node still owns
+// relative/package resolution, conditional exports, and import attributes.
+
+function dynamicImportBridgeUrl(parentURL) {
+  const url = new URL(parentURL);
+  url.searchParams.set(dynamicImportBridgeParameter, '1');
+  return url.href;
+}
+
+function isDynamicImportBridgeUrl(url) {
+  if (!url.startsWith('file:')) return false;
+  return new URL(url).searchParams.get(dynamicImportBridgeParameter) === '1';
+}
+
+function dynamicImportBridgeSource() {
+  return [
+    'export default function importFromParent(specifier, options) {',
+    '  return options === undefined ? import(specifier) : import(specifier, options);',
+    '}',
+  ].join('\n');
+}
+
+async function nativeDynamicImport(parentURL, specifier, options) {
+  let bridge = dynamicImportBridges.get(parentURL);
+  if (!bridge) {
+    bridge = import(dynamicImportBridgeUrl(parentURL)).then(module => module.default);
+    dynamicImportBridges.set(parentURL, bridge);
+  }
+  const importFromParent = await bridge;
+  return importFromParent(specifier, options);
+}
+
+async function importEsmModule(parentURL, specifier, options) {
+  const mock = registeredEsmMock(specifier, parentURL);
+  if (mock) return import(await initializeEsmMockAsync(mock));
+  return nativeDynamicImport(parentURL, specifier, options);
+}
+
+function rewriteDynamicImports(source) {
+  const replacements = [];
+  const regexPrefixKeywords = new Set([
+    'await',
+    'case',
+    'delete',
+    'do',
+    'else',
+    'in',
+    'instanceof',
+    'new',
+    'of',
+    'return',
+    'throw',
+    'typeof',
+    'void',
+    'yield',
+  ]);
+
+  function skipQuoted(index, quote) {
+    index += 1;
+    while (index < source.length) {
+      if (source[index] === '\\') index += 2;
+      else if (source[index] === quote) return index + 1;
+      else index += 1;
+    }
+    return index;
+  }
+
+  function skipLineComment(index) {
+    const newline = source.indexOf('\n', index + 2);
+    return newline === -1 ? source.length : newline;
+  }
+
+  function skipBlockComment(index) {
+    const end = source.indexOf('*/', index + 2);
+    return end === -1 ? source.length : end + 2;
+  }
+
+  function skipRegex(index) {
+    let characterClass = false;
+    index += 1;
+    while (index < source.length) {
+      const character = source[index];
+      if (character === '\\') {
+        index += 2;
+        continue;
+      }
+      if (character === '[') characterClass = true;
+      else if (character === ']') characterClass = false;
+      else if (character === '/' && !characterClass) {
+        index += 1;
+        while (/[A-Za-z]/.test(source[index] ?? '')) index += 1;
+        return index;
+      } else if (character === '\n' || character === '\r') {
+        return index;
+      }
+      index += 1;
+    }
+    return index;
+  }
+
+  function skipTrivia(index) {
+    while (index < source.length) {
+      if (/\s/.test(source[index])) {
+        index += 1;
+      } else if (source.startsWith('//', index)) {
+        index = skipLineComment(index);
+      } else if (source.startsWith('/*', index)) {
+        index = skipBlockComment(index);
+      } else {
+        break;
+      }
+    }
+    return index;
+  }
+
+  function scanTemplate(index) {
+    index += 1;
+    while (index < source.length) {
+      if (source[index] === '\\') {
+        index += 2;
+      } else if (source[index] === '`') {
+        return index + 1;
+      } else if (source[index] === '$' && source[index + 1] === '{') {
+        index = scanCode(index + 2, true);
+      } else {
+        index += 1;
+      }
+    }
+    return index;
+  }
+
+  function scanCode(start, stopAtTemplateExpression) {
+    let index = start;
+    let braceDepth = 0;
+    let canStartRegex = true;
+    const controlParentheses = [];
+    let pendingControlParenthesis = false;
+
+    while (index < source.length) {
+      const character = source[index];
+      if (/\s/.test(character)) {
+        index += 1;
+        continue;
+      }
+      if (source.startsWith('//', index)) {
+        index = skipLineComment(index);
+        continue;
+      }
+      if (source.startsWith('/*', index)) {
+        index = skipBlockComment(index);
+        continue;
+      }
+      if (character === "'" || character === '"') {
+        index = skipQuoted(index, character);
+        canStartRegex = false;
+        pendingControlParenthesis = false;
+        continue;
+      }
+      if (character === '`') {
+        index = scanTemplate(index);
+        canStartRegex = false;
+        pendingControlParenthesis = false;
+        continue;
+      }
+      if (character === '/') {
+        if (canStartRegex) {
+          index = skipRegex(index);
+          canStartRegex = false;
+        } else {
+          index += 1;
+          canStartRegex = true;
+        }
+        pendingControlParenthesis = false;
+        continue;
+      }
+      if (/[A-Za-z_$]/.test(character)) {
+        let end = index + 1;
+        while (/[\w$]/.test(source[end] ?? '')) end += 1;
+        const word = source.slice(index, end);
+        if (word === 'import') {
+          const opening = skipTrivia(end);
+          if (source[opening] === '(') {
+            const preservedLines = source
+              .slice(end, opening + 1)
+              .replace(/[^\n]/g, '');
+            replacements.push({
+              end: opening + 1,
+              start: index,
+              text:
+                "globalThis[Symbol.for('rjest.esmRuntime')].importModule(import.meta.url," +
+                preservedLines,
+            });
+            index = opening + 1;
+            canStartRegex = true;
+            pendingControlParenthesis = false;
+            continue;
+          }
+        }
+        pendingControlParenthesis = ['catch', 'for', 'if', 'switch', 'while', 'with'].includes(
+          word,
+        );
+        canStartRegex = regexPrefixKeywords.has(word);
+        index = end;
+        continue;
+      }
+      if (/[0-9]/.test(character)) {
+        index += 1;
+        while (/[\w.]/.test(source[index] ?? '')) index += 1;
+        canStartRegex = false;
+        pendingControlParenthesis = false;
+        continue;
+      }
+      if (character === '(') {
+        controlParentheses.push(pendingControlParenthesis);
+        pendingControlParenthesis = false;
+        canStartRegex = true;
+      } else if (character === ')') {
+        canStartRegex = controlParentheses.pop() === true;
+        pendingControlParenthesis = false;
+      } else if (character === '{') {
+        braceDepth += 1;
+        canStartRegex = true;
+        pendingControlParenthesis = false;
+      } else if (character === '}') {
+        if (stopAtTemplateExpression && braceDepth === 0) return index + 1;
+        braceDepth = Math.max(0, braceDepth - 1);
+        canStartRegex = false;
+        pendingControlParenthesis = false;
+      } else if (character === ']' || character === '.') {
+        canStartRegex = false;
+        pendingControlParenthesis = false;
+      } else {
+        canStartRegex = true;
+        pendingControlParenthesis = false;
+      }
+      index += 1;
+    }
+    return index;
+  }
+
+  scanCode(0, false);
+  if (replacements.length === 0) return source;
+  let rewritten = source;
+  for (const replacement of replacements.reverse()) {
+    rewritten =
+      rewritten.slice(0, replacement.start) +
+      replacement.text +
+      rewritten.slice(replacement.end);
+  }
+  return rewritten;
+}
+
+function rewriteLoadedEsmSource(loaded) {
+  if (loaded.format !== 'module' || loaded.source == null) return loaded;
+  const source =
+    typeof loaded.source === 'string'
+      ? loaded.source
+      : Buffer.from(loaded.source).toString('utf8');
+  const rewritten = rewriteDynamicImports(source);
+  return rewritten === source ? loaded : {...loaded, source: rewritten};
 }
 
 function jestGlobalsSource() {
@@ -1713,11 +1997,14 @@ function configureEsmRuntime() {
       xit: test.skip,
       xtest: test.skip,
     },
+    importModule: importEsmModule,
     mockValues: esmMockValues,
   };
   registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (transformerDepth > 0) return nextResolve(specifier, context);
+      if (transformerDepth > 0 || esmResolutionDepth > 0) {
+        return nextResolve(specifier, context);
+      }
       if (specifier === '@jest/globals') {
         return {shortCircuit: true, url: esmDataUrl(jestGlobalsSource())};
       }
@@ -1730,6 +2017,13 @@ function configureEsmRuntime() {
       return nextResolve(specifier, context);
     },
     load(url, context, nextLoad) {
+      if (isDynamicImportBridgeUrl(url)) {
+        return {
+          format: 'module',
+          shortCircuit: true,
+          source: dynamicImportBridgeSource(),
+        };
+      }
       if (url.startsWith('file:')) {
         const filename = fileURLToPath(url);
         const selected = runtimeTransformerFor(filename);
@@ -1742,8 +2036,15 @@ function configureEsmRuntime() {
             shouldInstrument(filename),
             true,
           );
-          return {format: 'module', shortCircuit: true, source: transformed.code};
+          return {
+            format: 'module',
+            shortCircuit: true,
+            source: rewriteDynamicImports(transformed.code),
+          };
         }
+      }
+      if (url.startsWith('file:')) {
+        return rewriteLoadedEsmSource(nextLoad(url, context));
       }
       return nextLoad(url, context);
     },
@@ -2040,8 +2341,11 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
       resolveEsmCandidate(moduleName, parentURL),
     relative: moduleName.startsWith('.') || moduleName.startsWith('/'),
     factory,
+    generation: 0,
     initialized: false,
+    url: undefined,
     value: undefined,
+    valueKey: undefined,
   };
   const existing = esmModuleMocks.findIndex(candidate =>
     entry.relative

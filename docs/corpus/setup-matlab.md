@@ -82,6 +82,7 @@ was sent through CommonJS `require()`. Subsequent preserved fixes added:
 - post-transform Istanbul instrumentation and original-source remapping.
 
 The versioned differential corpus grew from 37 to 42 scenarios to preserve
-these general behaviors. This result proves compatibility for the pinned suite;
-async ESM mock factories, ESM unmock/reset semantics, and the broader Jest ESM
-surface remain future work.
+these general behaviors. This result proves compatibility for the pinned suite.
+Later differential work covers direct async ESM mock factories; transitive async
+factories, ESM unmock/reset semantics, and the broader Jest ESM surface remain
+future work.

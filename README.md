@@ -9,9 +9,10 @@ and TypeScript test runner whose coordinator is written in Rust.
 > snapshots, snapshot property matchers, configured serializers,
 > Babel/Istanbul coverage, and CommonJS/transformed `moduleNameMapper` rules are
 > supported. CommonJS automocking, manual `__mocks__` resolution,
-> Babel-hoisted and virtual mock factories, native-ESM mapping, and synchronous
-> ESM module mocks also work. Writing new inline snapshots, async ESM mock
-> factories, V8 coverage, watch mode, and many Jest edge cases remain.
+> Babel-hoisted and virtual mock factories, native-ESM mapping, and direct
+> synchronous or asynchronous ESM module mocks also work. Writing new inline
+> snapshots, transitive async ESM mocks, V8 coverage, watch mode, and many Jest
+> edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.
 
 ## Why this architecture?

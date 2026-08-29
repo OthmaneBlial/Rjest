@@ -7,9 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 61/61 (100%) across its explicitly listed
-scenarios and categories. That is complete parity for this bounded regression
-set, not a claim of 100% compatibility with the full Jest API.
+The current generated matrix is 62/63 (98.4%) across its explicitly listed
+scenarios and categories. ESM is 3/4 (75.0%) because the preserved transitive
+async-factory probe still differs. These are scores for the bounded regression
+set, not claims about the unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous
@@ -39,9 +40,12 @@ Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
 CommonJS mapping is verified for capture expansion, first-match ordering,
 fallback targets, `require.resolve`, and Jest mock identity. Native-ESM mapping,
-transformed TypeScript ESM, `@jest/globals`, and synchronous
-`unstable_mockModule` factories are also verified. Custom module directories,
-async ESM mock factories, and pnpm/Yarn PnP layouts remain open work.
+transformed TypeScript ESM, `@jest/globals`, and direct synchronous or
+asynchronous `unstable_mockModule` factories are also verified. The async probe
+covers relative modules, scoped packages, Node built-ins, default/named/exotic
+exports, factory caching, rejection retries, and concurrent first imports.
+Custom module directories, transitive async ESM mock factories, and pnpm/Yarn
+PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 
