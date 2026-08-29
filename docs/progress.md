@@ -104,6 +104,9 @@ Last updated: 2026-08-29
 - Async native-ESM graph preparation for processAsync-only transformer modules,
   including top-level await, async factories, transformed re-exports and
   injected dependencies, dynamic imports, in-flight caching, and coverage.
+- Native-ESM automocking from scratch-registry metadata for static, dynamic,
+  relative, and package imports, including default/named/class/nested/array
+  exports, explicit unmock/factory precedence, reset, and async isolation.
 - A pinned setup-matlab/Jest 30 corpus: 7/7 suites, 94/94 tests, and exact
   aggregate and per-file coverage parity across nine TypeScript source files.
 - A pinned ts-jest/Jest 30 corpus: 20/20 suites, 358/358 tests, and 137/137
@@ -185,9 +188,9 @@ Last updated: 2026-08-29
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 68/69
+  preserved known incompatibilities. The current generated result is 69/70
   compatible scenarios (98.6%), with ESM at 7/7 (100.0%), transforms at 5/5
-  (100.0%), mocks at 7/8 (87.5%), and per-category scores in the machine-readable
+  (100.0%), mocks at 8/9 (88.9%), and per-category scores in the machine-readable
   report. This is a score for the versioned probe corpus, not all Jest behavior.
 
 ## Current work
@@ -207,8 +210,8 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 68/69 (98.6%). ESM is 7/7 (100.0%), transforms are 5/5
-(100.0%), mocks are 7/8 (87.5%), and coverage is 3/3 in their bounded scenario
+corpus score is 69/70 (98.6%). ESM is 7/7 (100.0%), transforms are 5/5
+(100.0%), mocks are 8/9 (88.9%), and coverage is 3/3 in their bounded scenario
 categories.
 
 ## Known blockers
@@ -225,11 +228,12 @@ categories.
 - Custom resolvers are not implemented; CommonJS and native-ESM
   `moduleNameMapper` rules support the covered mappings, while complete Jest
   resolver conditions and fallback semantics need broader probes.
-- Deeply unmocked dependency graphs and ESM module automocking are not
-  implemented; manual CommonJS mocks, CommonJS automocking, Babel-hoisted and
-  virtual factories, and direct/transitive synchronous or asynchronous ESM
-  module factories are covered by differential tests. ESM unmock/reset behavior
-  and asynchronous CommonJS/ESM isolated registries are covered.
+- Deeply unmocked dependency graphs and sibling/root ESM manual mocks are not
+  implemented. Manual CommonJS mocks, CommonJS/native-ESM automocking,
+  Babel-hoisted and virtual factories, and direct/transitive synchronous or
+  asynchronous ESM module factories are covered by differential tests. ESM
+  unmock/reset behavior and asynchronous CommonJS/ESM isolated registries are
+  covered.
 - New/updated inline snapshot source writes, V8 coverage, non-global threshold
   groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
@@ -248,7 +252,7 @@ categories.
 1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from deterministic real-project
    failures.
-3. Implement native-ESM automocking and generated mock metadata.
+3. Implement sibling and root manual ESM mocks.
 4. Add broader timer edge-case probes and modern timer tick-mode controls.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
    stable across a broader independent corpus.

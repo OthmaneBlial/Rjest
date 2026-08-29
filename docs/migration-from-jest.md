@@ -105,7 +105,12 @@ loaded, so unrelated registered factories are not invoked.
 `jest.isolateModulesAsync` keeps fresh CommonJS and ESM registries active across
 awaits, discards instances first created inside the callback, inherits mocks
 already evaluated outside, and restores the outer registries after errors.
-Deeply unmocked transitive dependencies remain incomplete.
+With `automock: true`, native ESM functions, classes, nested methods, arrays,
+static imports, dynamic imports, and package exports are generated from isolated
+actual-module metadata. `unstable_unmockModule`, explicit factories,
+`disableAutomock`, `resetModules`, and async isolation retain their covered Jest
+precedence and lifecycle. Sibling/root ESM `__mocks__` files and deeply unmocked
+transitive dependencies remain incomplete.
 
 Custom matchers registered through `expect.extend` may return promises and use
 the matcher context such as `this.equals`. `toThrow` and promise-modified

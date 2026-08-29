@@ -194,6 +194,14 @@ const cases = [
   {
     name: 'gap-esm-automock',
     category: 'Mocks',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareNodeModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'gap-esm-manual-mock',
+    category: 'Mocks',
     compatible: false,
     expectedExit: 0,
     experimentalVmModules: true,

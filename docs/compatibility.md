@@ -7,9 +7,9 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 68/69 (98.6%) across its explicitly listed
+The current generated matrix is 69/70 (98.6%) across its explicitly listed
 scenarios and categories. ESM is 7/7 (100.0%) and transforms are 5/5 (100.0%);
-mocks are 7/8 (87.5%) because the preserved native-ESM automocking probe still
+mocks are 8/9 (88.9%) because the preserved sibling manual-ESM-mock probe still
 differs. These are scores for the bounded regression set, not claims about the
 unmeasured full Jest API.
 
@@ -22,6 +22,8 @@ mocks, external Jest v1 snapshots, existing inline snapshots, configured
 serializers, snapshot property matchers, modern and legacy fake timers, and ordered
 `moduleNameMapper` rules for CommonJS and transformed modules. Configured and
 runtime CommonJS automocking covers recursive exports and classes, while
+native-ESM automocking covers static/dynamic and package imports, recursive
+metadata, explicit factories/unmocking, reset, and isolated registries.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -55,7 +57,7 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Custom module directories, native-ESM automocking, and
+instrumentation. Custom module directories, sibling/root ESM manual mocks, and
 pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.

@@ -51,6 +51,8 @@ const virtualModuleMocks = new Map();
 const esmModuleMocks = [];
 let esmModuleMockCache = new Map();
 let inheritedEsmModuleMockCache;
+const pendingEsmAutoMocks = new Map();
+const explicitlyUnmockedEsmModules = new Set();
 const esmMockValues = new Map();
 const dynamicImportBridges = new Map();
 const esmStaticDependencyCache = new Map();
@@ -71,6 +73,7 @@ let nativeWindowTimers;
 let nativeAnimationFrame;
 let transformerDepth = 0;
 let automockEnabled = false;
+let esmAutomockBypassDepth = 0;
 let esmHooksInstalled = false;
 let esmModuleGeneration = 0;
 let esmResolutionDepth = 0;
@@ -1622,19 +1625,80 @@ function mappedEsmResolution(specifier, parentURL) {
   return undefined;
 }
 
-function registeredEsmMock(specifier, parentURL) {
+function esmMockCoordinates(specifier, parentURL) {
   const moduleName = String(specifier);
-  if (!moduleName.startsWith('.') && !moduleName.startsWith('/')) {
-    return esmModuleMocks.find(
-      entry => !entry.relative && entry.specifier === moduleName,
-    );
-  }
-  if (!esmModuleMocks.some(entry => entry.relative)) return undefined;
-  const canonical = resolveEsmCandidate(moduleName, parentURL);
-  const identity = canonical ?? new URL(moduleName, parentURL).href;
-  return esmModuleMocks.find(
-    entry => entry.relative && entry.identity === identity,
+  const relative = moduleName.startsWith('.') || moduleName.startsWith('/');
+  const canonical =
+    mappedEsmResolution(moduleName, parentURL) ??
+    resolveEsmCandidate(moduleName, parentURL);
+  const fallback = relative ? new URL(moduleName, parentURL).href : moduleName;
+  const identity = relative ? canonical ?? fallback : moduleName;
+  const decisionIdentity = canonical ?? fallback;
+  return {
+    cacheKey: relative ? `path:${identity}` : `name:${identity}`,
+    canonical,
+    decisionKey: `module:${decisionIdentity}`,
+    identity,
+    moduleName,
+    relative,
+  };
+}
+
+function registeredEsmMock(specifier, parentURL) {
+  if (esmAutomockBypassDepth > 0) return undefined;
+  const coordinates = esmMockCoordinates(specifier, parentURL);
+  const explicit = esmModuleMocks.find(entry =>
+    entry.automatic
+      ? false
+      : coordinates.relative
+        ? entry.relative && entry.identity === coordinates.identity
+        : !entry.relative && entry.specifier === coordinates.moduleName,
   );
+  if (explicit) return explicit;
+  if (
+    !automockEnabled ||
+    explicitlyUnmockedEsmModules.has(coordinates.decisionKey)
+  ) {
+    return undefined;
+  }
+  return esmModuleMocks.find(
+    entry =>
+      entry.automatic && entry.decisionKey === coordinates.decisionKey,
+  );
+}
+
+function esmAutomockDecision(specifier, parentURL) {
+  const moduleName = String(specifier);
+  if (
+    !automockEnabled ||
+    esmAutomockBypassDepth > 0 ||
+    transformerDepth > 0 ||
+    moduleName === '@jest/globals' ||
+    Module.isBuiltin(moduleName)
+  ) {
+    return undefined;
+  }
+  const coordinates = esmMockCoordinates(moduleName, parentURL);
+  if (
+    coordinates.canonical?.startsWith('node:') ||
+    explicitlyUnmockedEsmModules.has(coordinates.decisionKey)
+  ) {
+    return undefined;
+  }
+  if (coordinates.canonical?.startsWith('file:')) {
+    const normalized = normalizedRuntimePath(
+      fileURLToPath(coordinates.canonical),
+    );
+    if (normalized === normalizedRuntimePath(request.testPath)) return undefined;
+    if (
+      [...(request.setupFiles ?? []), ...(request.setupFilesAfterEnv ?? [])].some(
+        setupPath => normalized === normalizedRuntimePath(setupPath),
+      )
+    ) {
+      return undefined;
+    }
+  }
+  return coordinates;
 }
 
 function esmDataUrl(source) {
@@ -1755,8 +1819,13 @@ async function nativeDynamicImport(parentURL, specifier, options) {
 }
 
 async function importEsmModule(parentURL, specifier, options) {
-  const mock = registeredEsmMock(specifier, parentURL);
+  let mock = registeredEsmMock(specifier, parentURL);
   if (mock) return import(await initializeEsmMockAsync(mock));
+  const automock = esmAutomockDecision(specifier, parentURL);
+  if (automock) {
+    mock = await ensureEsmAutoMock(specifier, parentURL, automock);
+    if (mock) return import(mock.url);
+  }
   await prepareReachableEsmGraph(parentURL, specifier);
   return nativeDynamicImport(parentURL, specifier, options);
 }
@@ -2086,7 +2155,11 @@ async function prepareEsmGraph(root) {
     if (visited.has(url)) continue;
     visited.add(url);
     for (const dependency of await staticEsmSpecifiers(url)) {
-      const mock = registeredEsmMock(dependency, url);
+      let mock = registeredEsmMock(dependency, url);
+      const automock = mock ? undefined : esmAutomockDecision(dependency, url);
+      if (automock) {
+        mock = await ensureEsmAutoMock(dependency, url, automock);
+      }
       if (mock) {
         await initializeEsmMockAsync(mock);
       } else {
@@ -2562,6 +2635,71 @@ function createAutoMock(value, seen = new WeakMap()) {
   return result;
 }
 
+async function loadEsmAutomockMetadata(specifier, parentURL) {
+  // Metadata discovery must not populate the live native registry or recursively
+  // automock the target's graph. A temporary URL generation gives Node a
+  // scratch graph while the bypass keeps explicit/generated ESM mocks out.
+  const previousGeneration = esmModuleGeneration;
+  esmAutomockBypassDepth += 1;
+  esmModuleGeneration = freshEsmModuleGeneration();
+  try {
+    await prepareReachableEsmGraph(parentURL, specifier);
+    return await nativeDynamicImport(parentURL, specifier);
+  } finally {
+    esmModuleGeneration = previousGeneration;
+    esmAutomockBypassDepth -= 1;
+  }
+}
+
+async function ensureEsmAutoMock(specifier, parentURL, coordinates) {
+  const existing = esmModuleMocks.find(
+    entry => entry.automatic && entry.decisionKey === coordinates.decisionKey,
+  );
+  if (existing) return existing;
+  const inFlight = pendingEsmAutoMocks.get(coordinates.decisionKey);
+  if (inFlight) return inFlight;
+  const pending = (async () => {
+    const actual = await loadEsmAutomockMetadata(specifier, parentURL);
+    if (
+      !automockEnabled ||
+      explicitlyUnmockedEsmModules.has(coordinates.decisionKey)
+    ) {
+      return undefined;
+    }
+    const entry = {
+      automatic: true,
+      id: nextEsmMockId++,
+      specifier: coordinates.moduleName,
+      cacheKey: `automock:${coordinates.decisionKey}`,
+      canonical: coordinates.canonical,
+      decisionKey: coordinates.decisionKey,
+      identity: coordinates.identity,
+      relative: coordinates.relative,
+      factory: () => createAutoMock(actual),
+      generation: 0,
+      initialized: false,
+      url: undefined,
+      value: undefined,
+      valueKey: undefined,
+    };
+    cacheEsmMock(entry, entry.factory());
+    const replaced = esmModuleMocks.findIndex(
+      candidate =>
+        candidate.automatic &&
+        candidate.decisionKey === coordinates.decisionKey,
+    );
+    if (replaced === -1) esmModuleMocks.push(entry);
+    else esmModuleMocks[replaced] = entry;
+    return entry;
+  })();
+  pendingEsmAutoMocks.set(coordinates.decisionKey, pending);
+  try {
+    return await pending;
+  } finally {
+    pendingEsmAutoMocks.delete(coordinates.decisionKey);
+  }
+}
+
 function manualMockPath(resolvedModule, specifier, fromPath) {
   const resolved = String(resolvedModule);
   const candidates = [];
@@ -2631,23 +2769,17 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
   if (typeof factory !== 'function') {
     throw new TypeError('The second argument of jest.unstable_mockModule must be a function');
   }
-  const moduleName = String(specifier);
   const parentURL = pathToFileURL(fromPath).href;
-  const relative = moduleName.startsWith('.') || moduleName.startsWith('/');
-  const canonical =
-    mappedEsmResolution(moduleName, parentURL) ??
-    resolveEsmCandidate(moduleName, parentURL);
-  const identity = relative
-    ? canonical ?? new URL(moduleName, parentURL).href
-    : moduleName;
-  const cacheKey = relative ? `path:${identity}` : `name:${identity}`;
+  const coordinates = esmMockCoordinates(specifier, parentURL);
   const entry = {
+    automatic: false,
     id: nextEsmMockId++,
-    specifier: moduleName,
-    cacheKey,
-    canonical,
-    identity,
-    relative,
+    specifier: coordinates.moduleName,
+    cacheKey: coordinates.cacheKey,
+    canonical: coordinates.canonical,
+    decisionKey: coordinates.decisionKey,
+    identity: coordinates.identity,
+    relative: coordinates.relative,
     factory,
     generation: 0,
     initialized: false,
@@ -2656,10 +2788,12 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
     valueKey: undefined,
   };
   adoptCachedEsmMock(entry);
+  explicitlyUnmockedEsmModules.delete(coordinates.decisionKey);
   const existing = esmModuleMocks.findIndex(candidate =>
-    entry.relative
+    candidate.decisionKey === coordinates.decisionKey ||
+    (entry.relative
       ? candidate.identity === entry.identity
-      : !candidate.relative && candidate.specifier === entry.specifier,
+      : !candidate.relative && candidate.specifier === entry.specifier),
   );
   if (existing === -1) esmModuleMocks.push(entry);
   else esmModuleMocks[existing] = entry;
@@ -2667,22 +2801,20 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
 }
 
 function unregisterEsmModuleMock(specifier, fromPath, returnValue) {
-  const moduleName = String(specifier);
-  const relative = moduleName.startsWith('.') || moduleName.startsWith('/');
   const parentURL = pathToFileURL(fromPath).href;
-  const canonical = relative
-    ? mappedEsmResolution(moduleName, parentURL) ??
-      resolveEsmCandidate(moduleName, parentURL)
-    : undefined;
-  const identity = relative
-    ? canonical ?? new URL(moduleName, parentURL).href
-    : moduleName;
-  const existing = esmModuleMocks.findIndex(entry =>
-    relative
-      ? entry.relative && entry.identity === identity
-      : !entry.relative && entry.specifier === moduleName,
-  );
-  if (existing !== -1) esmModuleMocks.splice(existing, 1);
+  const coordinates = esmMockCoordinates(specifier, parentURL);
+  for (let index = esmModuleMocks.length - 1; index >= 0; index -= 1) {
+    const entry = esmModuleMocks[index];
+    if (
+      entry.decisionKey === coordinates.decisionKey ||
+      (coordinates.relative
+        ? entry.relative && entry.identity === coordinates.identity
+        : !entry.relative && entry.specifier === coordinates.moduleName)
+    ) {
+      esmModuleMocks.splice(index, 1);
+    }
+  }
+  explicitlyUnmockedEsmModules.add(coordinates.decisionKey);
   return returnValue;
 }
 
