@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 91/91 (100.0%) across its explicitly listed
+The current generated matrix is 93/93 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
 18/18 (100.0%). CLI is 6/6 (100.0%). These are scores for the bounded regression
@@ -66,13 +66,16 @@ update modes. V8 stack locations are remapped through transformer source maps,
 then Babel parses and regenerates only the matched call expression. The
 differential covers CommonJS, transformed JavaScript, TypeScript, native ESM,
 property matchers, thrown errors, promise chains, escaping, multiple callsites,
-and discarded retry attempts with byte-for-byte source comparison.
+and discarded retry attempts with byte-for-byte source comparison. Jest's
+default `prettier` module lookup, explicit `prettierPath`, and `null` opt-out
+are normalized. Configured Prettier 2 and 3 format the complete source file and
+then preserve Jest's special multiline snapshot indentation; both branches are
+byte-compared with official Jest.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
-counts, and transformer/test cache isolation are covered. Project Prettier
-integration for inline rewrites, complete resolution/config semantics, V8
-coverage, path/glob threshold groups, and watch mode remain missing, so Rjest
+counts, and transformer/test cache isolation are covered. Complete
+resolution/config semantics, V8 coverage, path/glob threshold groups, and watch mode remain missing, so Rjest
 does not claim broad or drop-in Jest compatibility yet.
 
 The modern timer surface includes animation-frame scheduling, cancellation,

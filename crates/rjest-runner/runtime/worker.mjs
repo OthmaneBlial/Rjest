@@ -11,7 +11,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 16;
+const PROTOCOL_VERSION = 17;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const RESULT_TEST_NODE = Symbol('rjest.testNode');
@@ -805,7 +805,147 @@ function inlineSnapshotParserPlugins(path) {
   return plugins;
 }
 
-function rewriteInlineSnapshotFile(path, updates) {
+function indentInlineSnapshot(snapshot, numIndents, indentation) {
+  const lines = snapshot.split('\n');
+  if (
+    lines.length >= 2 &&
+    lines[1].startsWith(indentation.repeat(numIndents + 1))
+  ) {
+    return snapshot;
+  }
+  return lines
+    .map((line, index) => {
+      if (index === 0) return line;
+      if (index === lines.length - 1) {
+        return indentation.repeat(numIndents) + line;
+      }
+      return line === ''
+        ? line
+        : indentation.repeat(numIndents + 1) + line;
+    })
+    .join('\n');
+}
+
+function formatInlineSnapshotAst(ast, options, matcherNames) {
+  const {babel} = getInlineSnapshotTools();
+  babel.types.traverse(ast, (node, ancestors) => {
+    const property = node.callee?.property;
+    if (
+      node.type !== 'CallExpression' ||
+      node.callee?.type !== 'MemberExpression' ||
+      property?.type !== 'Identifier' ||
+      !matcherNames.has(property.name) ||
+      !node.callee.loc ||
+      node.callee.computed
+    ) {
+      return;
+    }
+    const snapshotArgument = node.arguments.find(
+      argument => argument.type === 'TemplateLiteral',
+    );
+    if (!snapshotArgument) return;
+    const parent = ancestors.at(-1)?.node;
+    const startColumn =
+      parent?.type === 'AwaitExpression' && parent.loc
+        ? parent.loc.start.column
+        : node.callee.loc.start.column;
+    const useSpaces = !options?.useTabs;
+    const indentation = useSpaces
+      ? ' '.repeat(options?.tabWidth ?? 1)
+      : '\t';
+    const numIndents = Math.ceil(
+      useSpaces
+        ? startColumn / (options?.tabWidth ?? 1)
+        : startColumn / 2,
+    );
+    snapshotArgument.quasis[0].value.raw = indentInlineSnapshot(
+      snapshotArgument.quasis[0].value.raw,
+      numIndents,
+      indentation,
+    );
+  });
+}
+
+async function loadConfiguredPrettier(sourcePath) {
+  const sourceRequire = createRequire(sourcePath);
+  let resolved;
+  try {
+    resolved = sourceRequire.resolve(request.prettierPath);
+  } catch (error) {
+    if (error?.code === 'MODULE_NOT_FOUND') return null;
+    throw error;
+  }
+  bypassModuleMocks.add(resolved);
+  transformerDepth += 1;
+  try {
+    let loaded;
+    try {
+      loaded = sourceRequire(resolved);
+    } catch (error) {
+      if (
+        error?.code !== 'ERR_REQUIRE_ESM' &&
+        error?.code !== 'ERR_REQUIRE_ASYNC_MODULE'
+      ) {
+        throw error;
+      }
+      loaded = await import(pathToFileURL(resolved).href);
+    }
+    return typeof loaded?.format === 'function' ? loaded : loaded.default;
+  } finally {
+    transformerDepth -= 1;
+    bypassModuleMocks.delete(resolved);
+  }
+}
+
+async function formatInlineSnapshotsWithPrettier(
+  path,
+  source,
+  matcherNames,
+) {
+  const prettier = await loadConfiguredPrettier(path);
+  if (!prettier) return source;
+  const config =
+    typeof prettier.resolveConfig === 'function'
+      ? await prettier.resolveConfig(path, {editorconfig: true})
+      : null;
+  const fileInfo =
+    typeof prettier.getFileInfo === 'function'
+      ? await prettier.getFileInfo(path)
+      : undefined;
+  const inferredParser =
+    (typeof config?.parser === 'string' && config.parser) ||
+    fileInfo?.inferredParser;
+  if (!inferredParser) {
+    throw new Error(`Could not infer Prettier parser for file ${path}`);
+  }
+  const formatOptions = {...config, filepath: path, parser: inferredParser};
+  const formatted = await prettier.format(source, formatOptions);
+  const majorVersion = Number.parseInt(String(prettier.version), 10);
+  if (majorVersion < 3) {
+    return prettier.format(formatted, {
+      ...config,
+      filepath: path,
+      parser(text, parsers, options) {
+        options.parser = inferredParser;
+        const ast = parsers[inferredParser](text, options);
+        formatInlineSnapshotAst(ast, options, matcherNames);
+        return ast;
+      },
+    });
+  }
+  const parsed = await prettier.__debug.parse(formatted, {
+    ...formatOptions,
+    originalText: formatted,
+  });
+  formatInlineSnapshotAst(parsed.ast, config, matcherNames);
+  const formattedAst = await prettier.__debug.formatAST(parsed.ast, {
+    ...formatOptions,
+    originalText: parsed.text,
+  });
+  return formattedAst.formatted;
+}
+
+async function rewriteInlineSnapshotFile(path, updates) {
   const {babel, generate} = getInlineSnapshotTools();
   const source = readFileSync(path, 'utf8');
   const ast = babel.parseSync(source, {
@@ -828,6 +968,7 @@ function rewriteInlineSnapshotFile(path, updates) {
     updatesByLocation.set(key, atLocation);
   }
   const replacements = [];
+  const matcherNames = new Set();
   babel.traverse(ast, {
     CallExpression(nodePath) {
       const node = nodePath.node;
@@ -849,6 +990,7 @@ function rewriteInlineSnapshotFile(path, updates) {
         );
       }
       const update = atLocation[0];
+      matcherNames.add(property.name);
       const replacement = babel.types.templateLiteral(
         [
           babel.types.templateElement({
@@ -890,10 +1032,17 @@ function rewriteInlineSnapshotFile(path, updates) {
       replacement.code +
       rewritten.slice(replacement.end);
   }
+  if (request.prettierPath) {
+    rewritten = await formatInlineSnapshotsWithPrettier(
+      path,
+      rewritten,
+      matcherNames,
+    );
+  }
   if (rewritten !== source) writeFileSync(path, rewritten);
 }
 
-function persistInlineSnapshots() {
+async function persistInlineSnapshots() {
   const byFile = new Map();
   for (const update of snapshotState.inlineUpdates) {
     const path = update.frame.file;
@@ -902,7 +1051,7 @@ function persistInlineSnapshots() {
     byFile.set(path, updates);
   }
   for (const [path, updates] of byFile) {
-    rewriteInlineSnapshotFile(path, updates);
+    await rewriteInlineSnapshotFile(path, updates);
   }
 }
 
@@ -5786,7 +5935,7 @@ try {
 
 if (snapshotState.inlineUpdates.length > 0) {
   try {
-    persistInlineSnapshots();
+    await persistInlineSnapshots();
   } catch (error) {
     fileErrors.push(errorText(error));
   }

@@ -21,6 +21,8 @@ const jest = join(repository, 'node_modules', 'jest', 'bin', 'jest.js');
 const fixtures = join(repository, 'compat', 'fixtures');
 const require = createRequire(import.meta.url);
 const typescriptPreset = require.resolve('@babel/preset-typescript');
+const prettierPath = require.resolve('prettier');
+const prettierV2Path = require.resolve('prettier-v2');
 const reportPath = join(repository, 'compat', 'jest-compatibility.json');
 
 const cases = [
@@ -393,6 +395,25 @@ const cases = [
     experimentalVmModules: true,
   },
   {
+    name: 'snapshot-inline-prettier',
+    label: 'snapshot-inline-prettier-v3',
+    category: 'Snapshots',
+    expectedExit: 0,
+    updateSnapshots: true,
+    compareTestSources: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'snapshot-inline-prettier',
+    label: 'snapshot-inline-prettier-v2',
+    category: 'Snapshots',
+    expectedExit: 0,
+    updateSnapshots: true,
+    compareTestSources: true,
+    useFixtureConfig: true,
+    prettierVersion: 2,
+  },
+  {
     name: 'gap-automock',
     category: 'Mocks',
     expectedExit: 0,
@@ -504,6 +525,8 @@ function compareCase(testCase) {
       ...process.env,
       CI: '',
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
+      RJEST_COMPAT_PRETTIER_PATH:
+        testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
       NODE_OPTIONS: testCase.experimentalVmModules
         ? `${process.env.NODE_OPTIONS ?? ''} --experimental-vm-modules`.trim()
         : process.env.NODE_OPTIONS,
@@ -549,6 +572,8 @@ function compareCase(testCase) {
       ...process.env,
       NODE_PATH: join(repository, 'node_modules'),
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
+      RJEST_COMPAT_PRETTIER_PATH:
+        testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
     };
     if (testCase.unsetNodeEnv) delete rjestEnvironment.NODE_ENV;
     const rjestRun = spawnSync(rjest, rjestArguments, {

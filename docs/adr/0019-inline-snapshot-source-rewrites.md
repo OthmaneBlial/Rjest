@@ -42,5 +42,5 @@ frame, transformer map, and syntax tooling.
 - Multiple writes at the same callsite fail explicitly, matching Jest.
 - CommonJS, JavaScript, TypeScript, and native ESM files share one update path.
 - A killed worker cannot apply a queued inline rewrite after a bail boundary.
-- Optional project Prettier formatting remains separate follow-up work; the
-  current writer matches Jest's Babel-only fallback.
+- The Babel-only rewrite remains the fallback when project Prettier is disabled
+  or unavailable; configured formatting is specified separately in ADR 0020.

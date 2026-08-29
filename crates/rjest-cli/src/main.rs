@@ -327,6 +327,7 @@ fn run() -> Result<bool> {
         setup_files: config.setup_files.clone(),
         setup_files_after_env: config.setup_files_after_env.clone(),
         snapshot_serializers: config.snapshot_serializers.clone(),
+        prettier_path: config.prettier_path.clone(),
         transform: config.transform.clone(),
         transform_ignore_patterns: config.transform_ignore_patterns.clone(),
         collect_coverage,

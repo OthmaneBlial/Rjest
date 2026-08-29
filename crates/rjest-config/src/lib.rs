@@ -8,7 +8,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -109,6 +109,7 @@ pub struct ProjectConfig {
     pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
+    pub prettier_path: Option<String>,
     pub transform: BTreeMap<String, Value>,
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
@@ -151,6 +152,8 @@ struct RawProjectConfig {
     setup_files: Option<Vec<String>>,
     setup_files_after_env: Option<Vec<String>>,
     snapshot_serializers: Option<Vec<String>>,
+    #[serde(default)]
+    prettier_path: RawPrettierPath,
     transform: Option<BTreeMap<String, Value>>,
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
@@ -169,6 +172,22 @@ struct RawProjectConfig {
     watch_plugins: Option<Value>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Default)]
+enum RawPrettierPath {
+    #[default]
+    Missing,
+    Configured(Value),
+}
+
+impl<'de> Deserialize<'de> for RawPrettierPath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Value::deserialize(deserializer).map(Self::Configured)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -271,6 +290,7 @@ impl ProjectConfig {
             setup_files: Vec::new(),
             setup_files_after_env: Vec::new(),
             snapshot_serializers: Vec::new(),
+            prettier_path: Some("prettier".into()),
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
@@ -505,6 +525,19 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         &root_dir,
     )?;
     let transform = normalize_transform(raw.transform, &root_dir, defaults.transform)?;
+    let prettier_path = match raw.prettier_path {
+        RawPrettierPath::Missing => defaults.prettier_path,
+        RawPrettierPath::Configured(Value::Null) => None,
+        RawPrettierPath::Configured(Value::String(value)) => {
+            Some(normalize_module_reference(&value, &root_dir))
+        }
+        RawPrettierPath::Configured(value) => {
+            return Err(ConfigError::UnsupportedValue {
+                field: "prettierPath".into(),
+                value: value.to_string(),
+            });
+        }
+    };
 
     Ok(ProjectConfig {
         root_dir,
@@ -539,6 +572,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         snapshot_serializers: raw
             .snapshot_serializers
             .unwrap_or(defaults.snapshot_serializers),
+        prettier_path,
         transform,
         transform_ignore_patterns: raw
             .transform_ignore_patterns
@@ -566,6 +600,22 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.coverage_threshold),
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
+}
+
+fn normalize_module_reference(value: &str, root_dir: &Path) -> String {
+    let path = Path::new(value);
+    if value == "<rootDir>"
+        || value.starts_with("<rootDir>/")
+        || path.is_absolute()
+        || value.starts_with("./")
+        || value.starts_with("../")
+    {
+        resolve_root_token(root_dir, value)
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        value.to_owned()
+    }
 }
 
 fn normalize_bail(configured: Option<Value>, default: usize) -> Result<usize, ConfigError> {
@@ -981,6 +1031,37 @@ mod tests {
             let error = load_inline_json(temp.path(), invalid).expect_err("invalid bail value");
             assert!(error.to_string().contains("bail"));
         }
+    }
+
+    #[test]
+    fn normalizes_optional_prettier_module_references() {
+        let temp = tempdir().expect("temp dir");
+
+        let rooted = load_inline_json(
+            temp.path(),
+            r#"{"prettierPath":"<rootDir>/tools/prettier.cjs"}"#,
+        )
+        .expect("rooted Prettier path");
+        assert_eq!(
+            rooted.prettier_path,
+            Some(
+                temp.path()
+                    .join("tools/prettier.cjs")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+        let package = load_inline_json(temp.path(), r#"{"prettierPath":"prettier"}"#)
+            .expect("package Prettier path");
+        assert_eq!(package.prettier_path.as_deref(), Some("prettier"));
+        let disabled = load_inline_json(temp.path(), r#"{"prettierPath":null}"#)
+            .expect("disabled Prettier path");
+        assert_eq!(disabled.prettier_path, None);
+        let defaulted = load_inline_json(temp.path(), r"{}").expect("default Prettier path");
+        assert_eq!(defaulted.prettier_path.as_deref(), Some("prettier"));
+        let error = load_inline_json(temp.path(), r#"{"prettierPath":false}"#)
+            .expect_err("invalid Prettier path");
+        assert!(error.to_string().contains("prettierPath"));
     }
 
     #[test]
