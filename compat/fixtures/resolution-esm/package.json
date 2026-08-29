@@ -1,0 +1,7 @@
+{
+  "name": "rjest-resolution-fixture",
+  "type": "module",
+  "exports": {
+    "./math": "./src/math.mjs"
+  }
+}

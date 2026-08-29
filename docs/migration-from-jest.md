@@ -18,3 +18,8 @@ Common `jest.config.js`, CJS, ESM, and erasable TypeScript config files can be
 used directly. Rjest currently normalizes discovery fields plus `testTimeout`,
 `testEnvironment: 'node'`, and `maxWorkers`; unsupported options are migration
 work items and produce an explicit error.
+
+Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
+exports, and standard `node_modules` packages can exercise those paths today.
+Keep Jest for suites relying on `moduleNameMapper`, custom resolvers, pnpm/Yarn
+PnP edge cases, or transform-time path rewriting.

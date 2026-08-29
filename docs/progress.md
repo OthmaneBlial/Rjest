@@ -35,10 +35,15 @@ Last updated: 2026-08-29
   normalized `testTimeout`, Node environment, and `maxWorkers` propagation.
 - Twelve semantic differential scenarios in total after executable config
   coverage for ESM, CommonJS, TypeScript, and package references.
+- Native Node resolution verified against Jest for relative CommonJS, ESM
+  package self-references/exports, and scoped `node_modules` packages.
+- Fifteen semantic differential scenarios in total after module-resolution
+  coverage.
 
 ## Current work
 
-- Node CommonJS/ESM/package resolution fixtures and resolver compatibility.
+- Broader assertion and mock compatibility, followed by Jest-specific module
+  mapping.
 
 ## Compatibility snapshot
 
@@ -51,9 +56,10 @@ Last updated: 2026-08-29
 | Assertions | partial | 3/3 |
 | Mocks | partial | 2/2 |
 | Snapshots | partial | 4/4 |
-| Transform / ESM / workers | partial | 3/3 |
+| Resolver | partial | 3/3 |
+| Transform / ESM / workers | partial | 4/4 |
 
-The Jest/Rjest differential harness passes 12/12 current scenarios; the Rust
+The Jest/Rjest differential harness passes 15/15 current scenarios; the Rust
 suite contains 18 local tests.
 
 This table describes implemented cases, not percentage compatibility with all of
@@ -73,8 +79,9 @@ Jest.
 
 ## Next highest-value tasks
 
-1. Add Node package resolution fixtures and CommonJS/ESM module-import coverage.
+1. Expand matcher and mock differential cases, including thrown/rejected values
+   and spy restoration edge cases.
 2. Implement `moduleDirectories` and `moduleNameMapper` without diverging from
    Node/Jest resolution semantics.
-3. Expand matcher and mock differential cases, then add module mocking.
+3. Add manual and CommonJS module mocking behind a clear loader boundary.
 4. Add inline snapshots only after a source-rewrite design is proven safe.

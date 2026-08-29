@@ -35,6 +35,10 @@ explicitly rather than being ignored. Node 22.18 or newer is required; the
 current TypeScript path uses Node's native erasable-syntax support and does not
 yet handle TSX or TypeScript features that require code generation.
 
+The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
+package `exports` resolution to Node. Jest-specific `moduleNameMapper`, custom
+resolvers, and nonstandard package-manager layouts are not yet covered.
+
 ## Local validation
 
 ```sh

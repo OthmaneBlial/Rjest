@@ -16,6 +16,10 @@ resolution/config semantics, fake timers, coverage, watch mode, and browser
 environments remain missing, so Rjest does not claim broad or drop-in Jest
 compatibility yet.
 
+Native Node resolution is verified for relative CommonJS/ESM modules, package
+self-references and `exports`, and scoped packages under `node_modules`.
+Jest-specific mapping/directories and pnpm/Yarn PnP layouts remain open work.
+
 Run the oracle locally with `npm run compat`; `make check` includes it.
 
 Executable configuration runs with the user's normal Node permissions, just like

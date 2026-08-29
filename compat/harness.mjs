@@ -28,6 +28,13 @@ const cases = [
   {name: 'core-pass', expectedExit: 0},
   {name: 'failure', expectedExit: 1},
   {name: 'focus', expectedExit: 0},
+  {name: 'resolution-cjs', expectedExit: 0},
+  {name: 'resolution-esm', expectedExit: 0, experimentalVmModules: true},
+  {
+    name: 'resolution-node-package',
+    expectedExit: 0,
+    prepareNodeModules: true,
+  },
   {name: 'timeout', expectedExit: 1},
   {name: 'snapshot', expectedExit: 0, compareSnapshots: true},
   {name: 'snapshot-new', expectedExit: 0, compareSnapshots: true},
@@ -61,6 +68,10 @@ function compareCase(testCase) {
   try {
     cpSync(sourceFixture, jestFixture, {recursive: true});
     cpSync(sourceFixture, rjestFixture, {recursive: true});
+    if (testCase.prepareNodeModules) {
+      prepareNodeModule(jestFixture);
+      prepareNodeModule(rjestFixture);
+    }
     const jestArguments = [jest, '--runInBand', '--json', `--outputFile=${jestOutput}`];
     if (!testCase.useFixtureConfig) {
       jestArguments.push(`--config=${JSON.stringify({
@@ -78,7 +89,17 @@ function compareCase(testCase) {
     const jestRun = spawnSync(
       process.execPath,
       jestArguments,
-      {cwd: jestFixture, encoding: 'utf8', env: {...process.env, CI: ''}},
+      {
+        cwd: jestFixture,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CI: '',
+          NODE_OPTIONS: testCase.experimentalVmModules
+            ? `${process.env.NODE_OPTIONS ?? ''} --experimental-vm-modules`.trim()
+            : process.env.NODE_OPTIONS,
+        },
+      },
     );
     assertSpawned(jestRun, `Jest (${label})`);
 
@@ -111,6 +132,14 @@ function compareCase(testCase) {
   } finally {
     rmSync(temporary, {recursive: true, force: true});
   }
+}
+
+function prepareNodeModule(fixture) {
+  cpSync(
+    join(fixture, 'dependency-package'),
+    join(fixture, 'node_modules', '@rjest-fixture', 'math'),
+    {recursive: true},
+  );
 }
 
 function compareSnapshotTrees(name, jestFixture, rjestFixture) {

@@ -2,8 +2,8 @@
   "$schema": "./jest-compatibility.schema.json",
   "generatedFrom": "cargo test and npm run compat executable cases only",
   "score": {
-    "differentialScenariosPassing": 12,
-    "differentialScenariosTotal": 12,
+    "differentialScenariosPassing": 15,
+    "differentialScenariosTotal": 15,
     "localRustTests": 18,
     "note": "Passing counts measure implemented cases, not exhaustive Jest coverage"
   },
@@ -102,7 +102,20 @@
         "module mocking": "planned"
       }
     },
-    "resolver": {"status": "planned", "passing": 0, "total": 0},
+    "resolver": {
+      "status": "partial",
+      "passing": 3,
+      "total": 3,
+      "features": {
+        "relative CommonJS require": "supported",
+        "relative ESM import": "supported",
+        "package main and exports": "supported",
+        "scoped node_modules packages": "supported",
+        "package self-reference": "supported",
+        "moduleDirectories/moduleNameMapper": "planned",
+        "pnpm/Yarn PnP/symlink corpus": "planned"
+      }
+    },
     "transforms": {
       "status": "partial",
       "passing": 1,
@@ -113,7 +126,7 @@
         "custom transforms": "planned"
       }
     },
-    "esm": {"status": "partial", "passing": 1, "total": 1},
+    "esm": {"status": "partial", "passing": 2, "total": 2},
     "workers": {
       "status": "partial",
       "passing": 1,
