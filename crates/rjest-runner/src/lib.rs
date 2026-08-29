@@ -1,16 +1,19 @@
 //! Bounded process-isolated JavaScript test execution.
 
 use std::{
-    io::Write,
+    collections::BTreeMap,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread,
+    time::Duration,
     time::Instant,
 };
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION,
-    WorkerRequest,
+    AggregatedResult, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
+    WORKER_PROTOCOL_VERSION, WorkerRequest,
 };
 use thiserror::Error;
 
@@ -24,6 +27,16 @@ pub struct RunnerOptions {
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
     pub snapshot_update: SnapshotUpdate,
+    pub root_dir: PathBuf,
+    pub module_file_extensions: Vec<String>,
+    pub module_paths: Vec<PathBuf>,
+    pub test_environment: String,
+    pub test_environment_options: serde_json::Value,
+    pub setup_files_after_env: Vec<PathBuf>,
+    pub snapshot_serializers: Vec<String>,
+    pub transform: BTreeMap<String, serde_json::Value>,
+    pub transform_ignore_patterns: Vec<String>,
+    pub file_timeout_ms: u64,
 }
 
 impl Default for RunnerOptions {
@@ -35,6 +48,16 @@ impl Default for RunnerOptions {
             test_name_pattern: None,
             default_timeout_ms: 5_000,
             snapshot_update: SnapshotUpdate::New,
+            root_dir: PathBuf::new(),
+            module_file_extensions: vec!["js".into(), "json".into(), "node".into()],
+            module_paths: Vec::new(),
+            test_environment: "node".into(),
+            test_environment_options: serde_json::json!({}),
+            setup_files_after_env: Vec::new(),
+            snapshot_serializers: Vec::new(),
+            transform: BTreeMap::new(),
+            transform_ignore_patterns: vec!["/node_modules/".into()],
+            file_timeout_ms: 120_000,
         }
     }
 }
@@ -113,6 +136,14 @@ fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, Runn
     let request = WorkerRequest {
         protocol_version: WORKER_PROTOCOL_VERSION,
         test_path: path.to_path_buf(),
+        root_dir: options.root_dir.clone(),
+        module_file_extensions: options.module_file_extensions.clone(),
+        test_environment: options.test_environment.clone(),
+        test_environment_options: options.test_environment_options.clone(),
+        setup_files_after_env: options.setup_files_after_env.clone(),
+        snapshot_serializers: options.snapshot_serializers.clone(),
+        transform: options.transform.clone(),
+        transform_ignore_patterns: options.transform_ignore_patterns.clone(),
         test_name_pattern: options.test_name_pattern.clone(),
         default_timeout_ms: options.default_timeout_ms,
         snapshot_update: options.snapshot_update,
@@ -121,34 +152,29 @@ fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, Runn
         snapshot_data: snapshot.data,
     };
     let encoded = serde_json::to_vec(&request)?;
-    let mut child = Command::new(&options.node_binary)
-        .arg("--input-type=module")
-        .arg("--eval")
-        .arg(WORKER_SOURCE)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| RunnerError::Spawn {
-            binary: options.node_binary.clone(),
-            source,
-        })?;
-
-    child
-        .stdin
-        .take()
-        .expect("piped stdin is always available")
-        .write_all(&encoded)
-        .map_err(RunnerError::Write)?;
-    let output = child.wait_with_output().map_err(RunnerError::Wait)?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (stdout, stderr, timed_out) = execute_worker(&encoded, options)?;
+    if timed_out {
+        return Ok(TestFileResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            test_path: path.to_path_buf(),
+            tests: Vec::new(),
+            errors: vec![format!(
+                "Exceeded Rjest's {} ms wall-clock limit for this test file",
+                options.file_timeout_ms
+            )],
+            console: Vec::new(),
+            duration_ms: options.file_timeout_ms,
+            snapshot: SnapshotResult::default(),
+        });
+    }
+    let stdout = String::from_utf8_lossy(&stdout);
     let payload = stdout
         .lines()
         .rev()
         .find_map(|line| line.strip_prefix(RESULT_PREFIX))
         .ok_or_else(|| RunnerError::MissingResult {
             path: path.to_path_buf(),
-            details: worker_details(&stdout, &String::from_utf8_lossy(&output.stderr)),
+            details: worker_details(&stdout, &String::from_utf8_lossy(&stderr)),
         })?;
     let result: TestFileResult =
         serde_json::from_str(payload).map_err(|source| RunnerError::InvalidResult {
@@ -170,6 +196,75 @@ fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, Runn
     }
     rjest_snapshot::persist(&snapshot.path, &result.snapshot.data, result.snapshot.dirty)?;
     Ok(result)
+}
+
+fn execute_worker(
+    encoded_request: &[u8],
+    options: &RunnerOptions,
+) -> Result<(Vec<u8>, Vec<u8>, bool), RunnerError> {
+    let mut command = Command::new(&options.node_binary);
+    if std::env::var_os("NODE_ENV").is_none() {
+        command.env("NODE_ENV", "test");
+    }
+    if !options.module_paths.is_empty() {
+        command.env(
+            "NODE_PATH",
+            std::env::join_paths(&options.module_paths).unwrap_or_default(),
+        );
+    }
+    let mut child = command
+        .arg("--input-type=module")
+        .arg("--eval")
+        .arg(WORKER_SOURCE)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| RunnerError::Spawn {
+            binary: options.node_binary.clone(),
+            source,
+        })?;
+
+    child
+        .stdin
+        .take()
+        .expect("piped stdin is always available")
+        .write_all(encoded_request)
+        .map_err(RunnerError::Write)?;
+    let stdout_pipe = child.stdout.take().expect("piped stdout is available");
+    let stderr_pipe = child.stderr.take().expect("piped stderr is available");
+    let stdout_reader = thread::spawn(move || read_pipe(stdout_pipe));
+    let stderr_reader = thread::spawn(move || read_pipe(stderr_pipe));
+    let child_started = Instant::now();
+    let timed_out = loop {
+        if child.try_wait().map_err(RunnerError::Wait)?.is_some() {
+            break false;
+        }
+        if child_started.elapsed() >= Duration::from_millis(options.file_timeout_ms) {
+            child.kill().map_err(RunnerError::Wait)?;
+            child.wait().map_err(RunnerError::Wait)?;
+            break true;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let stdout = join_reader(stdout_reader)?;
+    let stderr = join_reader(stderr_reader)?;
+    Ok((stdout, stderr, timed_out))
+}
+
+fn read_pipe(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+    pipe.read_to_end(&mut output)?;
+    Ok(output)
+}
+
+fn join_reader(
+    reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Result<Vec<u8>, RunnerError> {
+    reader
+        .join()
+        .map_err(|_| RunnerError::Wait(std::io::Error::other("worker output reader panicked")))?
+        .map_err(RunnerError::Wait)
 }
 
 fn worker_details(stdout: &str, stderr: &str) -> String {
@@ -293,5 +388,24 @@ mod tests {
         assert!(result.is_success());
         assert!(result.test_results[0].test_path.ends_with("a.test.js"));
         assert!(result.test_results[1].test_path.ends_with("z.test.js"));
+    }
+
+    #[test]
+    fn terminates_a_file_that_blocks_the_javascript_event_loop() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("blocked.test.js");
+        fs::write(&test_path, "test('blocks', () => { while (true) {} });")
+            .expect("write blocked test");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical path"),
+        }];
+        let options = RunnerOptions {
+            file_timeout_ms: 250,
+            ..RunnerOptions::default()
+        };
+
+        let result = run(&files, &options).expect("run blocked test");
+        assert!(!result.is_success());
+        assert!(result.test_results[0].errors[0].contains("wall-clock limit"));
     }
 }

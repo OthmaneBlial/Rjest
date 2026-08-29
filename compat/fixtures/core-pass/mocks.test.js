@@ -9,6 +9,7 @@ test('jest.fn tracks calls and ordered implementations', async () => {
   expect(mock('c')).toBe('default:c');
   expect(mock).toHaveBeenCalledTimes(3);
   expect(mock).toHaveBeenCalledWith('b');
+  expect(mock).toHaveBeenNthCalledWith(2, 'b');
   expect(mock.mock.calls).toEqual([['a'], ['b'], ['c']]);
   expect(mock.mock.results.map(result => result.type)).toEqual([
     'return',

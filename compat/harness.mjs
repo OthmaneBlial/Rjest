@@ -29,7 +29,21 @@ const cases = [
   {name: 'config-package', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
   {name: 'equality-edge', category: 'Expect', expectedExit: 0},
+  {
+    name: 'environment-node-env',
+    category: 'Environment',
+    expectedExit: 0,
+    unsetNodeEnv: true,
+  },
+  {
+    name: 'environment-jsdom-globals',
+    category: 'Environment',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'failure', category: 'Core API', expectedExit: 1},
+  {name: 'fake-timers-clock', category: 'Fake timers', expectedExit: 0},
+  {name: 'fake-timers-queues', category: 'Fake timers', expectedExit: 0},
   {name: 'focus', category: 'Core API', expectedExit: 0},
   {name: 'module-mock-cjs', category: 'Mocks', expectedExit: 0},
   {name: 'resolution-cjs', category: 'Resolution', expectedExit: 0},
@@ -59,8 +73,12 @@ const cases = [
     updateSnapshots: true,
   },
   {name: 'gap-custom-matcher', category: 'Expect', expectedExit: 0},
-  {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0, compatible: false},
-  {name: 'gap-inline-snapshot', category: 'Snapshots', expectedExit: 0, compatible: false},
+  {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0},
+  {name: 'gap-fake-timers-async', category: 'Fake timers', expectedExit: 0},
+  {name: 'gap-fake-timers-performance', category: 'Fake timers', expectedExit: 0},
+  {name: 'gap-fake-timers-hrtime', category: 'Fake timers', expectedExit: 0},
+  {name: 'gap-fake-timers-frame', category: 'Fake timers', expectedExit: 0, compatible: false},
+  {name: 'gap-inline-snapshot', category: 'Snapshots', expectedExit: 0},
   {name: 'gap-automock', category: 'Mocks', expectedExit: 0, compatible: false},
   {
     name: 'gap-module-name-mapper',
@@ -109,28 +127,36 @@ function compareCase(testCase) {
       })}`);
     }
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
+    const jestEnvironment = {
+      ...process.env,
+      CI: '',
+      NODE_OPTIONS: testCase.experimentalVmModules
+        ? `${process.env.NODE_OPTIONS ?? ''} --experimental-vm-modules`.trim()
+        : process.env.NODE_OPTIONS,
+    };
+    if (testCase.unsetNodeEnv) delete jestEnvironment.NODE_ENV;
     const jestRun = spawnSync(
       process.execPath,
       jestArguments,
       {
         cwd: jestFixture,
         encoding: 'utf8',
-        env: {
-          ...process.env,
-          CI: '',
-          NODE_OPTIONS: testCase.experimentalVmModules
-            ? `${process.env.NODE_OPTIONS ?? ''} --experimental-vm-modules`.trim()
-            : process.env.NODE_OPTIONS,
-        },
+        env: jestEnvironment,
       },
     );
     assertSpawned(jestRun, `Jest (${label})`);
 
     const rjestArguments = ['--runInBand', '--json'];
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');
+    const rjestEnvironment = {
+      ...process.env,
+      NODE_PATH: join(repository, 'node_modules'),
+    };
+    if (testCase.unsetNodeEnv) delete rjestEnvironment.NODE_ENV;
     const rjestRun = spawnSync(rjest, rjestArguments, {
       cwd: rjestFixture,
       encoding: 'utf8',
+      env: rjestEnvironment,
     });
     assertSpawned(rjestRun, `Rjest (${label})`);
 
@@ -251,27 +277,44 @@ function readSnapshots(root) {
 }
 
 function normalizeJest(result) {
-  return result.testResults
-    .flatMap(file =>
-      file.assertionResults.map(test => ({
-        file: basename(file.name),
-        fullName: test.fullName,
-        status: normalizeStatus(test.status),
-      })),
-    )
-    .sort(compare);
+  return {
+    tests: result.testResults
+      .flatMap(file =>
+        file.assertionResults.map(test => ({
+          file: basename(file.name),
+          fullName: test.fullName,
+          status: normalizeStatus(test.status),
+        })),
+      )
+      .sort(compare),
+    snapshot: {
+      added: result.snapshot?.added ?? 0,
+      matched: result.snapshot?.matched ?? 0,
+      unmatched: result.snapshot?.unmatched ?? 0,
+      updated: result.snapshot?.updated ?? 0,
+    },
+  };
 }
 
 function normalizeRjest(result) {
-  return result.testResults
-    .flatMap(file =>
-      file.tests.map(test => ({
-        file: basename(file.testPath),
-        fullName: test.fullName,
-        status: normalizeStatus(test.status),
-      })),
-    )
-    .sort(compare);
+  const snapshot = {added: 0, matched: 0, unmatched: 0, updated: 0};
+  for (const file of result.testResults) {
+    for (const key of Object.keys(snapshot)) {
+      snapshot[key] += file.snapshot?.[key] ?? 0;
+    }
+  }
+  return {
+    tests: result.testResults
+      .flatMap(file =>
+        file.tests.map(test => ({
+          file: basename(file.testPath),
+          fullName: test.fullName,
+          status: normalizeStatus(test.status),
+        })),
+      )
+      .sort(compare),
+    snapshot,
+  };
 }
 
 function normalizeStatus(status) {

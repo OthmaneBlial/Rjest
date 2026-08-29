@@ -3,13 +3,13 @@
 Rjest is an early, independent implementation of a Jest-compatible JavaScript
 and TypeScript test runner whose coordinator is written in Rust.
 
-> **Status:** early alpha. Real JavaScript and erasable TypeScript tests execute
-> with nested suites, hooks, async behavior, common assertions, basic mocks, and
-> bounded parallel files. Jest v1 external snapshots can be consumed, created,
-> and updated. Explicit CommonJS module factories and basic automatic module
-> mocks work, but global automocking, ESM module mocks, inline snapshots, TSX
-> transforms, watch mode, and many Jest edge cases are not implemented. Rjest
-> does not claim full or production-ready Jest compatibility.
+> **Status:** early alpha. JavaScript, configured JSX/TypeScript transforms,
+> Node and JSDOM environments, modern fake timers, CommonJS module factories,
+> and Jest v1 snapshots now execute through isolated workers. Existing inline
+> snapshots and configured snapshot serializers are supported. Global
+> automocking, ESM module mocks, writing new inline snapshots,
+> `moduleNameMapper`, coverage, watch mode, and many Jest edge cases remain.
+> Rjest does not claim full or production-ready Jest compatibility.
 
 ## Why this architecture?
 
@@ -37,11 +37,13 @@ current TypeScript path uses Node's native erasable-syntax support and does not
 yet handle TSX or TypeScript features that require code generation.
 
 The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
-package `exports` resolution to Node. Jest-specific `moduleNameMapper`, custom
-resolvers, and nonstandard package-manager layouts are not yet covered. For
-CommonJS, `jest.mock`/`doMock` factories, `requireActual`, `requireMock`, and
-recursive basic auto-mocks are available when registration occurs before
-`require`; transform-time mock hoisting is not yet implemented.
+package `exports` resolution to Node. Configured synchronous Jest transformers
+can compile JS, JSX, TS, and TSX before CommonJS execution. Jest-specific
+`moduleNameMapper`, custom resolvers, implicit `babel-jest`, and nonstandard
+package-manager layouts are not yet covered. For CommonJS,
+`jest.mock`/`doMock` factories, `requireActual`, `requireMock`, and recursive
+basic auto-mocks are available; transformed modules retain the declaring-file
+context used to resolve mocks.
 
 ## Local validation
 
@@ -54,6 +56,12 @@ syntax checks, and semantic differential scenarios against official Jest 30.5.0.
 The generated score includes versioned known-incompatible probes in its
 denominator and states its limited corpus scope; it is not an estimate of the
 percentage of the complete Jest API.
+
+A pinned Downshift corpus provides a separate real-project proof: official Jest
+and Rjest both pass 92/92 suites, 1,110/1,110 tests, and 49/49 snapshot
+assertions on the recorded dependency tree. The ignored corpus artifacts and
+commands are intentionally separate from the versioned probe percentage. See
+the [Downshift corpus report](docs/corpus/downshift.md).
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current

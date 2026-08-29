@@ -68,6 +68,14 @@ struct Cli {
     #[arg(long, action = ArgAction::SetTrue)]
     json: bool,
 
+    /// Write the machine-readable result to a file (used with --json by Jest).
+    #[arg(
+        long = "outputFile",
+        visible_alias = "output-file",
+        value_name = "PATH"
+    )]
+    output_file: Option<PathBuf>,
+
     /// Rewrite failing snapshots and remove obsolete snapshots.
     #[arg(
         short = 'u',
@@ -128,6 +136,15 @@ fn run() -> Result<bool> {
         max_workers,
         test_name_pattern: cli.test_name_pattern,
         default_timeout_ms: config.test_timeout,
+        root_dir: config.root_dir.clone(),
+        module_file_extensions: config.module_file_extensions.clone(),
+        module_paths: config.module_paths.clone(),
+        test_environment: config.test_environment.clone(),
+        test_environment_options: config.test_environment_options.clone(),
+        setup_files_after_env: config.setup_files_after_env.clone(),
+        snapshot_serializers: config.snapshot_serializers.clone(),
+        transform: config.transform.clone(),
+        transform_ignore_patterns: config.transform_ignore_patterns.clone(),
         snapshot_update: if cli.update_snapshot {
             SnapshotUpdate::All
         } else {
@@ -136,8 +153,13 @@ fn run() -> Result<bool> {
         ..rjest_runner::RunnerOptions::default()
     };
     let result = rjest_runner::run(&tests, &options)?;
-    if cli.json {
-        println!("{}", serde_json::to_string(&result)?);
+    let serialized = serde_json::to_string(&result)?;
+    if let Some(ref output_file) = cli.output_file {
+        std::fs::write(output_file, &serialized)
+            .with_context(|| format!("cannot write JSON result to `{}`", output_file.display()))?;
+    }
+    if cli.json && cli.output_file.is_none() {
+        println!("{serialized}");
     } else {
         report(&result, &config.root_dir, cli.silent, cli.verbose);
     }

@@ -185,10 +185,12 @@ impl Matcher {
         } else {
             let mut builder = GlobSetBuilder::new();
             for pattern in &config.test_match {
-                let glob = Glob::new(pattern).map_err(|source| DiscoveryError::InvalidGlob {
-                    pattern: pattern.clone(),
-                    source,
-                })?;
+                let translated = translate_simple_extglobs(pattern);
+                let glob =
+                    Glob::new(&translated).map_err(|source| DiscoveryError::InvalidGlob {
+                        pattern: pattern.clone(),
+                        source,
+                    })?;
                 builder.add(glob);
             }
             Some(
@@ -224,6 +226,31 @@ impl Matcher {
     fn is_ignored(&self, path: &Path) -> bool {
         self.ignore_regex.is_match(&normalize(path))
     }
+}
+
+fn translate_simple_extglobs(pattern: &str) -> String {
+    let mut translated = pattern.to_owned();
+    for operator in ['+', '@', '?'] {
+        loop {
+            let needle = format!("{operator}(");
+            let Some(start) = translated.find(&needle) else {
+                break;
+            };
+            let contents_start = start + needle.len();
+            let Some(relative_end) = translated[contents_start..].find(')') else {
+                break;
+            };
+            let end = contents_start + relative_end;
+            let contents = translated[contents_start..end].replace('|', ",");
+            let replacement = if operator == '?' {
+                format!("{{,{contents}}}")
+            } else {
+                format!("{{{contents}}}")
+            };
+            translated.replace_range(start..=end, &replacement);
+        }
+    }
+    translated
 }
 
 fn normalize(path: &Path) -> String {
@@ -312,5 +339,18 @@ mod tests {
         let files = discover(&config, &[]).expect("discover");
         assert_eq!(files.len(), 1);
         assert!(files[0].path.ends_with("alpha.check.js"));
+    }
+
+    #[test]
+    fn translates_common_jest_extension_extglobs() {
+        let temp = tempdir().expect("temp dir");
+        touch(&temp.path().join("src/__tests__/alpha.test.js"));
+        touch(&temp.path().join("src/__tests__/beta.test.tsx"));
+        touch(&temp.path().join("src/__tests__/notes.txt"));
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config.test_match = vec!["**/__tests__/**/*.+(js|jsx|ts|tsx)".into()];
+
+        let files = discover(&config, &[]).expect("discover extglob");
+        assert_eq!(files.len(), 2);
     }
 }

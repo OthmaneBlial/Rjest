@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 2;
+pub const WORKER_PROTOCOL_VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -27,6 +27,14 @@ pub enum SnapshotUpdate {
 pub struct WorkerRequest {
     pub protocol_version: u32,
     pub test_path: PathBuf,
+    pub root_dir: PathBuf,
+    pub module_file_extensions: Vec<String>,
+    pub test_environment: String,
+    pub test_environment_options: serde_json::Value,
+    pub setup_files_after_env: Vec<PathBuf>,
+    pub snapshot_serializers: Vec<String>,
+    pub transform: BTreeMap<String, serde_json::Value>,
+    pub transform_ignore_patterns: Vec<String>,
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
     pub snapshot_update: SnapshotUpdate,

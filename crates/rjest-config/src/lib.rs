@@ -71,10 +71,21 @@ pub struct ProjectConfig {
     pub test_match: Vec<String>,
     pub test_regex: Vec<String>,
     pub test_path_ignore_patterns: Vec<String>,
+    pub module_path_ignore_patterns: Vec<String>,
     pub module_file_extensions: Vec<String>,
+    pub module_paths: Vec<PathBuf>,
     pub test_environment: String,
+    pub test_environment_options: Value,
+    pub setup_files_after_env: Vec<PathBuf>,
+    pub snapshot_serializers: Vec<String>,
+    pub transform: BTreeMap<String, Value>,
+    pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
     pub max_workers: Option<String>,
+    pub collect_coverage_from: Vec<String>,
+    pub coverage_path_ignore_patterns: Vec<String>,
+    pub coverage_threshold: Value,
+    pub watch_plugins: Value,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -85,10 +96,21 @@ struct RawProjectConfig {
     test_match: Option<Vec<String>>,
     test_regex: Option<OneOrMany>,
     test_path_ignore_patterns: Option<Vec<String>>,
+    module_path_ignore_patterns: Option<Vec<String>>,
     module_file_extensions: Option<Vec<String>>,
+    module_paths: Option<Vec<String>>,
     test_environment: Option<String>,
+    test_environment_options: Option<Value>,
+    setup_files_after_env: Option<Vec<String>>,
+    snapshot_serializers: Option<Vec<String>>,
+    transform: Option<BTreeMap<String, Value>>,
+    transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
     max_workers: Option<NumberOrString>,
+    collect_coverage_from: Option<Vec<String>>,
+    coverage_path_ignore_patterns: Option<Vec<String>>,
+    coverage_threshold: Option<Value>,
+    watch_plugins: Option<Value>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
 }
@@ -144,15 +166,26 @@ impl ProjectConfig {
             ],
             test_regex: Vec::new(),
             test_path_ignore_patterns: vec!["/node_modules/".into()],
+            module_path_ignore_patterns: Vec::new(),
             module_file_extensions: [
                 "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "json", "node",
             ]
             .into_iter()
             .map(String::from)
             .collect(),
+            module_paths: Vec::new(),
             test_environment: "node".into(),
+            test_environment_options: serde_json::json!({}),
+            setup_files_after_env: Vec::new(),
+            snapshot_serializers: Vec::new(),
+            transform: BTreeMap::new(),
+            transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
             max_workers: None,
+            collect_coverage_from: Vec::new(),
+            coverage_path_ignore_patterns: Vec::new(),
+            coverage_threshold: serde_json::json!({}),
+            watch_plugins: serde_json::json!([]),
         })
     }
 }
@@ -316,12 +349,26 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     let test_environment = raw
         .test_environment
         .unwrap_or(defaults.test_environment.clone());
-    if !matches!(test_environment.as_str(), "node" | "jest-environment-node") {
+    if !matches!(
+        test_environment.as_str(),
+        "node" | "jest-environment-node" | "jsdom" | "jest-environment-jsdom"
+    ) && !Path::new(&test_environment).is_absolute()
+    {
         return Err(ConfigError::UnsupportedValue {
             field: "testEnvironment".into(),
             value: test_environment,
         });
     }
+
+    let resolve_paths = |values: Option<Vec<String>>| {
+        values
+            .unwrap_or_default()
+            .iter()
+            .map(|value| absolute(&resolve_root_token(&root_dir, value)))
+            .collect::<Result<Vec<_>, ConfigError>>()
+    };
+    let module_paths = resolve_paths(raw.module_paths)?;
+    let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
 
     Ok(ProjectConfig {
         root_dir,
@@ -333,12 +380,37 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         test_path_ignore_patterns: raw
             .test_path_ignore_patterns
             .unwrap_or(defaults.test_path_ignore_patterns),
+        module_path_ignore_patterns: raw
+            .module_path_ignore_patterns
+            .unwrap_or(defaults.module_path_ignore_patterns),
         module_file_extensions: raw
             .module_file_extensions
             .unwrap_or(defaults.module_file_extensions),
+        module_paths,
         test_environment,
+        test_environment_options: raw
+            .test_environment_options
+            .unwrap_or(defaults.test_environment_options),
+        setup_files_after_env,
+        snapshot_serializers: raw
+            .snapshot_serializers
+            .unwrap_or(defaults.snapshot_serializers),
+        transform: raw.transform.unwrap_or(defaults.transform),
+        transform_ignore_patterns: raw
+            .transform_ignore_patterns
+            .unwrap_or(defaults.transform_ignore_patterns),
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
         max_workers: raw.max_workers.map(NumberOrString::into_string),
+        collect_coverage_from: raw
+            .collect_coverage_from
+            .unwrap_or(defaults.collect_coverage_from),
+        coverage_path_ignore_patterns: raw
+            .coverage_path_ignore_patterns
+            .unwrap_or(defaults.coverage_path_ignore_patterns),
+        coverage_threshold: raw
+            .coverage_threshold
+            .unwrap_or(defaults.coverage_threshold),
+        watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
 }
 
@@ -430,6 +502,41 @@ mod tests {
         let config = load(temp.path(), None).expect("load config");
         assert_eq!(config.roots, vec![temp.path().join("src")]);
         assert_eq!(config.test_regex, vec![r"\.check\.js$"]);
+    }
+
+    #[test]
+    fn normalizes_runtime_and_tooling_fields_without_hiding_unknowns() {
+        let temp = tempdir().expect("temp dir");
+        fs::create_dir(temp.path().join("src")).expect("create src");
+        fs::create_dir(temp.path().join("test")).expect("create test");
+        fs::write(
+            temp.path().join("jest.config.json"),
+            r#"{
+              "modulePaths":["<rootDir>/src"],
+              "modulePathIgnorePatterns":["/dist/"],
+              "setupFilesAfterEnv":["<rootDir>/test/setup.ts"],
+              "snapshotSerializers":["fixture-serializer"],
+              "testEnvironment":"jsdom",
+              "testEnvironmentOptions":{"url":"https://example.test/"},
+              "transform":{"^.+\\.tsx?$":"babel-jest"},
+              "transformIgnorePatterns":["/vendor/"],
+              "collectCoverageFrom":["src/**/*.{js,ts}"],
+              "coveragePathIgnorePatterns":["/generated/"],
+              "coverageThreshold":{"global":{"lines":90}},
+              "watchPlugins":["jest-watch-typeahead/filename"]
+            }"#,
+        )
+        .expect("write config");
+
+        let config = load(temp.path(), None).expect("load runtime config");
+        assert_eq!(config.module_paths, [temp.path().join("src")]);
+        assert_eq!(
+            config.setup_files_after_env,
+            [temp.path().join("test/setup.ts")]
+        );
+        assert_eq!(config.test_environment, "jsdom");
+        assert!(config.transform.contains_key(r"^.+\.tsx?$"));
+        assert_eq!(config.snapshot_serializers, ["fixture-serializer"]);
     }
 
     #[test]

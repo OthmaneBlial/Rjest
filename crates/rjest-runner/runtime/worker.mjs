@@ -4,16 +4,36 @@ import {isDeepStrictEqual, format, inspect} from 'node:util';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
 const nativeClearTimeout = globalThis.clearTimeout;
+const nativeSetInterval = globalThis.setInterval;
+const nativeClearInterval = globalThis.clearInterval;
+const nativeSetImmediate = globalThis.setImmediate;
+const nativeClearImmediate = globalThis.clearImmediate;
+const nativeQueueMicrotask = globalThis.queueMicrotask;
+const NativeDate = globalThis.Date;
+const nativePerformance = globalThis.performance;
+const nativePerformanceNowDescriptor = Object.getOwnPropertyDescriptor(
+  nativePerformance,
+  'now',
+);
+const nativeNextTick = process.nextTick;
+const nativeHrtime = process.hrtime;
 const request = JSON.parse(readFileSync(0, 'utf8'));
 const requireFromTest = createRequire(request.testPath);
 const originalModuleLoad = Module._load;
 const moduleMocks = new Map();
 const bypassModuleMocks = new Set();
+const originalModuleExtensions = new Map(Object.entries(Module._extensions));
+const runtimeTransformers = [];
+const runtimeSnapshotSerializers = [];
+let runtimePrettyFormatter;
+let runtimePrettyFormatPlugins = [];
+let jsdomEnvironment;
+let nativeWindowTimers;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
   throw new Error(`Unsupported Rjest worker protocol ${request.protocolVersion}`);
@@ -28,6 +48,7 @@ const customMatchers = new Map();
 let invocationOrder = 0;
 let defaultTimeout = request.defaultTimeoutMs;
 let activeTest;
+let activeModulePath = request.testPath;
 const snapshotState = {
   update: request.snapshotUpdate,
   fileExists: request.snapshotFileExists,
@@ -478,7 +499,14 @@ function prettyFormat(value, indentation = '', stack = []) {
 }
 
 function formatSnapshot(value) {
-  const serialized = prettyFormat(value);
+  const serialized = runtimePrettyFormatter
+    ? runtimePrettyFormatter(value, {
+        escapeRegex: true,
+        plugins: [...runtimeSnapshotSerializers, ...runtimePrettyFormatPlugins],
+        printBasicPrototype: false,
+        printFunctionName: true,
+      })
+    : prettyFormat(value);
   return serialized.includes('\n') ? `\n${serialized}\n` : serialized;
 }
 
@@ -622,6 +650,12 @@ const matchers = {
     isMock(received) &&
     received.mock.calls.length > 0 &&
     deepEqual(received.mock.calls.at(-1), expected),
+  toHaveBeenNthCalledWith: (received, nth, ...expected) =>
+    isMock(received) &&
+    Number.isInteger(nth) &&
+    nth > 0 &&
+    received.mock.calls.length >= nth &&
+    deepEqual(received.mock.calls[nth - 1], expected),
   toHaveReturned: received =>
     isMock(received) &&
     received.mock.results.some(result => result.type === 'return'),
@@ -635,6 +669,18 @@ const matchers = {
       result => result.type === 'return' && deepEqual(result.value, expected),
     ),
 };
+Object.assign(matchers, {
+  toBeCalled: matchers.toHaveBeenCalled,
+  toBeCalledTimes: matchers.toHaveBeenCalledTimes,
+  toBeCalledWith: matchers.toHaveBeenCalledWith,
+  lastCalledWith: matchers.toHaveBeenLastCalledWith,
+  nthCalledWith: matchers.toHaveBeenNthCalledWith,
+  toHaveNthBeenCalledWith: matchers.toHaveBeenNthCalledWith,
+  toReturn: matchers.toHaveReturned,
+  toReturnTimes: matchers.toHaveReturnedTimes,
+  toReturnWith: matchers.toHaveReturnedWith,
+  toThrowError: matchers.toThrow,
+});
 
 function matcherMessage(name, received, expected, isNot) {
   const expectedLabel =
@@ -643,7 +689,10 @@ function matcherMessage(name, received, expected, isNot) {
       : `\nExpected: ${printable(
           expected.length === 1 ? expected[0] : expected,
         )}`;
-  return `expect(received)${isNot ? '.not' : ''}.${name}()${expectedLabel}\nReceived: ${printable(received)}`;
+  const receivedLabel = isMock(received)
+    ? `\nReceived calls: ${printable(received.mock.calls)}`
+    : `\nReceived: ${printable(received)}`;
+  return `expect(received)${isNot ? '.not' : ''}.${name}()${expectedLabel}${receivedLabel}`;
 }
 
 function makeExpectation(actual, isNot = false, promiseMode = undefined) {
@@ -824,6 +873,62 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
         return evaluate(reason);
       },
     );
+  };
+  expectation.toMatchInlineSnapshot = (...arguments_) => {
+    if (isNot) {
+      throw new Error('Snapshot matchers cannot be used with .not');
+    }
+    const inlineSnapshot = arguments_.at(-1);
+    if (typeof inlineSnapshot !== 'string') {
+      throw new Error(
+        'Writing new inline snapshots is not supported yet; provide an existing inline snapshot',
+      );
+    }
+    const evaluate = received => {
+      const serialized = formatSnapshot(received);
+      if (serialized !== inlineSnapshot) {
+        snapshotState.unmatched += 1;
+        throw new RjestAssertionError(
+          `Inline snapshot mismatch\nExpected: ${inlineSnapshot}\nReceived: ${serialized}`,
+        );
+      }
+      snapshotState.matched += 1;
+    };
+    if (!promiseMode) return evaluate(actual);
+    return Promise.resolve(actual).then(evaluate);
+  };
+  expectation.toThrowErrorMatchingInlineSnapshot = inlineSnapshot => {
+    if (typeof actual !== 'function') {
+      throw new TypeError('Received value must be a function');
+    }
+    let thrown;
+    try {
+      actual();
+    } catch (error) {
+      thrown = error;
+    }
+    if (thrown === undefined) {
+      throw new RjestAssertionError('Received function did not throw');
+    }
+    return makeExpectation(
+      thrown?.message ?? String(thrown),
+    ).toMatchInlineSnapshot(inlineSnapshot);
+  };
+  expectation.toThrowErrorMatchingSnapshot = hint => {
+    if (typeof actual !== 'function') {
+      throw new TypeError('Received value must be a function');
+    }
+    let thrown;
+    try {
+      actual();
+    } catch (error) {
+      thrown = error;
+    }
+    if (thrown === undefined) {
+      throw new RjestAssertionError('Received function did not throw');
+    }
+    const outcome = matchSnapshot(thrown?.message ?? String(thrown), hint);
+    if (!outcome.pass) throw new RjestAssertionError(outcome.message);
   };
   return expectation;
 }
@@ -1082,15 +1187,19 @@ function spyOn(target, property, accessType) {
   return mock;
 }
 
-function resolveModuleKey(specifier) {
-  return requireFromTest.resolve(String(specifier));
+function requireFrom(path = activeModulePath) {
+  return createRequire(path);
 }
 
-function loadActualModule(specifier) {
-  const key = resolveModuleKey(specifier);
+function resolveModuleKey(specifier, fromPath = activeModulePath) {
+  return requireFrom(fromPath).resolve(String(specifier));
+}
+
+function loadActualModule(specifier, fromPath = activeModulePath) {
+  const key = resolveModuleKey(specifier, fromPath);
   bypassModuleMocks.add(key);
   try {
-    return requireFromTest(specifier);
+    return requireFrom(fromPath)(specifier);
   } finally {
     bypassModuleMocks.delete(key);
   }
@@ -1126,8 +1235,13 @@ function createAutoMock(value, seen = new WeakMap()) {
   return result;
 }
 
-function registerModuleMock(specifier, factory) {
-  const key = resolveModuleKey(specifier);
+function registerModuleMock(
+  specifier,
+  factory,
+  fromPath = activeModulePath,
+  returnValue = jest,
+) {
+  const key = resolveModuleKey(specifier, fromPath);
   if (factory !== undefined && typeof factory !== 'function') {
     throw new TypeError('The second argument of jest.mock must be a function');
   }
@@ -1136,18 +1250,37 @@ function registerModuleMock(specifier, factory) {
     initialized: false,
     value: undefined,
     specifier: String(specifier),
+    fromPath,
   });
   delete Module._cache[key];
-  return jest;
+  return returnValue;
 }
 
-function requireMock(specifier) {
-  const key = resolveModuleKey(specifier);
-  if (!moduleMocks.has(key)) registerModuleMock(specifier);
-  return requireFromTest(specifier);
+function requireMock(specifier, fromPath = activeModulePath) {
+  const key = resolveModuleKey(specifier, fromPath);
+  if (!moduleMocks.has(key)) registerModuleMock(specifier, undefined, fromPath);
+  return requireFrom(fromPath)(specifier);
 }
 
 Module._load = function rjestModuleLoad(specifier, parent, isMain) {
+  if (specifier === '@jest/globals') {
+    const moduleJest = scopedJest(parent?.filename ?? request.testPath);
+    return {
+      afterAll,
+      afterEach,
+      beforeAll,
+      beforeEach,
+      describe,
+      expect,
+      fit: test.only,
+      it,
+      jest: moduleJest,
+      test,
+      xdescribe: describe.skip,
+      xit: test.skip,
+      xtest: test.skip,
+    };
+  }
   let key;
   try {
     key = Module._resolveFilename(specifier, parent, isMain);
@@ -1160,17 +1293,503 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
   }
   if (!entry.initialized) {
     entry.initialized = true;
+    const previousModulePath = activeModulePath;
+    activeModulePath = entry.fromPath;
     try {
       entry.value = entry.factory
         ? entry.factory()
-        : createAutoMock(loadActualModule(entry.specifier));
+        : createAutoMock(loadActualModule(entry.specifier, entry.fromPath));
+      if (process.env.RJEST_DEBUG_MODULE_MOCKS === '1') {
+        consoleEntries.push({
+          level: 'debug',
+          message: `module mock ${key}: ${Reflect.ownKeys(Object(entry.value)).map(String).join(', ')}`,
+        });
+      }
     } catch (error) {
       entry.initialized = false;
       throw error;
+    } finally {
+      activeModulePath = previousModulePath;
     }
   }
   return entry.value;
 };
+
+function scopedJest(fromPath) {
+  const scoped = Object.create(jest);
+  Object.assign(scoped, {
+    mock(specifier, factory) {
+      return registerModuleMock(specifier, factory, fromPath, scoped);
+    },
+    doMock(specifier, factory) {
+      return registerModuleMock(specifier, factory, fromPath, scoped);
+    },
+    unmock(specifier) {
+      moduleMocks.delete(resolveModuleKey(specifier, fromPath));
+      return scoped;
+    },
+    dontMock(specifier) {
+      return scoped.unmock(specifier);
+    },
+    requireActual(specifier) {
+      return loadActualModule(specifier, fromPath);
+    },
+    requireMock(specifier) {
+      return requireMock(specifier, fromPath);
+    },
+    createMockFromModule(specifier) {
+      return createAutoMock(loadActualModule(specifier, fromPath));
+    },
+  });
+  return scoped;
+}
+
+function transformerFromConfig(pattern, configured) {
+  const [moduleName, transformerConfig] = Array.isArray(configured)
+    ? configured
+    : [configured, {}];
+  if (typeof moduleName !== 'string') {
+    throw new TypeError(`Transformer for ${pattern} must name a module`);
+  }
+  const loaded = requireFromTest(moduleName);
+  const exported = loaded?.default ?? loaded;
+  const transformer =
+    typeof exported?.createTransformer === 'function'
+      ? exported.createTransformer(transformerConfig ?? {})
+      : exported;
+  if (!transformer || typeof transformer.process !== 'function') {
+    throw new TypeError(`Transformer ${moduleName} does not expose process()`);
+  }
+  return {
+    pattern: new RegExp(pattern),
+    transformer,
+    transformerConfig: transformerConfig ?? {},
+  };
+}
+
+function configureTransforms() {
+  for (const [pattern, configured] of Object.entries(request.transform ?? {})) {
+    runtimeTransformers.push(transformerFromConfig(pattern, configured));
+  }
+  if (runtimeTransformers.length === 0) return;
+  const extensions = new Set(
+    (request.moduleFileExtensions ?? []).map(extension => `.${extension}`),
+  );
+  extensions.add('.js');
+  for (const extension of extensions) {
+    if (extension === '.json' || extension === '.node') continue;
+    Module._extensions[extension] = compileRuntimeModule;
+  }
+}
+
+function configureSnapshotFormat() {
+  for (const moduleName of request.snapshotSerializers ?? []) {
+    const loaded = requireFromTest(moduleName);
+    const serializer = loaded?.default ?? loaded;
+    if (
+      !serializer ||
+      typeof serializer.test !== 'function' ||
+      typeof serializer.print !== 'function'
+    ) {
+      throw new TypeError(
+        `Snapshot serializer ${moduleName} must expose test() and print()`,
+      );
+    }
+    runtimeSnapshotSerializers.push(serializer);
+  }
+  try {
+    const loaded = requireFromTest('pretty-format');
+    runtimePrettyFormatter = loaded.format;
+    runtimePrettyFormatPlugins = [
+      loaded.plugins.AsymmetricMatcher,
+      loaded.plugins.DOMCollection,
+      loaded.plugins.DOMElement,
+      loaded.plugins.Immutable,
+      loaded.plugins.ReactElement,
+      loaded.plugins.ReactTestComponent,
+    ].filter(Boolean);
+  } catch {
+    runtimePrettyFormatter = undefined;
+    runtimePrettyFormatPlugins = [];
+  }
+}
+
+function compileRuntimeModule(module, filename) {
+  const normalized = filename.replaceAll('\\', '/');
+  const ignored = (request.transformIgnorePatterns ?? []).some(pattern =>
+    new RegExp(pattern).test(normalized),
+  );
+  const selected = ignored
+    ? undefined
+    : runtimeTransformers.find(({pattern}) => pattern.test(normalized));
+  if (!selected) {
+    const extension = filename.slice(filename.lastIndexOf('.'));
+    const original =
+      originalModuleExtensions.get(extension) ??
+      (extension === '.cjs' ? originalModuleExtensions.get('.js') : undefined);
+    if (original) return original(module, filename);
+    throw new Error(`No configured transform can load ${filename}`);
+  }
+  const source = readFileSync(filename, 'utf8');
+  const config = {
+    cwd: request.rootDir,
+    rootDir: request.rootDir,
+    testEnvironment: request.testEnvironment,
+  };
+  const transformed = selected.transformer.process(source, filename, {
+    cacheFS: new Map(),
+    config,
+    configString: JSON.stringify(config),
+    instrument: false,
+    supportsDynamicImport: false,
+    supportsExportNamespaceFrom: false,
+    supportsStaticESM: false,
+    supportsTopLevelAwait: false,
+    transformerConfig: selected.transformerConfig,
+  });
+  if (transformed && typeof transformed.then === 'function') {
+    throw new Error(`Async transformer output is not supported for ${filename}`);
+  }
+  const code = typeof transformed === 'string' ? transformed : transformed?.code;
+  if (typeof code !== 'string') {
+    throw new TypeError(`Transformer returned no code for ${filename}`);
+  }
+  const previousModulePath = activeModulePath;
+  activeModulePath = filename;
+  try {
+    module._compile(code, filename);
+  } finally {
+    activeModulePath = previousModulePath;
+  }
+}
+
+function installJsdomEnvironment() {
+  if (!String(request.testEnvironment).includes('jsdom')) return;
+  const {JSDOM} = requireFromTest('jsdom');
+  const environmentOptions = request.testEnvironmentOptions ?? {};
+  jsdomEnvironment = new JSDOM(
+    '<!doctype html><html><head></head><body></body></html>',
+    {
+      pretendToBeVisual: true,
+      url: environmentOptions.url ?? 'http://localhost/',
+    },
+  );
+  const window = jsdomEnvironment.window;
+  const protectedGlobals = new Set([
+    'console',
+    'global',
+    'globalThis',
+    'setTimeout',
+    'clearTimeout',
+    'setInterval',
+    'clearInterval',
+    'setImmediate',
+    'clearImmediate',
+    'queueMicrotask',
+    'performance',
+    'window',
+    'self',
+    'document',
+    'navigator',
+  ]);
+  for (const key of Reflect.ownKeys(window)) {
+    if (protectedGlobals.has(key)) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(window, key);
+    if (!descriptor) continue;
+    const current = Object.getOwnPropertyDescriptor(globalThis, key);
+    if (current && !current.configurable) continue;
+    try {
+      Object.defineProperty(globalThis, key, descriptor);
+    } catch {
+      // JSDOM exposes a few host properties that Node deliberately protects.
+    }
+  }
+  for (const [key, value] of [
+    ['window', window],
+    ['self', window],
+  ]) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
+  }
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    enumerable: true,
+    get: () => window.document,
+    // Jest's VM global ignores assignment to this getter through its proxy.
+    // A no-op setter preserves that observable behavior in the Node worker.
+    set: () => {},
+  });
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    enumerable: true,
+    value: window.navigator,
+    writable: true,
+  });
+  nativeWindowTimers = {
+    setTimeout: window.setTimeout,
+    clearTimeout: window.clearTimeout,
+    setInterval: window.setInterval,
+    clearInterval: window.clearInterval,
+    queueMicrotask: window.queueMicrotask,
+  };
+}
+
+async function loadRuntimeModule(path) {
+  if (runtimeTransformers.length > 0) return requireFromTest(path);
+  return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
+}
+
+const fakeTimers = {
+  active: false,
+  now: 0,
+  monotonicNow: 0,
+  nextId: 1,
+  timers: new Map(),
+  ticks: [],
+  maxRuns: 100_000,
+};
+
+function assertFakeTimers() {
+  if (!fakeTimers.active) {
+    throw new Error(
+      'Fake timers are not active. Call jest.useFakeTimers() before using timer controls.',
+    );
+  }
+}
+
+function timerDelay(value) {
+  const number = Number(value ?? 0);
+  if (!Number.isFinite(number) || number < 0) return 0;
+  return Math.floor(number);
+}
+
+function scheduleFakeTimer(type, callback, delay, args) {
+  if (typeof callback !== 'function') {
+    throw new TypeError(`${type} callback must be a function`);
+  }
+  const id = fakeTimers.nextId++;
+  const duration = type === 'immediate' ? 0 : timerDelay(delay);
+  fakeTimers.timers.set(id, {
+    id,
+    type,
+    callback,
+    args,
+    callAt: fakeTimers.now + duration,
+    interval: type === 'interval' ? Math.max(1, duration) : undefined,
+  });
+  return id;
+}
+
+function nextFakeTimer(limit = Number.POSITIVE_INFINITY, allowedIds) {
+  let selected;
+  for (const timer of fakeTimers.timers.values()) {
+    if (timer.callAt > limit || (allowedIds && !allowedIds.has(timer.id))) {
+      continue;
+    }
+    if (
+      !selected ||
+      timer.callAt < selected.callAt ||
+      (timer.callAt === selected.callAt && timer.id < selected.id)
+    ) {
+      selected = timer;
+    }
+  }
+  return selected;
+}
+
+function runAllTicks() {
+  assertFakeTimers();
+  let runs = 0;
+  while (fakeTimers.ticks.length > 0) {
+    if (++runs > fakeTimers.maxRuns) {
+      throw new Error(
+        `Aborting after running ${fakeTimers.maxRuns} ticks, assuming an infinite loop`,
+      );
+    }
+    const tick = fakeTimers.ticks.shift();
+    tick.callback(...tick.args);
+  }
+  return jest;
+}
+
+function runTimer(timer) {
+  fakeTimers.timers.delete(timer.id);
+  fakeTimers.monotonicNow += timer.callAt - fakeTimers.now;
+  fakeTimers.now = timer.callAt;
+  if (timer.type === 'interval') {
+    timer.callAt += timer.interval;
+    fakeTimers.timers.set(timer.id, timer);
+  }
+  timer.callback(...timer.args);
+  runAllTicks();
+}
+
+function runTimersUntil(target, allowedIds) {
+  let runs = 0;
+  let timer;
+  while ((timer = nextFakeTimer(target, allowedIds))) {
+    if (++runs > fakeTimers.maxRuns) {
+      throw new Error(
+        `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
+      );
+    }
+    runTimer(timer);
+  }
+  fakeTimers.monotonicNow += target - fakeTimers.now;
+  fakeTimers.now = target;
+}
+
+async function runTimersUntilAsync(target) {
+  let runs = 0;
+  let timer;
+  while ((timer = nextFakeTimer(target))) {
+    if (++runs > fakeTimers.maxRuns) {
+      throw new Error(
+        `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
+      );
+    }
+    runTimer(timer);
+    await Promise.resolve();
+  }
+  fakeTimers.monotonicNow += target - fakeTimers.now;
+  fakeTimers.now = target;
+}
+
+function installFakeTimers(options = {}) {
+  if (options === 'legacy' || options?.legacyFakeTimers) {
+    throw new Error('Legacy fake timers are not supported yet');
+  }
+  if (fakeTimers.active) restoreRealTimers();
+  fakeTimers.active = true;
+  fakeTimers.now =
+    options?.now === undefined
+      ? NativeDate.now()
+      : new NativeDate(options.now).getTime();
+  fakeTimers.monotonicNow = 0;
+  fakeTimers.nextId = 1;
+  fakeTimers.timers.clear();
+  fakeTimers.ticks.length = 0;
+  const doNotFake = new Set(options?.doNotFake ?? []);
+  if (!doNotFake.has('setTimeout')) {
+    const fakeSetTimeout = (callback, delay, ...args) =>
+      scheduleFakeTimer('timeout', callback, delay, args);
+    fakeSetTimeout.clock = fakeTimers;
+    const fakeClearTimeout = id => fakeTimers.timers.delete(Number(id));
+    globalThis.setTimeout = fakeSetTimeout;
+    globalThis.clearTimeout = fakeClearTimeout;
+    if (jsdomEnvironment) {
+      jsdomEnvironment.window.setTimeout = fakeSetTimeout;
+      jsdomEnvironment.window.clearTimeout = fakeClearTimeout;
+    }
+  }
+  if (!doNotFake.has('setInterval')) {
+    const fakeSetInterval = (callback, delay, ...args) =>
+      scheduleFakeTimer('interval', callback, delay, args);
+    fakeSetInterval.clock = fakeTimers;
+    const fakeClearInterval = id => fakeTimers.timers.delete(Number(id));
+    globalThis.setInterval = fakeSetInterval;
+    globalThis.clearInterval = fakeClearInterval;
+    if (jsdomEnvironment) {
+      jsdomEnvironment.window.setInterval = fakeSetInterval;
+      jsdomEnvironment.window.clearInterval = fakeClearInterval;
+    }
+  }
+  if (!doNotFake.has('setImmediate')) {
+    globalThis.setImmediate = (callback, ...args) =>
+      scheduleFakeTimer('immediate', callback, 0, args);
+    globalThis.clearImmediate = id => fakeTimers.timers.delete(Number(id));
+  }
+  if (!doNotFake.has('nextTick')) {
+    process.nextTick = (callback, ...args) => {
+      if (typeof callback !== 'function') {
+        throw new TypeError('process.nextTick callback must be a function');
+      }
+      fakeTimers.ticks.push({callback, args});
+    };
+  }
+  if (!doNotFake.has('queueMicrotask')) {
+    const fakeQueueMicrotask = callback => {
+      if (typeof callback !== 'function') {
+        throw new TypeError('queueMicrotask callback must be a function');
+      }
+      fakeTimers.ticks.push({callback, args: []});
+    };
+    globalThis.queueMicrotask = fakeQueueMicrotask;
+    if (jsdomEnvironment) {
+      jsdomEnvironment.window.queueMicrotask = fakeQueueMicrotask;
+    }
+  }
+  if (!doNotFake.has('Date')) {
+    globalThis.Date = class FakeDate extends NativeDate {
+      constructor(...args) {
+        super(...(args.length === 0 ? [fakeTimers.now] : args));
+      }
+
+      static now() {
+        return fakeTimers.now;
+      }
+    };
+  }
+  if (!doNotFake.has('performance')) {
+    Object.defineProperty(nativePerformance, 'now', {
+      configurable: true,
+      enumerable: true,
+      value: () => fakeTimers.monotonicNow,
+    });
+  }
+  if (!doNotFake.has('hrtime')) {
+    const fakeHrtime = previous => {
+      let seconds = Math.floor(fakeTimers.monotonicNow / 1000);
+      let nanoseconds = Math.floor((fakeTimers.monotonicNow % 1000) * 1e6);
+      if (previous !== undefined) {
+        seconds -= Number(previous[0]);
+        nanoseconds -= Number(previous[1]);
+        if (nanoseconds < 0) {
+          seconds -= 1;
+          nanoseconds += 1e9;
+        }
+      }
+      return [seconds, nanoseconds];
+    };
+    fakeHrtime.bigint = () => BigInt(Math.floor(fakeTimers.monotonicNow * 1e6));
+    process.hrtime = fakeHrtime;
+  }
+  return jest;
+}
+
+function restoreRealTimers() {
+  globalThis.setTimeout = nativeSetTimeout;
+  globalThis.clearTimeout = nativeClearTimeout;
+  globalThis.setInterval = nativeSetInterval;
+  globalThis.clearInterval = nativeClearInterval;
+  globalThis.setImmediate = nativeSetImmediate;
+  globalThis.clearImmediate = nativeClearImmediate;
+  globalThis.queueMicrotask = nativeQueueMicrotask;
+  globalThis.Date = NativeDate;
+  globalThis.performance = nativePerformance;
+  if (nativePerformanceNowDescriptor) {
+    Object.defineProperty(
+      nativePerformance,
+      'now',
+      nativePerformanceNowDescriptor,
+    );
+  } else {
+    delete nativePerformance.now;
+  }
+  process.nextTick = nativeNextTick;
+  process.hrtime = nativeHrtime;
+  if (jsdomEnvironment && nativeWindowTimers) {
+    Object.assign(jsdomEnvironment.window, nativeWindowTimers);
+  }
+  fakeTimers.active = false;
+  fakeTimers.timers.clear();
+  fakeTimers.ticks.length = 0;
+  return jest;
+}
 
 const jest = {
   fn: createMock,
@@ -1196,6 +1815,125 @@ const jest = {
   requireMock,
   createMockFromModule(specifier) {
     return createAutoMock(loadActualModule(specifier));
+  },
+  resetModules() {
+    for (const path of Object.keys(Module._cache)) {
+      if (!path.includes('/node_modules/')) delete Module._cache[path];
+    }
+    return jest;
+  },
+  useFakeTimers: installFakeTimers,
+  useRealTimers: restoreRealTimers,
+  runAllTicks,
+  runAllTimers() {
+    assertFakeTimers();
+    let runs = 0;
+    let timer;
+    while ((timer = nextFakeTimer())) {
+      if (++runs > fakeTimers.maxRuns) {
+        throw new Error(
+          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
+        );
+      }
+      runTimer(timer);
+    }
+    runAllTicks();
+    return jest;
+  },
+  async runAllTimersAsync() {
+    assertFakeTimers();
+    let runs = 0;
+    let timer;
+    while ((timer = nextFakeTimer())) {
+      if (++runs > fakeTimers.maxRuns) {
+        throw new Error(
+          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
+        );
+      }
+      runTimer(timer);
+      await Promise.resolve();
+    }
+    runAllTicks();
+    return jest;
+  },
+  runOnlyPendingTimers() {
+    assertFakeTimers();
+    const pending = [...fakeTimers.timers.values()].sort(
+      (left, right) => left.callAt - right.callAt || left.id - right.id,
+    );
+    for (const timer of pending) {
+      if (fakeTimers.timers.get(timer.id) === timer) runTimer(timer);
+    }
+    return jest;
+  },
+  async runOnlyPendingTimersAsync() {
+    assertFakeTimers();
+    const pending = [...fakeTimers.timers.values()].sort(
+      (left, right) => left.callAt - right.callAt || left.id - right.id,
+    );
+    for (const timer of pending) {
+      if (fakeTimers.timers.get(timer.id) === timer) {
+        runTimer(timer);
+        await Promise.resolve();
+      }
+    }
+    return jest;
+  },
+  advanceTimersByTime(milliseconds) {
+    assertFakeTimers();
+    const duration = timerDelay(milliseconds);
+    runTimersUntil(fakeTimers.now + duration);
+    return jest;
+  },
+  async advanceTimersByTimeAsync(milliseconds) {
+    assertFakeTimers();
+    const duration = timerDelay(milliseconds);
+    await runTimersUntilAsync(fakeTimers.now + duration);
+    return jest;
+  },
+  advanceTimersToNextTimer(steps = 1) {
+    assertFakeTimers();
+    for (let index = 0; index < Number(steps); index += 1) {
+      const timer = nextFakeTimer();
+      if (!timer) break;
+      runTimersUntil(timer.callAt);
+    }
+    return jest;
+  },
+  async advanceTimersToNextTimerAsync(steps = 1) {
+    assertFakeTimers();
+    for (let index = 0; index < Number(steps); index += 1) {
+      const timer = nextFakeTimer();
+      if (!timer) break;
+      await runTimersUntilAsync(timer.callAt);
+    }
+    return jest;
+  },
+  clearAllTimers() {
+    assertFakeTimers();
+    fakeTimers.timers.clear();
+    fakeTimers.ticks.length = 0;
+    return jest;
+  },
+  getTimerCount() {
+    assertFakeTimers();
+    return fakeTimers.timers.size + fakeTimers.ticks.length;
+  },
+  setSystemTime(value) {
+    assertFakeTimers();
+    const next = new NativeDate(value ?? NativeDate.now()).getTime();
+    const difference = next - fakeTimers.now;
+    fakeTimers.now = next;
+    for (const timer of fakeTimers.timers.values()) {
+      timer.callAt += difference;
+    }
+    return jest;
+  },
+  now() {
+    return fakeTimers.active ? fakeTimers.now : NativeDate.now();
+  },
+  getRealSystemTime() {
+    return NativeDate.now();
   },
   clearAllMocks() {
     for (const mock of mockRegistry) mock.mockClear();
@@ -1471,20 +2209,30 @@ process.on('uncaughtException', error => fileErrors.push(errorText(error)));
 
 let tests = [];
 try {
-  await import(`${pathToFileURL(request.testPath).href}?rjest=${Date.now()}`);
+  configureTransforms();
+  configureSnapshotFormat();
+  installJsdomEnvironment();
+  for (const setupPath of request.setupFilesAfterEnv ?? []) {
+    await loadRuntimeModule(setupPath);
+  }
+  await loadRuntimeModule(request.testPath);
   definitionComplete = true;
   tests = await runSuite(rootSuite, hasOnly(rootSuite));
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => nativeSetImmediate(resolve));
 } catch (error) {
   fileErrors.push(errorText(error));
 }
 
-if (snapshotState.update === 'all' && snapshotState.unchecked.size > 0) {
+if (
+  definitionComplete &&
+  snapshotState.update === 'all' &&
+  snapshotState.unchecked.size > 0
+) {
   for (const key of snapshotState.unchecked) delete snapshotState.data[key];
   snapshotState.removed = snapshotState.unchecked.size;
   snapshotState.unchecked.clear();
   snapshotState.dirty = true;
-} else if (snapshotState.unchecked.size > 0) {
+} else if (definitionComplete && snapshotState.unchecked.size > 0) {
   fileErrors.push(
     `${snapshotState.unchecked.size} obsolete snapshot${snapshotState.unchecked.size === 1 ? '' : 's'} found. Run with --updateSnapshot to remove ${snapshotState.unchecked.size === 1 ? 'it' : 'them'}.\n` +
       [...snapshotState.unchecked].map(key => `  - ${key}`).join('\n'),
@@ -1509,6 +2257,8 @@ const result = {
     data: snapshotState.data,
   },
 };
+if (fakeTimers.active) restoreRealTimers();
+jsdomEnvironment?.window.close();
 process.stdout.write(`${RESULT_PREFIX}${JSON.stringify(result)}\n`, () => {
   process.exit(0);
 });

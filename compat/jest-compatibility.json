@@ -3,9 +3,9 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 18,
-    "total": 24,
-    "percentage": 75
+    "passing": 27,
+    "total": 32,
+    "percentage": 84.375
   },
   "categories": {
     "Configuration": {
@@ -16,6 +16,11 @@
     "Core API": {
       "passing": 4,
       "total": 4,
+      "percentage": 100
+    },
+    "Environment": {
+      "passing": 2,
+      "total": 2,
       "percentage": 100
     },
     "ESM": {
@@ -29,9 +34,9 @@
       "percentage": 100
     },
     "Fake timers": {
-      "passing": 0,
-      "total": 1,
-      "percentage": 0
+      "passing": 6,
+      "total": 7,
+      "percentage": 85.71428571428571
     },
     "Mocks": {
       "passing": 1,
@@ -44,9 +49,9 @@
       "percentage": 100
     },
     "Snapshots": {
-      "passing": 4,
+      "passing": 5,
       "total": 6,
-      "percentage": 66.66666666666666
+      "percentage": 83.33333333333334
     },
     "Transforms": {
       "passing": 0,
@@ -92,8 +97,32 @@
       "differences": []
     },
     {
+      "name": "environment-node-env",
+      "category": "Environment",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "environment-jsdom-globals",
+      "category": "Environment",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "failure",
       "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "fake-timers-clock",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "fake-timers-queues",
+      "category": "Fake timers",
       "compatible": true,
       "differences": []
     },
@@ -166,6 +195,30 @@
     {
       "name": "gap-fake-timers",
       "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-fake-timers-async",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-fake-timers-performance",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-fake-timers-hrtime",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-fake-timers-frame",
+      "category": "Fake timers",
       "compatible": false,
       "differences": [
         "exit Jest=0 Rjest=1",
@@ -175,11 +228,8 @@
     {
       "name": "gap-inline-snapshot",
       "category": "Snapshots",
-      "compatible": false,
-      "differences": [
-        "exit Jest=0 Rjest=1",
-        "test results differ"
-      ]
+      "compatible": true,
+      "differences": []
     },
     {
       "name": "gap-automock",

@@ -8,19 +8,27 @@ statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
-configuration, native discovery, isolated JS and basic TS execution, nested
-hooks, async tests, common
-matchers, basic function/method mocks, and external Jest v1 snapshots. Inline
-snapshots, snapshot property matchers/custom serializers, module mocks, complete
-resolution/config semantics, fake timers, coverage, watch mode, and browser
-environments remain missing, so Rjest does not claim broad or drop-in Jest
-compatibility yet.
+configuration, native discovery, isolated JS execution, configured synchronous
+Jest transforms for JSX/TypeScript, Node and JSDOM environments, nested hooks,
+async tests, common matchers, function/method/accessor mocks, CommonJS module
+mocks, external Jest v1 snapshots, existing inline snapshots, configured
+serializers, and modern fake timers. Snapshot property matchers, writing new
+inline snapshots, complete resolution/config semantics, global automocking,
+coverage, and watch mode remain missing, so Rjest does not claim broad or
+drop-in Jest compatibility yet.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
 Jest-specific mapping/directories and pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
+
+The real-project corpus is reported separately from the scenario score. On the
+pinned Downshift checkout and dependency installation, both official Jest and
+Rjest discover and pass 92/92 suites, 1,110/1,110 tests, and 49/49 snapshot
+assertions. This establishes compatibility for that exact corpus, not for
+unmeasured Jest behavior. The pinned versions and commands are in the
+[Downshift corpus report](corpus/downshift.md).
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

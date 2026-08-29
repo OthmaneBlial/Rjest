@@ -45,15 +45,28 @@ Last updated: 2026-08-29
 - Jest-aligned equality for boxed primitives, URLs, invalid dates, cyclic
   structures, maps, sets, sparse arrays, and strict array comparison.
 - Custom matchers through `expect.extend`, including `.not` and promise chains.
+- Modern fake timers covering clock control, timeouts, intervals, immediates,
+  tick/microtask queues, async advancement, `Date`, `performance`, and `hrtime`.
+- Configured Jest transformer execution for JavaScript, JSX, TypeScript, and
+  TSX, plus `setupFilesAfterEnv`, JSDOM, snapshot serializers, and Jest's
+  `NODE_ENV=test` default.
+- Module-scoped CommonJS mock resolution through transformed modules and
+  `@jest/globals` interception.
+- Existing inline and thrown-error inline snapshot matching with snapshot-count
+  parity, plus worker wall-clock termination for a blocked event loop.
+- A pinned Downshift real-project corpus: exact discovery and 92/92 passing
+  suites, 1,110/1,110 passing tests, and 49/49 matching snapshots under both
+  official Jest and Rjest.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 18/24
-  compatible scenarios (75.0%), with per-category scores in the machine-readable
-  report. This is a score for the versioned probe corpus, not all Jest behavior.
+  preserved known incompatibilities. The current generated result is 27/32
+  compatible scenarios (84.375%), with per-category scores in the
+  machine-readable report. This is a score for the versioned probe corpus, not
+  all Jest behavior.
 
 ## Current work
 
-- First real-world corpus baseline, followed by the highest-impact configuration,
-  timer, transform, and environment gaps it exposes.
+- Add a second real React corpus with different configuration and dependency
+  characteristics, then fix its highest-frequency incompatibilities.
 
 ## Compatibility snapshot
 
@@ -61,7 +74,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 18/24 (75.0%).
+corpus score is 27/32 (84.375%).
 
 ## Known blockers
 
@@ -69,21 +82,22 @@ corpus score is 18/24 (75.0%).
   Jest glob semantics are not yet implemented.
 - Config discovery currently starts at the invocation directory and does not yet
   traverse parent directories like Jest; CLI JSON config strings are also absent.
-- TypeScript support is currently limited to Node's erasable syntax; TSX,
-  decorators requiring transformation, and path aliases are not transformed.
+- Configured synchronous Jest transforms work; implicit `babel-jest`, async
+  transformers, transformer caches, decorators outside the project transformer,
+  and TypeScript path aliases remain incomplete.
 - Global automocking, transform-time mock hoisting, and ESM module mocking are not
   implemented; CommonJS explicit factories and manual module generation are
   partial.
-- Inline snapshots, snapshot property matchers/custom serializers, fake timers,
-  coverage, watch mode, jsdom, worker reuse, and cooperative cancellation are not
-  implemented.
+- New/updated inline snapshot source writes, snapshot property matchers, coverage,
+  watch mode, complete custom environments, worker reuse, and cooperative
+  cancellation are not implemented. Modern fake timers still lack animation
+  frame advancement and legacy-timer mode.
 
 ## Next highest-value tasks
 
-1. Baseline a substantial existing React/Jest project under ignored
-   `base/corpus`, then classify every discovery, config, and runtime difference.
-2. Implement `moduleNameMapper` and the transform/environment behavior needed by
-   the first corpus.
-3. Implement modern fake timers against differential clock and microtask probes.
-4. Expand CommonJS mocks toward hoisting and automatic mocking, then design ESM
-   module mocking at the loader boundary.
+1. Run the pinned React Select corpus with official Jest and unchanged Rjest,
+   then classify and eliminate the largest gaps.
+2. Implement `moduleNameMapper` and Jest's implicit `babel-jest` transform.
+3. Complete animation-frame and legacy fake-timer behavior.
+4. Expand CommonJS mocks toward global automocking, then design ESM module
+   mocking at the loader boundary.

@@ -71,3 +71,30 @@ fn returns_jest_style_exit_codes_for_passing_and_failing_runs() {
         serde_json::from_slice(&failing.stdout).expect("valid result JSON");
     assert_eq!(result["testResults"][0]["tests"][0]["status"], "failed");
 }
+
+#[test]
+fn writes_json_to_output_file_without_printing_it_to_stdout() {
+    let temp = tempdir().expect("temp dir");
+    let test_path = temp.path().join("output.test.js");
+    let output_path = temp.path().join("result.json");
+    fs::write(&test_path, "test('passes', () => expect(1).toBe(1));")
+        .expect("write passing fixture");
+
+    let output = command()
+        .current_dir(temp.path())
+        .args(["--runInBand", "--json", "--outputFile"])
+        .arg(&output_path)
+        .output()
+        .expect("run with output file");
+
+    assert!(output.status.success());
+    assert!(
+        !String::from_utf8_lossy(&output.stdout)
+            .trim_start()
+            .starts_with('{')
+    );
+    let result: serde_json::Value =
+        serde_json::from_slice(&fs::read(output_path).expect("read output file"))
+            .expect("valid result JSON");
+    assert_eq!(result["testResults"][0]["tests"][0]["status"], "passed");
+}
