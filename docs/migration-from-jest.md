@@ -3,7 +3,8 @@
 Rjest is not ready for production migration yet. Small Node projects can already
 try replacing `jest` with the built `rjest` binary when they use global
 `describe`/`test`/`it`, hooks, async tests, common matchers, basic `jest.fn` or
-method spies, erasable TypeScript syntax, and ordinary external `.snap` files.
+method/accessor spies, explicit CommonJS module mock factories, erasable
+TypeScript syntax, and ordinary external `.snap` files.
 
 Start with `rjest --listTests`, then use `rjest --runInBand` before enabling the
 default bounded parallel execution. Follow the compatibility matrix rather than
@@ -23,3 +24,8 @@ Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.
 Keep Jest for suites relying on `moduleNameMapper`, custom resolvers, pnpm/Yarn
 PnP edge cases, or transform-time path rewriting.
+
+CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
+`require`, plus `jest.requireActual`, `jest.requireMock`, and
+`jest.createMockFromModule`. Rjest does not yet hoist mock declarations, enable
+global automocking, or implement Jest's ESM module-mocking API.

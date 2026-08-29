@@ -6,6 +6,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
@@ -19,44 +20,66 @@ const jest = join(repository, 'node_modules', 'jest', 'bin', 'jest.js');
 const fixtures = join(repository, 'compat', 'fixtures');
 const require = createRequire(import.meta.url);
 const typescriptPreset = require.resolve('@babel/preset-typescript');
+const reportPath = join(repository, 'compat', 'jest-compatibility.json');
 
 const cases = [
-  {name: 'config-mjs', expectedExit: 0, useFixtureConfig: true},
-  {name: 'config-cjs', expectedExit: 0, useFixtureConfig: true},
-  {name: 'config-ts', expectedExit: 0, useFixtureConfig: true},
-  {name: 'config-package', expectedExit: 0, useFixtureConfig: true},
-  {name: 'core-pass', expectedExit: 0},
-  {name: 'failure', expectedExit: 1},
-  {name: 'focus', expectedExit: 0},
-  {name: 'resolution-cjs', expectedExit: 0},
-  {name: 'resolution-esm', expectedExit: 0, experimentalVmModules: true},
+  {name: 'config-mjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {name: 'config-cjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {name: 'config-ts', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {name: 'config-package', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {name: 'core-pass', category: 'Core API', expectedExit: 0},
+  {name: 'equality-edge', category: 'Expect', expectedExit: 0},
+  {name: 'failure', category: 'Core API', expectedExit: 1},
+  {name: 'focus', category: 'Core API', expectedExit: 0},
+  {name: 'module-mock-cjs', category: 'Mocks', expectedExit: 0},
+  {name: 'resolution-cjs', category: 'Resolution', expectedExit: 0},
+  {name: 'resolution-esm', category: 'ESM', expectedExit: 0, experimentalVmModules: true},
   {
     name: 'resolution-node-package',
+    category: 'Resolution',
     expectedExit: 0,
     prepareNodeModules: true,
   },
-  {name: 'timeout', expectedExit: 1},
-  {name: 'snapshot', expectedExit: 0, compareSnapshots: true},
-  {name: 'snapshot-new', expectedExit: 0, compareSnapshots: true},
+  {name: 'timeout', category: 'Core API', expectedExit: 1},
+  {name: 'snapshot', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
+  {name: 'snapshot-new', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
   {
     name: 'snapshot-update',
     label: 'snapshot-mismatch',
+    category: 'Snapshots',
     expectedExit: 1,
     compareSnapshots: true,
   },
   {
     name: 'snapshot-update',
     label: 'snapshot-update',
+    category: 'Snapshots',
     expectedExit: 0,
     compareSnapshots: true,
     updateSnapshots: true,
   },
+  {name: 'gap-custom-matcher', category: 'Expect', expectedExit: 0},
+  {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0, compatible: false},
+  {name: 'gap-inline-snapshot', category: 'Snapshots', expectedExit: 0, compatible: false},
+  {name: 'gap-automock', category: 'Mocks', expectedExit: 0, compatible: false},
+  {
+    name: 'gap-module-name-mapper',
+    category: 'Configuration',
+    expectedExit: 0,
+    compatible: false,
+    useFixtureConfig: true,
+  },
+  {name: 'gap-snapshot-property', category: 'Snapshots', expectedExit: 0, compatible: false},
+  {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0, compatible: false},
 ];
 
-for (const testCase of cases) {
-  compareCase(testCase);
+const outcomes = cases.map(compareCase);
+writeCompatibilityReport(outcomes);
+const passing = outcomes.filter(outcome => outcome.compatible).length;
+console.log(`Compatibility: ${passing}/${cases.length} differential scenarios compatible`);
+for (const [category, score] of categoryScores(outcomes)) {
+  console.log(`  ${category}: ${score.passing}/${score.total} (${score.percentage.toFixed(1)}%)`);
 }
-console.log(`Compatibility: ${cases.length}/${cases.length} differential scenarios passed`);
 
 function compareCase(testCase) {
   const label = testCase.label ?? testCase.name;
@@ -114,21 +137,47 @@ function compareCase(testCase) {
     if (jestRun.status !== testCase.expectedExit) {
       fail(`${label}: Jest exit ${jestRun.status}, expected ${testCase.expectedExit}`, jestRun);
     }
+    const differences = [];
     if (rjestRun.status !== jestRun.status) {
-      fail(`${label}: exit mismatch Jest=${jestRun.status} Rjest=${rjestRun.status}`, rjestRun);
+      differences.push(`exit Jest=${jestRun.status} Rjest=${rjestRun.status}`);
     }
 
     const jestResult = normalizeJest(JSON.parse(readFileSync(jestOutput, 'utf8')));
-    const rjestResult = normalizeRjest(JSON.parse(rjestRun.stdout));
-    if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
-      console.error(`Differential mismatch for ${label}`);
-      console.error('Jest:', JSON.stringify(jestResult, null, 2));
-      console.error('Rjest:', JSON.stringify(rjestResult, null, 2));
-      process.exit(1);
+    let rjestResult;
+    try {
+      rjestResult = normalizeRjest(JSON.parse(rjestRun.stdout));
+      if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
+        differences.push('test results differ');
+      }
+    } catch (error) {
+      differences.push(`Rjest JSON unavailable: ${error.message}`);
     }
     if (testCase.compareSnapshots) {
-      compareSnapshotTrees(label, jestFixture, rjestFixture);
+      if (!snapshotTreesEqual(jestFixture, rjestFixture)) {
+        differences.push('snapshot files differ');
+      }
     }
+
+    const compatible = differences.length === 0;
+    const expectedCompatibility = testCase.compatible ?? true;
+    if (compatible !== expectedCompatibility) {
+      if (compatible) {
+        fail(
+          `${label}: known incompatibility now passes; mark the probe compatible`,
+          rjestRun,
+        );
+      }
+      console.error(`Differential mismatch for ${label}: ${differences.join('; ')}`);
+      console.error('Jest:', JSON.stringify(jestResult, null, 2));
+      if (rjestResult) console.error('Rjest:', JSON.stringify(rjestResult, null, 2));
+      fail(`${label}: expected Jest parity`, rjestRun);
+    }
+    return {
+      name: label,
+      category: testCase.category,
+      compatible,
+      differences,
+    };
   } finally {
     rmSync(temporary, {recursive: true, force: true});
   }
@@ -142,15 +191,45 @@ function prepareNodeModule(fixture) {
   );
 }
 
-function compareSnapshotTrees(name, jestFixture, rjestFixture) {
+function snapshotTreesEqual(jestFixture, rjestFixture) {
   const jestSnapshots = readSnapshots(jestFixture);
   const rjestSnapshots = readSnapshots(rjestFixture);
-  if (JSON.stringify(jestSnapshots) !== JSON.stringify(rjestSnapshots)) {
-    console.error(`Snapshot file mismatch for ${name}`);
-    console.error('Jest:', JSON.stringify(jestSnapshots, null, 2));
-    console.error('Rjest:', JSON.stringify(rjestSnapshots, null, 2));
-    process.exit(1);
+  return JSON.stringify(jestSnapshots) === JSON.stringify(rjestSnapshots);
+}
+
+function categoryScores(outcomes) {
+  const scores = new Map();
+  for (const outcome of outcomes) {
+    const score = scores.get(outcome.category) ?? {passing: 0, total: 0};
+    score.total += 1;
+    if (outcome.compatible) score.passing += 1;
+    scores.set(outcome.category, score);
   }
+  for (const score of scores.values()) {
+    score.percentage = (score.passing / score.total) * 100;
+  }
+  return [...scores.entries()].sort(([left], [right]) => left.localeCompare(right));
+}
+
+function writeCompatibilityReport(outcomes) {
+  const categories = Object.fromEntries(
+    categoryScores(outcomes).map(([category, score]) => [category, score]),
+  );
+  const passing = outcomes.filter(outcome => outcome.compatible).length;
+  const report = {
+    $schema: './jest-compatibility.schema.json',
+    metric: 'Jest/Rjest parity across the versioned differential scenario corpus',
+    limitations:
+      'This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.',
+    score: {
+      passing,
+      total: outcomes.length,
+      percentage: (passing / outcomes.length) * 100,
+    },
+    categories,
+    scenarios: outcomes,
+  };
+  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 }
 
 function readSnapshots(root) {

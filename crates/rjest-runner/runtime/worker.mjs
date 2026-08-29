@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import Module, {createRequire} from 'node:module';
 import {isDeepStrictEqual, format, inspect} from 'node:util';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
@@ -9,6 +10,10 @@ const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
 const nativeClearTimeout = globalThis.clearTimeout;
 const request = JSON.parse(readFileSync(0, 'utf8'));
+const requireFromTest = createRequire(request.testPath);
+const originalModuleLoad = Module._load;
+const moduleMocks = new Map();
+const bypassModuleMocks = new Set();
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
   throw new Error(`Unsupported Rjest worker protocol ${request.protocolVersion}`);
@@ -18,6 +23,8 @@ const started = performance.now();
 const consoleEntries = [];
 const fileErrors = [];
 const mockRegistry = new Set();
+const restoreRegistry = new Set();
+const customMatchers = new Map();
 let invocationOrder = 0;
 let defaultTimeout = request.defaultTimeoutMs;
 let activeTest;
@@ -222,10 +229,13 @@ function enumerableKeys(value, strict) {
   });
 }
 
-function deepEqual(received, expected, strict = false, seen = new WeakMap()) {
+function deepEqual(received, expected, strict = false, receivedStack = [], expectedStack = []) {
   if (isAsymmetric(expected)) return expected.asymmetricMatch(received);
   if (isAsymmetric(received)) return received.asymmetricMatch(expected);
   if (Object.is(received, expected)) return true;
+  if (received instanceof Error && expected instanceof Error) {
+    return received.message === expected.message;
+  }
   if (
     typeof received !== 'object' ||
     received === null ||
@@ -234,19 +244,26 @@ function deepEqual(received, expected, strict = false, seen = new WeakMap()) {
   ) {
     return false;
   }
+  const receivedTag = Object.prototype.toString.call(received);
+  if (receivedTag !== Object.prototype.toString.call(expected)) return false;
+  if (
+    receivedTag === '[object Boolean]' ||
+    receivedTag === '[object String]' ||
+    receivedTag === '[object Number]'
+  ) {
+    return Object.is(received.valueOf(), expected.valueOf());
+  }
   if (
     strict &&
     Object.getPrototypeOf(received) !== Object.getPrototypeOf(expected)
   ) {
     return false;
   }
-  if (seen.get(received) === expected) return true;
-  seen.set(received, expected);
   if (received instanceof Date || expected instanceof Date) {
     return (
       received instanceof Date &&
       expected instanceof Date &&
-      Object.is(received.getTime(), expected.getTime())
+      received.getTime() === expected.getTime()
     );
   }
   if (received instanceof RegExp || expected instanceof RegExp) {
@@ -257,60 +274,101 @@ function deepEqual(received, expected, strict = false, seen = new WeakMap()) {
       received.flags === expected.flags
     );
   }
-  if (received instanceof Error || expected instanceof Error) {
-    return (
-      received instanceof Error &&
-      expected instanceof Error &&
-      received.message === expected.message
-    );
+  if (receivedTag === '[object URL]') return received.href === expected.href;
+  if (
+    typeof received.isEqualNode === 'function' &&
+    typeof expected.isEqualNode === 'function'
+  ) {
+    return received.isEqualNode(expected);
   }
+  for (let index = receivedStack.length - 1; index >= 0; index -= 1) {
+    if (receivedStack[index] === received) {
+      return expectedStack[index] === expected;
+    }
+    if (expectedStack[index] === expected) return false;
+  }
+  receivedStack.push(received);
+  expectedStack.push(expected);
+  let result;
   if (received instanceof Map || expected instanceof Map) {
     if (
       !(received instanceof Map && expected instanceof Map) ||
       received.size !== expected.size
     ) {
-      return false;
+      result = false;
+    } else {
+      const remaining = [...expected.entries()];
+      result = [...received.entries()].every(([key, value]) => {
+        const index = remaining.findIndex(
+          ([otherKey, otherValue]) =>
+            deepEqual(
+              key,
+              otherKey,
+              strict,
+              receivedStack,
+              expectedStack,
+            ) &&
+            deepEqual(
+              value,
+              otherValue,
+              strict,
+              receivedStack,
+              expectedStack,
+            ),
+        );
+        if (index < 0) return false;
+        remaining.splice(index, 1);
+        return true;
+      });
     }
-    const remaining = [...expected.entries()];
-    return [...received.entries()].every(([key, value]) => {
-      const index = remaining.findIndex(
-        ([otherKey, otherValue]) =>
-          deepEqual(key, otherKey, strict, seen) &&
-          deepEqual(value, otherValue, strict, seen),
-      );
-      if (index < 0) return false;
-      remaining.splice(index, 1);
-      return true;
-    });
-  }
-  if (received instanceof Set || expected instanceof Set) {
+  } else if (received instanceof Set || expected instanceof Set) {
     if (
       !(received instanceof Set && expected instanceof Set) ||
       received.size !== expected.size
     ) {
-      return false;
+      result = false;
+    } else {
+      const remaining = [...expected.values()];
+      result = [...received.values()].every(value => {
+        const index = remaining.findIndex(other =>
+          deepEqual(value, other, strict, receivedStack, expectedStack),
+        );
+        if (index < 0) return false;
+        remaining.splice(index, 1);
+        return true;
+      });
     }
-    const remaining = [...expected.values()];
-    return [...received.values()].every(value => {
-      const index = remaining.findIndex(other =>
-        deepEqual(value, other, strict, seen),
+  } else if (
+    ArrayBuffer.isView(received) ||
+    received instanceof ArrayBuffer
+  ) {
+    result = isDeepStrictEqual(received, expected);
+  } else if (
+    strict &&
+    Array.isArray(received) &&
+    received.length !== expected.length
+  ) {
+    result = false;
+  } else {
+    const receivedKeys = enumerableKeys(received, strict);
+    const expectedKeys = enumerableKeys(expected, strict);
+    result =
+      receivedKeys.length === expectedKeys.length &&
+      expectedKeys.every(
+        key =>
+          receivedKeys.includes(key) &&
+          deepEqual(
+            received[key],
+            expected[key],
+            strict,
+            receivedStack,
+            expectedStack,
+          ),
       );
-      if (index < 0) return false;
-      remaining.splice(index, 1);
-      return true;
-    });
   }
-  if (ArrayBuffer.isView(received) || ArrayBuffer.isView(expected)) {
-    return isDeepStrictEqual(received, expected);
-  }
-  const receivedKeys = enumerableKeys(received, strict);
-  const expectedKeys = enumerableKeys(expected, strict);
-  if (receivedKeys.length !== expectedKeys.length) return false;
-  return expectedKeys.every(
-    key =>
-      receivedKeys.includes(key) &&
-      deepEqual(received[key], expected[key], strict, seen),
-  );
+  receivedStack.pop();
+  expectedStack.pop();
+  return result;
 }
 
 function subsetEqual(received, expected) {
@@ -656,6 +714,68 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
       );
     };
   }
+  for (const [name, matcher] of customMatchers) {
+    expectation[name] = (...expected) => {
+      const evaluate = received => {
+        const outcome = matcher.call(
+          {
+            isNot,
+            promise: promiseMode ?? '',
+            equals: deepEqual,
+            utils: {
+              printExpected: printable,
+              printReceived: printable,
+              matcherHint: matcherName => `expect(received).${matcherName}`,
+            },
+          },
+          received,
+          ...expected,
+        );
+        if (
+          !outcome ||
+          typeof outcome !== 'object' ||
+          typeof outcome.pass !== 'boolean'
+        ) {
+          throw new TypeError(
+            `Unexpected return from a matcher function: ${name} must return an object with a boolean pass property`,
+          );
+        }
+        if (outcome.pass === isNot) {
+          const message =
+            typeof outcome.message === 'function'
+              ? outcome.message()
+              : matcherMessage(name, received, expected, isNot);
+          throw new RjestAssertionError(message);
+        }
+      };
+      if (!promiseMode) return evaluate(actual);
+      if (!actual || typeof actual.then !== 'function') {
+        return Promise.reject(
+          new RjestAssertionError(
+            `Received value must be a Promise for .${promiseMode}`,
+          ),
+        );
+      }
+      return Promise.resolve(actual).then(
+        value => {
+          if (promiseMode === 'rejects') {
+            throw new RjestAssertionError(
+              'Received promise resolved instead of rejected',
+            );
+          }
+          return evaluate(value);
+        },
+        reason => {
+          if (promiseMode === 'resolves') {
+            throw new RjestAssertionError(
+              `Received promise rejected instead of resolved: ${printable(reason)}`,
+            );
+          }
+          return evaluate(reason);
+        },
+      );
+    };
+  }
   expectation.toMatchSnapshot = (...arguments_) => {
     if (isNot) {
       throw new Error('Snapshot matchers cannot be used with .not');
@@ -756,6 +876,17 @@ expect.stringMatching = sample =>
         : value.includes(String(sample))),
     'StringMatching',
   );
+expect.extend = extensions => {
+  if (!extensions || typeof extensions !== 'object') {
+    throw new TypeError('expect.extend expects an object of matcher functions');
+  }
+  for (const [name, matcher] of Object.entries(extensions)) {
+    if (typeof matcher !== 'function') {
+      throw new TypeError(`Custom matcher ${name} must be a function`);
+    }
+    customMatchers.set(name, matcher);
+  }
+};
 expect.not = {
   arrayContaining: sample =>
     asymmetric(
@@ -870,6 +1001,7 @@ function createMock(implementation) {
   mock.getMockName = () => name;
   mock._setRestore = callback => {
     restore = callback;
+    restoreRegistry.add(callback);
   };
   mockRegistry.add(mock);
   return mock;
@@ -886,19 +1018,54 @@ function newMockState() {
   };
 }
 
-function spyOn(target, property) {
+function findPropertyDescriptor(target, property) {
+  let owner = target;
+  while (owner && !Object.prototype.hasOwnProperty.call(owner, property)) {
+    owner = Object.getPrototypeOf(owner);
+  }
+  return owner
+    ? {owner, descriptor: Object.getOwnPropertyDescriptor(owner, property)}
+    : undefined;
+}
+
+function spyOn(target, property, accessType) {
   if (
     (typeof target !== 'object' && typeof target !== 'function') ||
     target === null
   ) {
     throw new TypeError('Cannot use spyOn on a primitive value');
   }
-  let owner = target;
-  while (owner && !Object.prototype.hasOwnProperty.call(owner, property)) {
-    owner = Object.getPrototypeOf(owner);
+  const found = findPropertyDescriptor(target, property);
+  if (!found) throw new Error(`Property ${String(property)} does not exist`);
+  const {descriptor} = found;
+  const hadOwn = Object.prototype.hasOwnProperty.call(target, property);
+  const ownDescriptor = Object.getOwnPropertyDescriptor(target, property);
+
+  if (accessType !== undefined) {
+    if (accessType !== 'get' && accessType !== 'set') {
+      throw new Error("Property access type must be 'get' or 'set'");
+    }
+    const original = descriptor?.[accessType];
+    if (typeof original !== 'function') {
+      throw new Error(
+        `Property ${String(property)} does not have access type ${accessType}`,
+      );
+    }
+    if (isMock(original)) return original;
+    const mock = createMock(function invokeOriginalAccessor(...args) {
+      return original.apply(this, args);
+    });
+    Object.defineProperty(target, property, {
+      ...descriptor,
+      [accessType]: mock,
+    });
+    mock._setRestore(() => {
+      if (hadOwn) Object.defineProperty(target, property, ownDescriptor);
+      else delete target[property];
+    });
+    return mock;
   }
-  if (!owner) throw new Error(`Property ${String(property)} does not exist`);
-  const descriptor = Object.getOwnPropertyDescriptor(owner, property);
+
   if (!descriptor || typeof descriptor.value !== 'function') {
     throw new TypeError(`Property ${String(property)} is not a function`);
   }
@@ -907,8 +1074,6 @@ function spyOn(target, property) {
   const mock = createMock(function invokeOriginal(...args) {
     return original.apply(this, args);
   });
-  const hadOwn = Object.prototype.hasOwnProperty.call(target, property);
-  const ownDescriptor = Object.getOwnPropertyDescriptor(target, property);
   Object.defineProperty(target, property, {...descriptor, value: mock});
   mock._setRestore(() => {
     if (hadOwn) Object.defineProperty(target, property, ownDescriptor);
@@ -917,9 +1082,121 @@ function spyOn(target, property) {
   return mock;
 }
 
+function resolveModuleKey(specifier) {
+  return requireFromTest.resolve(String(specifier));
+}
+
+function loadActualModule(specifier) {
+  const key = resolveModuleKey(specifier);
+  bypassModuleMocks.add(key);
+  try {
+    return requireFromTest(specifier);
+  } finally {
+    bypassModuleMocks.delete(key);
+  }
+}
+
+function createAutoMock(value, seen = new WeakMap()) {
+  if (typeof value === 'function') {
+    if (seen.has(value)) return seen.get(value);
+    const mock = createMock();
+    seen.set(value, mock);
+    for (const key of Reflect.ownKeys(value)) {
+      if (key === 'length' || key === 'name' || key === 'prototype') continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor?.enumerable) continue;
+      mock[key] = createAutoMock(value[key], seen);
+    }
+    return mock;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return seen.get(value);
+  if (Array.isArray(value)) {
+    const result = [];
+    seen.set(value, result);
+    return result;
+  }
+  const result = {};
+  seen.set(value, result);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor?.enumerable) continue;
+    result[key] = createAutoMock(value[key], seen);
+  }
+  return result;
+}
+
+function registerModuleMock(specifier, factory) {
+  const key = resolveModuleKey(specifier);
+  if (factory !== undefined && typeof factory !== 'function') {
+    throw new TypeError('The second argument of jest.mock must be a function');
+  }
+  moduleMocks.set(key, {
+    factory,
+    initialized: false,
+    value: undefined,
+    specifier: String(specifier),
+  });
+  delete Module._cache[key];
+  return jest;
+}
+
+function requireMock(specifier) {
+  const key = resolveModuleKey(specifier);
+  if (!moduleMocks.has(key)) registerModuleMock(specifier);
+  return requireFromTest(specifier);
+}
+
+Module._load = function rjestModuleLoad(specifier, parent, isMain) {
+  let key;
+  try {
+    key = Module._resolveFilename(specifier, parent, isMain);
+  } catch {
+    return Reflect.apply(originalModuleLoad, this, [specifier, parent, isMain]);
+  }
+  const entry = moduleMocks.get(key);
+  if (!entry || bypassModuleMocks.has(key)) {
+    return Reflect.apply(originalModuleLoad, this, [specifier, parent, isMain]);
+  }
+  if (!entry.initialized) {
+    entry.initialized = true;
+    try {
+      entry.value = entry.factory
+        ? entry.factory()
+        : createAutoMock(loadActualModule(entry.specifier));
+    } catch (error) {
+      entry.initialized = false;
+      throw error;
+    }
+  }
+  return entry.value;
+};
+
 const jest = {
   fn: createMock,
   spyOn,
+  isMockFunction: isMock,
+  mocked(value) {
+    return value;
+  },
+  mock(specifier, factory) {
+    return registerModuleMock(specifier, factory);
+  },
+  doMock(specifier, factory) {
+    return registerModuleMock(specifier, factory);
+  },
+  unmock(specifier) {
+    moduleMocks.delete(resolveModuleKey(specifier));
+    return jest;
+  },
+  dontMock(specifier) {
+    return jest.unmock(specifier);
+  },
+  requireActual: loadActualModule,
+  requireMock,
+  createMockFromModule(specifier) {
+    return createAutoMock(loadActualModule(specifier));
+  },
   clearAllMocks() {
     for (const mock of mockRegistry) mock.mockClear();
     return jest;
@@ -929,7 +1206,8 @@ const jest = {
     return jest;
   },
   restoreAllMocks() {
-    for (const mock of mockRegistry) mock.mockRestore();
+    for (const restore of restoreRegistry) restore();
+    restoreRegistry.clear();
     return jest;
   },
   setTimeout(value) {

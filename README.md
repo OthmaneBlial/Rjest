@@ -6,9 +6,10 @@ and TypeScript test runner whose coordinator is written in Rust.
 > **Status:** early alpha. Real JavaScript and erasable TypeScript tests execute
 > with nested suites, hooks, async behavior, common assertions, basic mocks, and
 > bounded parallel files. Jest v1 external snapshots can be consumed, created,
-> and updated. Module mocks, inline snapshots, TSX transforms, watch mode, and
-> many Jest edge cases are not implemented. Rjest does not claim full or
-> production-ready Jest compatibility.
+> and updated. Explicit CommonJS module factories and basic automatic module
+> mocks work, but global automocking, ESM module mocks, inline snapshots, TSX
+> transforms, watch mode, and many Jest edge cases are not implemented. Rjest
+> does not claim full or production-ready Jest compatibility.
 
 ## Why this architecture?
 
@@ -37,7 +38,10 @@ yet handle TSX or TypeScript features that require code generation.
 
 The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
 package `exports` resolution to Node. Jest-specific `moduleNameMapper`, custom
-resolvers, and nonstandard package-manager layouts are not yet covered.
+resolvers, and nonstandard package-manager layouts are not yet covered. For
+CommonJS, `jest.mock`/`doMock` factories, `requireActual`, `requireMock`, and
+recursive basic auto-mocks are available when registration occurs before
+`require`; transform-time mock hoisting is not yet implemented.
 
 ## Local validation
 
@@ -47,6 +51,9 @@ make check
 
 The local gate runs formatting, Clippy, Rust unit/integration tests, JavaScript
 syntax checks, and semantic differential scenarios against official Jest 30.5.0.
+The generated score includes versioned known-incompatible probes in its
+denominator and states its limited corpus scope; it is not an estimate of the
+percentage of the complete Jest API.
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current

@@ -1,156 +1,221 @@
 {
   "$schema": "./jest-compatibility.schema.json",
-  "generatedFrom": "cargo test and npm run compat executable cases only",
+  "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
+  "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "differentialScenariosPassing": 15,
-    "differentialScenariosTotal": 15,
-    "localRustTests": 18,
-    "note": "Passing counts measure implemented cases, not exhaustive Jest coverage"
+    "passing": 18,
+    "total": 24,
+    "percentage": 75
   },
   "categories": {
-    "cli": {
-      "status": "partial",
-      "passing": 5,
+    "Configuration": {
+      "passing": 4,
       "total": 5,
-      "features": {
-        "--listTests": "supported",
-        "--showConfig": "supported",
-        "--passWithNoTests": "supported",
-        "--runInBand": "supported",
-        "--maxWorkers": "supported",
-        "--testNamePattern": "supported",
-        "--updateSnapshot/-u": "supported",
-        "--json": "supported",
-        "test execution": "partial"
-      }
+      "percentage": 80
     },
-    "config": {
-      "status": "partial",
-      "passing": 7,
-      "total": 7,
-      "features": {
-        "jest.config.json": "supported",
-        "package.json jest field": "supported",
-        "package.json string config reference": "supported",
-        "jest.config.js/cjs/mjs": "supported",
-        "jest.config.ts/cts/mts with erasable syntax": "supported",
-        "async config function": "supported",
-        "multiple config detection": "supported",
-        "testTimeout/testEnvironment/maxWorkers": "supported",
-        "unknown option rejection": "supported",
-        "parent-directory traversal and JSON CLI config": "planned"
-      }
-    },
-    "discovery": {
-      "status": "partial",
-      "passing": 3,
-      "total": 3,
-      "features": {
-        "default testMatch": "supported",
-        "custom testMatch globs": "partial",
-        "testRegex": "supported",
-        "roots": "supported",
-        "testPathIgnorePatterns": "supported",
-        "deterministic ordering": "supported"
-      }
-    },
-    "coreTestApi": {
-      "status": "partial",
+    "Core API": {
       "passing": 4,
       "total": 4,
-      "features": {
-        "describe/test/it": "supported",
-        "nested hooks": "supported",
-        "promises and done callbacks": "supported",
-        "only/skip/todo": "supported",
-        "per-test timeout": "supported",
-        "test.concurrent": "partial"
-      }
+      "percentage": 100
     },
-    "assertions": {
-      "status": "partial",
-      "passing": 3,
-      "total": 3,
-      "features": {
-        "common equality and value matchers": "supported",
-        "not/resolves/rejects": "supported",
-        "common asymmetric matchers": "supported",
-        "custom matchers": "planned"
-      }
+    "ESM": {
+      "passing": 1,
+      "total": 1,
+      "percentage": 100
     },
-    "snapshots": {
-      "status": "partial",
-      "passing": 4,
-      "total": 4,
-      "features": {
-        "consume Jest v1 external snapshots": "supported",
-        "write missing snapshots": "supported",
-        "mismatch diagnostics": "supported",
-        "update and obsolete removal": "supported",
-        "stable common-value serialization": "mostly-supported",
-        "inline snapshots": "planned",
-        "property matchers and custom serializers": "planned"
-      }
-    },
-    "mocks": {
-      "status": "partial",
+    "Expect": {
       "passing": 2,
       "total": 2,
-      "features": {
-        "jest.fn": "mostly-supported",
-        "jest.spyOn methods": "partial",
-        "module mocking": "planned"
-      }
+      "percentage": 100
     },
-    "resolver": {
-      "status": "partial",
-      "passing": 3,
-      "total": 3,
-      "features": {
-        "relative CommonJS require": "supported",
-        "relative ESM import": "supported",
-        "package main and exports": "supported",
-        "scoped node_modules packages": "supported",
-        "package self-reference": "supported",
-        "moduleDirectories/moduleNameMapper": "planned",
-        "pnpm/Yarn PnP/symlink corpus": "planned"
-      }
-    },
-    "transforms": {
-      "status": "partial",
-      "passing": 1,
+    "Fake timers": {
+      "passing": 0,
       "total": 1,
-      "features": {
-        "native erasable TypeScript": "supported",
-        "TSX and non-erasable TypeScript": "planned",
-        "custom transforms": "planned"
-      }
+      "percentage": 0
     },
-    "esm": {"status": "partial", "passing": 2, "total": 2},
-    "workers": {
-      "status": "partial",
+    "Mocks": {
       "passing": 1,
-      "total": 1,
-      "features": {
-        "bounded parallel test files": "supported",
-        "deterministic aggregation": "supported",
-        "worker reuse and restart": "planned"
-      }
+      "total": 2,
+      "percentage": 50
     },
-    "timers": {"status": "planned", "passing": 0, "total": 0},
-    "coverage": {"status": "planned", "passing": 0, "total": 0},
-    "watch": {"status": "planned", "passing": 0, "total": 0},
-    "reporters": {
-      "status": "partial",
-      "passing": 1,
-      "total": 1,
-      "features": {"default text": "partial", "JSON": "supported"}
+    "Resolution": {
+      "passing": 2,
+      "total": 2,
+      "percentage": 100
     },
-    "environments": {
-      "status": "partial",
-      "passing": 1,
+    "Snapshots": {
+      "passing": 4,
+      "total": 6,
+      "percentage": 66.66666666666666
+    },
+    "Transforms": {
+      "passing": 0,
       "total": 1,
-      "features": {"Node": "supported", "jsdom": "planned"}
+      "percentage": 0
     }
-  }
+  },
+  "scenarios": [
+    {
+      "name": "config-mjs",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-cjs",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-ts",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-package",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "core-pass",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "equality-edge",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "failure",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "focus",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "module-mock-cjs",
+      "category": "Mocks",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "resolution-cjs",
+      "category": "Resolution",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "resolution-esm",
+      "category": "ESM",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "resolution-node-package",
+      "category": "Resolution",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "timeout",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "snapshot",
+      "category": "Snapshots",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "snapshot-new",
+      "category": "Snapshots",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "snapshot-mismatch",
+      "category": "Snapshots",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "snapshot-update",
+      "category": "Snapshots",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-custom-matcher",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-fake-timers",
+      "category": "Fake timers",
+      "compatible": false,
+      "differences": [
+        "exit Jest=0 Rjest=1",
+        "test results differ"
+      ]
+    },
+    {
+      "name": "gap-inline-snapshot",
+      "category": "Snapshots",
+      "compatible": false,
+      "differences": [
+        "exit Jest=0 Rjest=1",
+        "test results differ"
+      ]
+    },
+    {
+      "name": "gap-automock",
+      "category": "Mocks",
+      "compatible": false,
+      "differences": [
+        "exit Jest=0 Rjest=1",
+        "test results differ"
+      ]
+    },
+    {
+      "name": "gap-module-name-mapper",
+      "category": "Configuration",
+      "compatible": false,
+      "differences": [
+        "exit Jest=0 Rjest=1",
+        "Rjest JSON unavailable: Unexpected end of JSON input"
+      ]
+    },
+    {
+      "name": "gap-snapshot-property",
+      "category": "Snapshots",
+      "compatible": false,
+      "differences": [
+        "exit Jest=0 Rjest=1",
+        "test results differ"
+      ]
+    },
+    {
+      "name": "gap-typescript-enum",
+      "category": "Transforms",
+      "compatible": false,
+      "differences": [
+        "exit Jest=0 Rjest=1",
+        "test results differ"
+      ]
+    }
+  ]
 }
