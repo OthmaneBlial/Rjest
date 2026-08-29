@@ -44,11 +44,20 @@ struct Cli {
 
     /// Maximum number of parallel test-file workers (number or percentage).
     #[arg(
+        short = 'w',
         long = "maxWorkers",
         visible_alias = "max-workers",
         value_name = "N|PERCENT"
     )]
     max_workers: Option<String>,
+
+    /// Print the JavaScript heap used after each test suite.
+    #[arg(
+        long = "logHeapUsage",
+        visible_alias = "log-heap-usage",
+        action = ArgAction::SetTrue
+    )]
+    log_heap_usage: bool,
 
     /// Only run tests whose full names match this regular expression.
     #[arg(
@@ -217,6 +226,7 @@ fn run() -> Result<bool> {
         clear_mocks: config.clear_mocks,
         test_environment: config.test_environment.clone(),
         test_environment_options: config.test_environment_options.clone(),
+        setup_files: config.setup_files.clone(),
         setup_files_after_env: config.setup_files_after_env.clone(),
         snapshot_serializers: config.snapshot_serializers.clone(),
         transform: config.transform.clone(),
@@ -279,6 +289,7 @@ fn coverage_runner_settings(cli: &Cli, config: &ProjectConfig) -> Result<Coverag
             .into_iter()
             .map(|test| test.path)
             .collect::<Vec<_>>();
+        excluded_paths.extend(config.setup_files.iter().cloned());
         excluded_paths.extend(config.setup_files_after_env.iter().cloned());
         Some(discover_sources(
             &config.root_dir,
@@ -384,7 +395,13 @@ fn emit_results(
     if cli.json && cli.output_file.is_none() {
         println!("{serialized}");
     } else {
-        report(result, &config.root_dir, cli.silent, cli.verbose);
+        report(
+            result,
+            &config.root_dir,
+            cli.silent,
+            cli.verbose,
+            cli.log_heap_usage,
+        );
     }
     Ok(())
 }
@@ -411,15 +428,28 @@ fn parse_max_workers(value: Option<&str>) -> Result<usize> {
     Ok(workers)
 }
 
-fn report(result: &AggregatedResult, root_dir: &std::path::Path, silent: bool, verbose: bool) {
+fn report(
+    result: &AggregatedResult,
+    root_dir: &std::path::Path,
+    silent: bool,
+    verbose: bool,
+    log_heap_usage: bool,
+) {
     for file in &result.test_results {
         let display_path = file
             .test_path
             .strip_prefix(root_dir)
             .unwrap_or(&file.test_path);
         let label = if file.is_success() { "PASS" } else { "FAIL" };
+        let heap_usage = if log_heap_usage {
+            file.heap_used_bytes
+                .map(|bytes| format!(" ({} MB heap size)", bytes / (1024 * 1024)))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         println!(
-            "{label} {} ({} ms)",
+            "{label} {} ({} ms){heap_usage}",
             display_path.display(),
             file.duration_ms
         );
@@ -509,7 +539,17 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{parse_max_workers, uses_modern_branches_true_summary};
+    use clap::Parser;
+
+    use super::{Cli, parse_max_workers, uses_modern_branches_true_summary};
+
+    #[test]
+    fn accepts_jest_worker_and_heap_usage_flags() {
+        let cli = Cli::try_parse_from(["rjest", "-w", "1", "--logHeapUsage"])
+            .expect("Jest-compatible flags");
+        assert_eq!(cli.max_workers.as_deref(), Some("1"));
+        assert!(cli.log_heap_usage);
+    }
 
     #[test]
     fn parses_numeric_worker_count() {

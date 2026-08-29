@@ -84,12 +84,14 @@ pub struct ProjectConfig {
     pub clear_mocks: bool,
     pub test_environment: String,
     pub test_environment_options: Value,
+    pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
     pub transform: BTreeMap<String, Value>,
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
     pub max_workers: Option<String>,
+    pub worker_idle_memory_limit: Option<String>,
     pub collect_coverage: bool,
     pub collect_coverage_from: Vec<String>,
     pub coverage_directory: PathBuf,
@@ -117,12 +119,14 @@ struct RawProjectConfig {
     clear_mocks: Option<bool>,
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
+    setup_files: Option<Vec<String>>,
     setup_files_after_env: Option<Vec<String>>,
     snapshot_serializers: Option<Vec<String>>,
     transform: Option<BTreeMap<String, Value>>,
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
     max_workers: Option<NumberOrString>,
+    worker_idle_memory_limit: Option<MemoryLimit>,
     collect_coverage: Option<bool>,
     collect_coverage_from: Option<Vec<String>>,
     coverage_directory: Option<String>,
@@ -147,6 +151,22 @@ enum OneOrMany {
 enum NumberOrString {
     Number(usize),
     String(String),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum MemoryLimit {
+    Number(f64),
+    String(String),
+}
+
+impl MemoryLimit {
+    fn into_string(self) -> String {
+        match self {
+            Self::Number(value) => value.to_string(),
+            Self::String(value) => value,
+        }
+    }
 }
 
 impl NumberOrString {
@@ -201,12 +221,14 @@ impl ProjectConfig {
             clear_mocks: false,
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
+            setup_files: Vec::new(),
             setup_files_after_env: Vec::new(),
             snapshot_serializers: Vec::new(),
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
             max_workers: None,
+            worker_idle_memory_limit: None,
             collect_coverage: false,
             collect_coverage_from: Vec::new(),
             coverage_directory,
@@ -372,15 +394,7 @@ fn process_details(stdout: &str, stderr: &str) -> String {
 }
 
 fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, ConfigError> {
-    if !raw.unsupported.is_empty() {
-        return Err(ConfigError::UnsupportedFields(
-            raw.unsupported
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", "),
-        ));
-    }
+    reject_unsupported_fields(&raw.unsupported)?;
 
     let root_dir = raw.root_dir.map_or_else(
         || absolute(config_dir),
@@ -407,6 +421,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         &root_dir,
         defaults.module_name_mapper,
     )?;
+    let setup_files = resolve_paths(raw.setup_files)?;
     let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
     let (test_match, test_regex) = normalize_test_patterns(
         raw.test_match,
@@ -451,6 +466,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         test_environment_options: raw
             .test_environment_options
             .unwrap_or(defaults.test_environment_options),
+        setup_files,
         setup_files_after_env,
         snapshot_serializers: raw
             .snapshot_serializers
@@ -461,6 +477,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.transform_ignore_patterns),
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
         max_workers: raw.max_workers.map(NumberOrString::into_string),
+        worker_idle_memory_limit: normalize_worker_idle_memory_limit(raw.worker_idle_memory_limit),
         collect_coverage: raw.collect_coverage.unwrap_or(defaults.collect_coverage),
         collect_coverage_from: raw
             .collect_coverage_from
@@ -478,6 +495,21 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.coverage_threshold),
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
+}
+
+fn reject_unsupported_fields(unsupported: &BTreeMap<String, Value>) -> Result<(), ConfigError> {
+    if unsupported.is_empty() {
+        return Ok(());
+    }
+    Err(ConfigError::UnsupportedFields(
+        unsupported.keys().cloned().collect::<Vec<_>>().join(", "),
+    ))
+}
+
+fn normalize_worker_idle_memory_limit(configured: Option<MemoryLimit>) -> Option<String> {
+    // Every test file receives a fresh process, so Rjest has no long-lived
+    // worker to recycle at this threshold. Preserve the normalized value.
+    configured.map(MemoryLimit::into_string)
 }
 
 fn normalize_esm_extensions(
@@ -844,6 +876,7 @@ mod tests {
               "automock":true,
               "clearMocks":true,
               "modulePathIgnorePatterns":["/dist/"],
+              "setupFiles":["<rootDir>/test/pre-setup.ts"],
               "setupFilesAfterEnv":["<rootDir>/test/setup.ts"],
               "snapshotSerializers":["fixture-serializer"],
               "testEnvironment":"jsdom",
@@ -857,6 +890,7 @@ mod tests {
               "coverageProvider":"babel",
               "coverageReporters":["json-summary","lcov"],
               "coverageThreshold":{"global":{"lines":90}},
+              "workerIdleMemoryLimit":"45MiB",
               "watchPlugins":["jest-watch-typeahead/filename"]
             }"#,
         )
@@ -883,6 +917,7 @@ mod tests {
         assert!(config.automock);
         assert!(config.clear_mocks);
         assert_eq!(config.extensions_to_treat_as_esm, [".ts"]);
+        assert_eq!(config.setup_files, [temp.path().join("test/pre-setup.ts")]);
         assert_eq!(
             config.setup_files_after_env,
             [temp.path().join("test/setup.ts")]
@@ -896,6 +931,7 @@ mod tests {
             temp.path().join("artifacts/coverage")
         );
         assert_eq!(config.coverage_reporters, ["json-summary", "lcov"]);
+        assert_eq!(config.worker_idle_memory_limit.as_deref(), Some("45MiB"));
     }
 
     #[test]

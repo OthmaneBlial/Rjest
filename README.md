@@ -88,6 +88,12 @@ snapshot names, virtual/manual mocks, and compiler-heavy memory behavior.
 Official Jest and Rjest both pass 20/20 suites, 358/358 tests, and 137/137
 snapshots on the untouched checkout.
 
+The pinned [AWS Amplify Analytics corpus](docs/corpus/amplify-analytics.md)
+exercises an unchanged Yarn monorepo package after the repository's complete
+production build. Jest 29 and Rjest both pass 30/30 suites and 111/111 tests,
+with exact aggregate and per-file coverage-summary parity across 58 source
+files.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

@@ -47,6 +47,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-setup-files',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'coverage-basic',
     category: 'Coverage',
     expectedExit: 0,
@@ -91,6 +97,8 @@ const cases = [
   {name: 'focus', category: 'Core API', expectedExit: 0},
   {name: 'gap-process-stdout', category: 'Core API', expectedExit: 0},
   {name: 'module-mock-cjs', category: 'Mocks', expectedExit: 0},
+  {name: 'gap-automock-prototype', category: 'Mocks', expectedExit: 0},
+  {name: 'gap-isolate-modules', category: 'Mocks', expectedExit: 0},
   {
     name: 'gap-manual-mock',
     category: 'Mocks',

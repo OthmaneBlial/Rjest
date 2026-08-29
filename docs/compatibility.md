@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 49/49 (100%) across its explicitly listed
+The current generated matrix is 52/52 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 
@@ -67,6 +67,12 @@ transformer project with executable TypeScript configuration, 116 tests in its
 largest suite, parameterized snapshot keys, manual and virtual mocks, and
 transformer-runtime isolation. Both runners pass 20/20 suites, 358/358 tests,
 and 137/137 snapshots without modifying the checkout.
+
+The pinned [AWS Amplify Analytics corpus](corpus/amplify-analytics.md) adds a
+Yarn workspace monorepo built through its real 20-task production pipeline.
+The unchanged Jest 29 package suite passes 30/30 suites and 111/111 tests under
+both runners, with exact aggregate and per-file Istanbul summary parity across
+58 TypeScript sources.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

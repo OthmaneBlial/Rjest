@@ -11,7 +11,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 7;
+const PROTOCOL_VERSION = 9;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -1431,9 +1431,12 @@ function mappedModuleCandidates(specifier) {
   const moduleName = String(specifier);
   for (const mapping of request.moduleNameMapper ?? []) {
     const expression = new RegExp(mapping.pattern);
-    if (!expression.test(moduleName)) continue;
+    const matches = expression.exec(moduleName);
+    if (!matches) continue;
     return mapping.replacements.map(replacement =>
-      moduleName.replace(expression, replacement),
+      replacement.replaceAll(/\$(\d+)/g, (_, index) =>
+        matches[Number.parseInt(index, 10)] ?? '',
+      ),
     );
   }
   return undefined;
@@ -1691,7 +1694,7 @@ function shouldAutomockModule(specifier, key) {
   const normalizedKey = normalizedRuntimePath(key);
   if (normalizedKey === normalizedRuntimePath(request.testPath)) return false;
   if (
-    (request.setupFilesAfterEnv ?? []).some(
+    [...(request.setupFiles ?? []), ...(request.setupFilesAfterEnv ?? [])].some(
       setupPath => normalizedKey === normalizedRuntimePath(setupPath),
     )
   ) {
@@ -1711,6 +1714,7 @@ function loadActualModule(specifier, fromPath = activeModulePath) {
 }
 
 function createAutoMock(value, seen = new WeakMap()) {
+  if (isMock(value)) return value;
   if (typeof value === 'function') {
     if (seen.has(value)) return seen.get(value);
     const mock = createMock();
@@ -1735,7 +1739,12 @@ function createAutoMock(value, seen = new WeakMap()) {
       }
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !('value' in descriptor)) continue;
-      mock[key] = createAutoMock(descriptor.value, seen);
+      Object.defineProperty(mock, key, {
+        configurable: true,
+        enumerable: descriptor.enumerable,
+        value: createAutoMock(descriptor.value, seen),
+        writable: true,
+      });
     }
     if (value.prototype && typeof value.prototype === 'object') {
       seen.set(value.prototype, mock.prototype);
@@ -1760,10 +1769,25 @@ function createAutoMock(value, seen = new WeakMap()) {
   }
   const result = {};
   seen.set(value, result);
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor?.enumerable) continue;
-    result[key] = createAutoMock(value[key], seen);
+  for (
+    let source = value;
+    source && source !== Object.prototype;
+    source = Object.getPrototypeOf(source)
+  ) {
+    for (const key of Reflect.ownKeys(source)) {
+      if (key === 'constructor' || Object.hasOwn(result, key)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(source, key);
+      if (!descriptor) continue;
+      if ('value' in descriptor) {
+        result[key] = createAutoMock(descriptor.value, seen);
+      } else if (
+        source === value &&
+        descriptor.enumerable &&
+        typeof descriptor.get === 'function'
+      ) {
+        result[key] = createAutoMock(descriptor.get.call(value), seen);
+      }
+    }
   }
   return result;
 }
@@ -2156,7 +2180,7 @@ function shouldInstrument(filename) {
   if (normalized === normalizedRuntimePath(request.testPath)) return false;
   if (coverageFilter && !coverageFilter.has(normalized)) return false;
   if (
-    (request.setupFilesAfterEnv ?? []).some(
+    [...(request.setupFiles ?? []), ...(request.setupFilesAfterEnv ?? [])].some(
       setupPath => normalized === normalizedRuntimePath(setupPath),
     )
   ) {
@@ -2431,6 +2455,21 @@ function installJsdomEnvironment() {
     value: window.navigator,
     writable: true,
   });
+  for (const key of ['localStorage', 'sessionStorage']) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      enumerable: true,
+      get: () => window[key],
+      set: value => {
+        Object.defineProperty(window, key, {
+          configurable: true,
+          enumerable: true,
+          value,
+          writable: true,
+        });
+      },
+    });
+  }
   nativeWindowTimers = {
     setTimeout: window.setTimeout,
     clearTimeout: window.clearTimeout,
@@ -2810,6 +2849,25 @@ const jest = {
   resetModules() {
     for (const path of Object.keys(Module._cache)) {
       if (!path.includes('/node_modules/')) delete Module._cache[path];
+    }
+    return jest;
+  },
+  isolateModules(callback) {
+    if (typeof callback !== 'function') {
+      throw new TypeError('jest.isolateModules expects a callback function');
+    }
+    if (jest._isolatedModuleCache) {
+      throw new Error('isolateModules cannot be nested inside another isolateModules');
+    }
+    const previousCache = Module._cache;
+    const isolatedCache = Object.create(null);
+    jest._isolatedModuleCache = isolatedCache;
+    Module._cache = isolatedCache;
+    try {
+      callback();
+    } finally {
+      Module._cache = previousCache;
+      jest._isolatedModuleCache = undefined;
     }
     return jest;
   },
@@ -3232,6 +3290,34 @@ try {
   configureSnapshotFormat();
   configureEsmRuntime();
   automockEnabled = Boolean(request.automock);
+  const frameworkGlobals = [
+    'afterAll',
+    'afterEach',
+    'beforeAll',
+    'beforeEach',
+    'describe',
+    'expect',
+    'fdescribe',
+    'fit',
+    'it',
+    'test',
+    'xdescribe',
+    'xit',
+    'xtest',
+  ];
+  const savedFrameworkGlobals = new Map(
+    frameworkGlobals.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
+  );
+  try {
+    for (const name of frameworkGlobals) delete globalThis[name];
+    for (const setupPath of request.setupFiles ?? []) {
+      await loadRuntimeModule(setupPath);
+    }
+  } finally {
+    for (const [name, descriptor] of savedFrameworkGlobals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    }
+  }
   for (const setupPath of request.setupFilesAfterEnv ?? []) {
     await loadRuntimeModule(setupPath);
   }
@@ -3274,6 +3360,7 @@ const result = {
   errors: fileErrors,
   console: consoleEntries,
   durationMs: Math.max(0, Math.round(performance.now() - started)),
+  heapUsedBytes: process.memoryUsage().heapUsed,
   snapshot: {
     added: snapshotState.added,
     matched: snapshotState.matched,

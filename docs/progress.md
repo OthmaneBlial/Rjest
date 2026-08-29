@@ -97,16 +97,24 @@ Last updated: 2026-08-29
   transformer/test module-cache isolation.
 - Weak mock tracking and an event-loop turn between tests so unreachable mock
   call graphs can be collected during compiler-heavy suites.
+- A pinned AWS Amplify JS/Yarn monorepo corpus: the unchanged Analytics package
+  passes 30/30 suites and 111/111 tests under Jest 29 and Rjest after the full
+  20-package build, with exact aggregate and per-file coverage parity across 58
+  instrumented TypeScript files.
+- Jest-order `setupFiles`, `workerIdleMemoryLimit` normalization,
+  `jest.isolateModules`, inherited/getter-export automocks, live JSDOM storage
+  globals, unanchored mapper substitution, and compatible `-w` plus
+  `--logHeapUsage` CLI behavior.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 49/49
+  preserved known incompatibilities. The current generated result is 52/52
   compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Add the pinned Amplify monorepo corpus with its original Jest configuration
-  and grow the differential denominator from observed gaps.
+- Expand the pinned Amplify monorepo corpus beyond Analytics and address the
+  next cross-package incompatibilities.
 
 ## Compatibility snapshot
 
@@ -114,7 +122,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 49/49 (100%). Coverage is 3/3 in that deliberately bounded
+corpus score is 52/52 (100%). Coverage is 3/3 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -140,7 +148,7 @@ scenario category.
 
 ## Next highest-value tasks
 
-1. Add the Amplify Analytics monorepo workspace.
+1. Run another high-pressure Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from its real failures.
 3. Implement legacy fake-timer behavior.
 4. Extend native ESM mocking to async factories and unmock/reset semantics.

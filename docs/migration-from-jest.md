@@ -24,6 +24,12 @@ setup-after-env, serializer, module-path, timeout, worker, and common tooling
 fields; unsupported options are migration work items and produce an explicit
 error.
 
+`setupFiles` and `setupFilesAfterEnv` retain their separate Jest lifecycle
+phases. Rjest also accepts Jest's `-w` worker alias and reports per-file heap
+usage with `--logHeapUsage`; its fresh-process-per-file architecture makes
+`workerIdleMemoryLimit` a normalized no-reuse threshold rather than a recycled
+worker trigger.
+
 `rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
 positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
 JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global
@@ -44,8 +50,9 @@ CommonJS suites may use `jest.mock` or `jest.doMock` before the corresponding
 nested exports and classes, manual `__mocks__` files are resolved for adjacent
 and ancestor/bare-module cases, and Babel-Jest hoists standard mock factories.
 Virtual CommonJS mocks and synchronous `jest.unstable_mockModule` factories are
-supported. Deeply unmocked transitive dependencies and async ESM mock factories
-remain incomplete.
+supported. `jest.isolateModules` provides a temporary CommonJS module registry.
+Deeply unmocked transitive dependencies and async ESM mock factories remain
+incomplete.
 
 External and existing inline snapshots accept nested property matchers and
 serialize their asymmetric placeholders like Jest. Rjest still cannot write a
