@@ -89,8 +89,10 @@ first-import factory race is preserved. Jest 29's legacy
 isolated from the active mock registry. Ordinary `jest.spyOn` supports
 getter-backed function exports as well as explicit accessor spies.
 `jest.isolateModules` provides a temporary CommonJS module registry. Deeply
-unmocked transitive dependencies and async factories reached through a static
-ESM dependency graph remain incomplete.
+unmocked transitive dependencies and ESM `unstable_unmockModule`/module-registry
+reset semantics remain incomplete. Async ESM factories reached through static
+imports are initialized only when their dependency graph is loaded; unrelated
+registered factories are not invoked.
 
 Custom matchers registered through `expect.extend` may return promises and use
 the matcher context such as `this.equals`. `toThrow` and promise-modified

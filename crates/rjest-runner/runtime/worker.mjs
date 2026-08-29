@@ -22,6 +22,7 @@ const nativeSetImmediate = globalThis.setImmediate;
 const nativeClearImmediate = globalThis.clearImmediate;
 const nativeQueueMicrotask = globalThis.queueMicrotask;
 const NativeDate = globalThis.Date;
+const NativeFunction = globalThis.Function;
 const nativePerformance = globalThis.performance;
 const nativePerformanceNowDescriptor = Object.getOwnPropertyDescriptor(
   nativePerformance,
@@ -50,6 +51,7 @@ const virtualModuleMocks = new Map();
 const esmModuleMocks = [];
 const esmMockValues = new Map();
 const dynamicImportBridges = new Map();
+const esmStaticDependencyCache = new Map();
 const bypassModuleMocks = new Set();
 const explicitlyUnmockedModules = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
@@ -1701,29 +1703,37 @@ function isDynamicImportBridgeUrl(url) {
 
 function dynamicImportBridgeSource() {
   return [
-    'export default function importFromParent(specifier, options) {',
+    'export function importFromParent(specifier, options) {',
     '  return options === undefined ? import(specifier) : import(specifier, options);',
+    '}',
+    'export function resolveFromParent(specifier) {',
+    '  return import.meta.resolve(specifier);',
     '}',
   ].join('\n');
 }
 
-async function nativeDynamicImport(parentURL, specifier, options) {
+async function dynamicImportBridge(parentURL) {
   let bridge = dynamicImportBridges.get(parentURL);
   if (!bridge) {
-    bridge = import(dynamicImportBridgeUrl(parentURL)).then(module => module.default);
+    bridge = import(dynamicImportBridgeUrl(parentURL));
     dynamicImportBridges.set(parentURL, bridge);
   }
-  const importFromParent = await bridge;
-  return importFromParent(specifier, options);
+  return bridge;
+}
+
+async function nativeDynamicImport(parentURL, specifier, options) {
+  const bridge = await dynamicImportBridge(parentURL);
+  return bridge.importFromParent(specifier, options);
 }
 
 async function importEsmModule(parentURL, specifier, options) {
   const mock = registeredEsmMock(specifier, parentURL);
   if (mock) return import(await initializeEsmMockAsync(mock));
+  await initializeReachableEsmMocks(parentURL, specifier);
   return nativeDynamicImport(parentURL, specifier, options);
 }
 
-function rewriteDynamicImports(source) {
+function rewriteDynamicImports(source, staticSpecifiers) {
   const replacements = [];
   const regexPrefixKeywords = new Set([
     'await',
@@ -1798,6 +1808,57 @@ function rewriteDynamicImports(source) {
       }
     }
     return index;
+  }
+
+  function stringLiteralAt(index) {
+    const quote = source[index];
+    if (quote !== "'" && quote !== '"') return undefined;
+    const end = skipQuoted(index, quote);
+    if (source[end - 1] !== quote) return undefined;
+    try {
+      const value = NativeFunction(
+        `"use strict"; return (${source.slice(index, end)});`,
+      )();
+      return typeof value === 'string' ? {end, value} : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function staticSpecifierAfter(index, allowSideEffectImport) {
+    let cursor = skipTrivia(index);
+    if (allowSideEffectImport) {
+      const sideEffect = stringLiteralAt(cursor);
+      if (sideEffect) return sideEffect.value;
+    }
+    while (cursor < source.length) {
+      cursor = skipTrivia(cursor);
+      const character = source[cursor];
+      if (character === ';' || character === '`') return undefined;
+      if (character === "'" || character === '"') {
+        cursor = skipQuoted(cursor, character);
+        continue;
+      }
+      if (/[A-Za-z_$]/.test(character ?? '')) {
+        let end = cursor + 1;
+        while (/[\w$]/.test(source[end] ?? '')) end += 1;
+        const word = source.slice(cursor, end);
+        if (word === 'from') {
+          const specifier = stringLiteralAt(skipTrivia(end));
+          if (specifier) return specifier.value;
+        }
+        if (
+          !allowSideEffectImport &&
+          ['class', 'const', 'default', 'function', 'let', 'var'].includes(word)
+        ) {
+          return undefined;
+        }
+        cursor = end;
+        continue;
+      }
+      cursor += 1;
+    }
+    return undefined;
   }
 
   function scanTemplate(index) {
@@ -1882,6 +1943,16 @@ function rewriteDynamicImports(source) {
             pendingControlParenthesis = false;
             continue;
           }
+          if (staticSpecifiers) {
+            const specifier = staticSpecifierAfter(end, true);
+            if (specifier !== undefined) staticSpecifiers.push(specifier);
+          }
+        } else if (word === 'export' && staticSpecifiers) {
+          const opening = source[skipTrivia(end)];
+          if (opening === '*' || opening === '{') {
+            const specifier = staticSpecifierAfter(end, false);
+            if (specifier !== undefined) staticSpecifiers.push(specifier);
+          }
         }
         pendingControlParenthesis = ['catch', 'for', 'if', 'switch', 'while', 'with'].includes(
           word,
@@ -1945,6 +2016,59 @@ function rewriteLoadedEsmSource(loaded) {
       : Buffer.from(loaded.source).toString('utf8');
   const rewritten = rewriteDynamicImports(source);
   return rewritten === source ? loaded : {...loaded, source: rewritten};
+}
+
+function staticEsmSpecifiers(url) {
+  if (!url.startsWith('file:') || isDynamicImportBridgeUrl(url)) return [];
+  const filename = fileURLToPath(url);
+  const cached = esmStaticDependencyCache.get(filename);
+  if (cached) return cached;
+  let source;
+  try {
+    source = readFileSync(filename, 'utf8');
+  } catch {
+    return [];
+  }
+  const selected = runtimeTransformerFor(filename);
+  if (selected && isEsmRuntimePath(filename)) {
+    source = transformRuntimeSource(
+      selected,
+      source,
+      filename,
+      shouldInstrument(filename),
+      true,
+    ).code;
+  }
+  const specifiers = [];
+  rewriteDynamicImports(source, specifiers);
+  esmStaticDependencyCache.set(filename, specifiers);
+  return specifiers;
+}
+
+async function resolveFromEsmParent(parentURL, specifier) {
+  const bridge = await dynamicImportBridge(parentURL);
+  return bridge.resolveFromParent(specifier);
+}
+
+async function initializeReachableEsmMocks(parentURL, specifier) {
+  if (!esmModuleMocks.some(entry => !entry.initialized)) return;
+  const root = await resolveFromEsmParent(parentURL, specifier);
+  const queue = [root];
+  const visited = new Set();
+  for (let index = 0; index < queue.length; index += 1) {
+    const url = queue[index];
+    if (visited.has(url)) continue;
+    visited.add(url);
+    for (const dependency of staticEsmSpecifiers(url)) {
+      const mock = registeredEsmMock(dependency, url);
+      if (mock) {
+        await initializeEsmMockAsync(mock);
+      } else {
+        const resolved = await resolveFromEsmParent(url, dependency);
+        if (resolved.startsWith('file:')) queue.push(resolved);
+      }
+    }
+  }
 }
 
 function jestGlobalsSource() {

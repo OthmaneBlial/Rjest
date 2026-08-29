@@ -168,6 +168,13 @@ const cases = [
   {
     name: 'gap-esm-async-mock-transitive',
     category: 'ESM',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareNodeModules: true,
+  },
+  {
+    name: 'gap-esm-unmock',
+    category: 'ESM',
     compatible: false,
     expectedExit: 0,
     experimentalVmModules: true,

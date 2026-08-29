@@ -26,19 +26,24 @@ package resolution, conditional exports, and import attributes. The lexical
 pass skips strings, comments, regular expressions, and template literal text,
 while continuing through template expressions.
 
-Keep synchronous loader hooks for static graphs and already-initialized mocks.
-Do not eagerly invoke every registered async factory: Jest initializes factories
-lazily, and unused factories may have observable side effects.
+Before starting an ordinary import, collect its static import/re-export graph
+from the same transformed source the loader will execute. Walk that graph by
+dependency depth, resolve every edge through a parent-anchored bridge, and await
+only registered mocks reached by those edges. Synchronous loader hooks then
+serve the initialized mocks while Node links the real graph. Do not eagerly
+invoke every registered factory: Jest initializes factories lazily, and unused
+factories may have observable side effects.
 
 ## Consequences
 
-- Direct relative, package, and built-in async ESM mocks work without requiring
-  users to enable Node's experimental VM modules.
+- Direct and graph-reachable relative, package, and built-in async ESM mocks work
+  without requiring users to enable Node's experimental VM modules.
 - Successful sequential imports reuse the generated module; rejections are not
   cached; concurrent first imports preserve Jest's observable factory race.
 - Ordinary dynamic imports continue through Node's resolver rather than a
   CommonJS approximation.
 - Dynamic import rewriting is part of the loader's compatibility surface and
   requires permanent lexical and resolution regression coverage.
-- An async mock reached only through another module's static import graph still
-  needs a graph-aware initialization path; this ADR does not claim that case.
+- Static graph extraction shares transformed-source caching with execution and
+  permanently tests nested re-exports, transformed TypeScript, resolution
+  classes, dependency-depth ordering, and unused-factory laziness.
