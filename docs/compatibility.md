@@ -7,10 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 76/77 (98.7%) across its explicitly listed
+The current generated matrix is 77/78 (98.7%) across its explicitly listed
 scenarios and categories. ESM is 7/7 (100.0%) and transforms are 5/5 (100.0%);
-mocks are 12/13 (92.3%) because the preserved `jest.setMock` probe still
-differs, while configuration is 16/16 (100.0%). These are scores for the bounded
+mocks are 13/13 (100.0%) and configuration is 16/16 (100.0%), while Core API is
+6/7 (85.7%) because the preserved `jest.retryTimes` probe still differs. These
+are scores for the bounded
 regression set, not claims about the unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
@@ -41,6 +42,8 @@ APIs while preserving their pending queue.
 Configured `resetModules` clears setup/test CommonJS instances, retains factory
 decisions with fresh values, and advances native ESM generations before each
 test.
+`jest.setMock` injects explicit CommonJS exports with caller-relative identity,
+reset persistence, factory replacement, primitive values, and later unmocking.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -74,7 +77,7 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Custom module directories, `jest.setMock`, and
+instrumentation. Custom module directories, `jest.retryTimes`, and
 pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.

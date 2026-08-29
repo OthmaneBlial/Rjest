@@ -2955,6 +2955,15 @@ function registerModuleMock(
   return returnValue;
 }
 
+function setModuleMockExports(specifier, value, fromPath, returnValue) {
+  return registerModuleMock(
+    specifier,
+    () => value,
+    fromPath,
+    returnValue,
+  );
+}
+
 function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
   if (typeof factory !== 'function') {
     throw new TypeError('The second argument of jest.unstable_mockModule must be a function');
@@ -3163,6 +3172,9 @@ function scopedJest(fromPath) {
     },
     doMock(specifier, factory, options) {
       return registerModuleMock(specifier, factory, fromPath, scoped, options);
+    },
+    setMock(specifier, value) {
+      return setModuleMockExports(specifier, value, fromPath, scoped);
     },
     unmock(specifier) {
       return unmockModule(specifier, fromPath, scoped);
@@ -4551,6 +4563,9 @@ const jest = {
       jest,
       options,
     );
+  },
+  setMock(specifier, value) {
+    return setModuleMockExports(specifier, value, activeModulePath, jest);
   },
   unmock(specifier) {
     return unmockModule(specifier, activeModulePath, jest);

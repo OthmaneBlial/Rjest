@@ -247,6 +247,11 @@ const cases = [
   {
     name: 'gap-set-mock',
     category: 'Mocks',
+    expectedExit: 0,
+  },
+  {
+    name: 'gap-retry-times',
+    category: 'Core API',
     compatible: false,
     expectedExit: 0,
   },
