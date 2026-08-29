@@ -21,6 +21,10 @@ const require = createRequire(import.meta.url);
 const typescriptPreset = require.resolve('@babel/preset-typescript');
 
 const cases = [
+  {name: 'config-mjs', expectedExit: 0, useFixtureConfig: true},
+  {name: 'config-cjs', expectedExit: 0, useFixtureConfig: true},
+  {name: 'config-ts', expectedExit: 0, useFixtureConfig: true},
+  {name: 'config-package', expectedExit: 0, useFixtureConfig: true},
   {name: 'core-pass', expectedExit: 0},
   {name: 'failure', expectedExit: 1},
   {name: 'focus', expectedExit: 0},
@@ -57,12 +61,9 @@ function compareCase(testCase) {
   try {
     cpSync(sourceFixture, jestFixture, {recursive: true});
     cpSync(sourceFixture, rjestFixture, {recursive: true});
-    const jestArguments = [
-      jest,
-      '--runInBand',
-      '--json',
-      `--outputFile=${jestOutput}`,
-      `--config=${JSON.stringify({
+    const jestArguments = [jest, '--runInBand', '--json', `--outputFile=${jestOutput}`];
+    if (!testCase.useFixtureConfig) {
+      jestArguments.push(`--config=${JSON.stringify({
         rootDir: jestFixture,
         testEnvironment: 'node',
         transform: {
@@ -71,8 +72,8 @@ function compareCase(testCase) {
             {presets: [typescriptPreset]},
           ],
         },
-      })}`,
-    ];
+      })}`);
+    }
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
     const jestRun = spawnSync(
       process.execPath,

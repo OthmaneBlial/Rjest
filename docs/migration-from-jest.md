@@ -13,3 +13,8 @@ the project's own suite is proven equivalent.
 Rjest reads existing Jest snapshot files without rewriting them when values
 match. Use `rjest --updateSnapshot` only after reviewing the compatibility result;
 inline snapshots and custom serializers are not supported yet.
+
+Common `jest.config.js`, CJS, ESM, and erasable TypeScript config files can be
+used directly. Rjest currently normalizes discovery fields plus `testTimeout`,
+`testEnvironment: 'node'`, and `maxWorkers`; unsupported options are migration
+work items and produce an explicit error.

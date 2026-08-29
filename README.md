@@ -28,11 +28,12 @@ cargo run -p rjest-cli -- --maxWorkers=50% --testNamePattern=calculator
 cargo run -p rjest-cli -- --updateSnapshot
 ```
 
-Supported configuration locations are currently `jest.config.json` and the
-`jest` field in `package.json`. Unknown Jest options fail explicitly rather than
-being ignored. Node 22.18 or newer is required; the current TypeScript path uses
-Node's native erasable-syntax support and does not yet handle TSX or TypeScript
-features that require code generation.
+Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
+`.ts`, `.cts`, `.mts`, `.json`, and the `jest` field or config reference in
+`package.json`. Exported async config functions work. Unknown Jest options fail
+explicitly rather than being ignored. Node 22.18 or newer is required; the
+current TypeScript path uses Node's native erasable-syntax support and does not
+yet handle TSX or TypeScript features that require code generation.
 
 ## Local validation
 

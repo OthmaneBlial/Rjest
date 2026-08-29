@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local compatibility tooling for the Rust-powered Rjest test runner",
   "scripts": {
-    "check:runtime": "node --check crates/rjest-runner/runtime/worker.mjs && node --check compat/harness.mjs",
+    "check:runtime": "node --check crates/rjest-config/runtime/config-loader.mjs && node --check crates/rjest-runner/runtime/worker.mjs && node --check compat/harness.mjs",
     "compat": "node compat/harness.mjs"
   },
   "devDependencies": {

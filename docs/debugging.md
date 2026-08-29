@@ -17,3 +17,7 @@ Worker errors include the source stack returned by Node. A missing or malformed
 protocol result is rejected by Rust rather than being treated as a test failure.
 Snapshot mismatches name the exact Jest key. Obsolete entries remain untouched
 and fail the run until `--updateSnapshot` explicitly removes them.
+
+Use `--showConfig` to inspect values after executable config evaluation. A config
+that exports functions, symbols, circular data, or unsupported fields fails with
+the exact config path instead of being partially serialized.

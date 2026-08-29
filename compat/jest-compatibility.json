@@ -2,9 +2,9 @@
   "$schema": "./jest-compatibility.schema.json",
   "generatedFrom": "cargo test and npm run compat executable cases only",
   "score": {
-    "differentialScenariosPassing": 8,
-    "differentialScenariosTotal": 8,
-    "localRustTests": 15,
+    "differentialScenariosPassing": 12,
+    "differentialScenariosTotal": 12,
+    "localRustTests": 18,
     "note": "Passing counts measure implemented cases, not exhaustive Jest coverage"
   },
   "categories": {
@@ -26,13 +26,19 @@
     },
     "config": {
       "status": "partial",
-      "passing": 3,
-      "total": 3,
+      "passing": 7,
+      "total": 7,
       "features": {
         "jest.config.json": "supported",
         "package.json jest field": "supported",
+        "package.json string config reference": "supported",
+        "jest.config.js/cjs/mjs": "supported",
+        "jest.config.ts/cts/mts with erasable syntax": "supported",
+        "async config function": "supported",
+        "multiple config detection": "supported",
+        "testTimeout/testEnvironment/maxWorkers": "supported",
         "unknown option rejection": "supported",
-        "JavaScript and TypeScript config": "planned"
+        "parent-directory traversal and JSON CLI config": "planned"
       }
     },
     "discovery": {

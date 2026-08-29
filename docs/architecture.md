@@ -7,7 +7,9 @@ The architecture follows the boundary recorded in
 ## Current components
 
 - `rjest-cli`: command-line contract and exit behavior.
-- `rjest-config`: configuration discovery, validation, and strong normalization.
+- `rjest-config`: Jest-order configuration discovery, multiple-source detection,
+  Node evaluation bridge, JSON compatibility validation, and strong Rust
+  normalization.
 - `rjest-discovery`: native recursive scanning, matching, filtering, and stable
   ordering.
 - `rjest-core`: stable cross-component data types.
@@ -30,3 +32,7 @@ cancellation, and restart policy remain future work.
 
 Test processes run with the invoking user's permissions. Process isolation is a
 reliability boundary, not a security sandbox.
+
+Executable Jest configuration is also trusted user code. Rjest evaluates it in a
+short-lived Node process, requires the exported value to be JSON-compatible, and
+then applies the same strict Rust validation used for JSON/package configuration.

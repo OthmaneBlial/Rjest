@@ -16,7 +16,7 @@ struct Cli {
     #[arg(value_name = "TEST_PATH_PATTERN")]
     test_path_patterns: Vec<PathBuf>,
 
-    /// Path to a JSON Jest configuration.
+    /// Path to a Jest configuration file.
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -122,11 +122,12 @@ fn run() -> Result<bool> {
     let max_workers = if cli.run_in_band {
         1
     } else {
-        parse_max_workers(cli.max_workers.as_deref())?
+        parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
     };
     let options = rjest_runner::RunnerOptions {
         max_workers,
         test_name_pattern: cli.test_name_pattern,
+        default_timeout_ms: config.test_timeout,
         snapshot_update: if cli.update_snapshot {
             SnapshotUpdate::All
         } else {

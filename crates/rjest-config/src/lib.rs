@@ -3,14 +3,26 @@
 use std::{
     collections::BTreeMap,
     fs,
+    io::Write,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-const CONFIG_FILENAMES: &[&str] = &["jest.config.json", "package.json"];
+const CONFIG_FILENAMES: &[&str] = &[
+    "jest.config.js",
+    "jest.config.ts",
+    "jest.config.mjs",
+    "jest.config.mts",
+    "jest.config.cjs",
+    "jest.config.cts",
+    "jest.config.json",
+];
+const CONFIG_RESULT_PREFIX: &str = "__RJEST_CONFIG__";
+const CONFIG_LOADER: &str = include_str!("../runtime/config-loader.mjs");
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -28,12 +40,24 @@ pub enum ConfigError {
     },
     #[error("package.json at {0} does not contain a `jest` configuration")]
     MissingPackageConfig(PathBuf),
+    #[error("multiple Jest configuration files were found: {0}")]
+    MultipleConfigs(String),
     #[error("unsupported configuration fields: {0}; Rjest does not silently ignore Jest options")]
     UnsupportedFields(String),
-    #[error(
-        "configuration format `{0}` is not supported yet; use jest.config.json or package.json"
-    )]
+    #[error("configuration format `{0}` is not supported; use a standard Jest config extension")]
     UnsupportedFormat(String),
+    #[error("unsupported value for `{field}`: {value}")]
+    UnsupportedValue { field: String, value: String },
+    #[error("cannot start Node config loader: {0}")]
+    NodeSpawn(#[source] std::io::Error),
+    #[error("cannot write to Node config loader: {0}")]
+    NodeWrite(#[source] std::io::Error),
+    #[error("cannot wait for Node config loader: {0}")]
+    NodeWait(#[source] std::io::Error),
+    #[error("Node config loader returned no result for `{path}`{details}")]
+    MissingNodeResult { path: PathBuf, details: String },
+    #[error("cannot evaluate Jest config `{path}`: {message}")]
+    NodeEvaluation { path: PathBuf, message: String },
     #[error("configured root `{0}` is not a directory")]
     MissingRoot(PathBuf),
 }
@@ -48,6 +72,9 @@ pub struct ProjectConfig {
     pub test_regex: Vec<String>,
     pub test_path_ignore_patterns: Vec<String>,
     pub module_file_extensions: Vec<String>,
+    pub test_environment: String,
+    pub test_timeout: u64,
+    pub max_workers: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -59,6 +86,9 @@ struct RawProjectConfig {
     test_regex: Option<OneOrMany>,
     test_path_ignore_patterns: Option<Vec<String>>,
     module_file_extensions: Option<Vec<String>>,
+    test_environment: Option<String>,
+    test_timeout: Option<u64>,
+    max_workers: Option<NumberOrString>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
 }
@@ -68,6 +98,22 @@ struct RawProjectConfig {
 enum OneOrMany {
     One(String),
     Many(Vec<String>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum NumberOrString {
+    Number(usize),
+    String(String),
+}
+
+impl NumberOrString {
+    fn into_string(self) -> String {
+        match self {
+            Self::Number(value) => value.to_string(),
+            Self::String(value) => value,
+        }
+    }
 }
 
 impl OneOrMany {
@@ -104,13 +150,16 @@ impl ProjectConfig {
             .into_iter()
             .map(String::from)
             .collect(),
+            test_environment: "node".into(),
+            test_timeout: 5_000,
+            max_workers: None,
         })
     }
 }
 
-/// Loads an explicit config, or searches the project root using Jest's common
-/// JSON-bearing locations. JavaScript config loading is intentionally rejected
-/// until the runtime bridge can evaluate it correctly.
+/// Loads an explicit config, or searches the project root using Jest's standard
+/// config extension order. Executable configs run in Node with the invoking
+/// user's normal permissions, matching Jest's trust model.
 ///
 /// # Errors
 ///
@@ -118,36 +167,38 @@ impl ProjectConfig {
 /// decoded, normalized, or contains unsupported fields.
 pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig, ConfigError> {
     let project_dir = absolute(project_dir)?;
-    let config_path = explicit.map_or_else(
-        || find_config(&project_dir),
-        |path| Some(resolve_from(&project_dir, path)),
-    );
+    let config_path = match explicit {
+        Some(path) => Some(resolve_from(&project_dir, path)),
+        None => find_config(&project_dir)?,
+    };
 
     let Some(config_path) = config_path else {
         return ProjectConfig::defaults(&project_dir);
     };
 
     let extension = config_path.extension().and_then(|value| value.to_str());
-    if extension != Some("json") {
-        return Err(ConfigError::UnsupportedFormat(
-            extension.unwrap_or("unknown").to_owned(),
-        ));
-    }
-
-    let source = fs::read_to_string(&config_path).map_err(|source| ConfigError::Read {
-        path: config_path.clone(),
-        source,
-    })?;
-    let mut value: Value = serde_json::from_str(&source).map_err(|source| ConfigError::Json {
-        path: config_path.clone(),
-        source,
-    })?;
+    let mut value = match extension {
+        Some("json") => read_json(&config_path)?,
+        Some("js" | "ts" | "mjs" | "mts" | "cjs" | "cts") => evaluate_config(&config_path)?,
+        other => {
+            return Err(ConfigError::UnsupportedFormat(
+                other.unwrap_or("unknown").to_owned(),
+            ));
+        }
+    };
 
     if config_path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
         value = value
             .get_mut("jest")
             .map(Value::take)
             .ok_or_else(|| ConfigError::MissingPackageConfig(config_path.clone()))?;
+        if let Value::String(referenced) = value {
+            let referenced = resolve_from(
+                config_path.parent().unwrap_or(&project_dir),
+                Path::new(&referenced),
+            );
+            return load(&project_dir, Some(&referenced));
+        }
     }
 
     let raw: RawProjectConfig =
@@ -156,6 +207,81 @@ pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig
             source,
         })?;
     normalize(raw, config_path.parent().unwrap_or(&project_dir))
+}
+
+fn read_json(path: &Path) -> Result<Value, ConfigError> {
+    let source = fs::read_to_string(path).map_err(|source| ConfigError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    serde_json::from_str(&source).map_err(|source| ConfigError::Json {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn evaluate_config(path: &Path) -> Result<Value, ConfigError> {
+    let request =
+        serde_json::to_vec(&serde_json::json!({"path": path})).expect("path is serializable");
+    let mut child = Command::new("node")
+        .arg("--input-type=module")
+        .arg("--eval")
+        .arg(CONFIG_LOADER)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(ConfigError::NodeSpawn)?;
+    child
+        .stdin
+        .take()
+        .expect("piped stdin is available")
+        .write_all(&request)
+        .map_err(ConfigError::NodeWrite)?;
+    let output = child.wait_with_output().map_err(ConfigError::NodeWait)?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let payload = stdout
+        .lines()
+        .rev()
+        .find_map(|line| line.strip_prefix(CONFIG_RESULT_PREFIX))
+        .ok_or_else(|| ConfigError::MissingNodeResult {
+            path: path.to_path_buf(),
+            details: process_details(&stdout, &String::from_utf8_lossy(&output.stderr)),
+        })?;
+    let response: Value = serde_json::from_str(payload).map_err(|source| ConfigError::Json {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(ConfigError::NodeEvaluation {
+            path: path.to_path_buf(),
+            message: response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown configuration error")
+                .to_owned(),
+        });
+    }
+    response
+        .get("config")
+        .cloned()
+        .ok_or_else(|| ConfigError::NodeEvaluation {
+            path: path.to_path_buf(),
+            message: "loader response did not contain a config object".into(),
+        })
+}
+
+fn process_details(stdout: &str, stderr: &str) -> String {
+    let details = [stdout.trim(), stderr.trim()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if details.is_empty() {
+        String::new()
+    } else {
+        format!(":\n{details}")
+    }
 }
 
 fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, ConfigError> {
@@ -187,6 +313,16 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         ensure_directory(root)?;
     }
 
+    let test_environment = raw
+        .test_environment
+        .unwrap_or(defaults.test_environment.clone());
+    if !matches!(test_environment.as_str(), "node" | "jest-environment-node") {
+        return Err(ConfigError::UnsupportedValue {
+            field: "testEnvironment".into(),
+            value: test_environment,
+        });
+    }
+
     Ok(ProjectConfig {
         root_dir,
         roots,
@@ -200,25 +336,32 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         module_file_extensions: raw
             .module_file_extensions
             .unwrap_or(defaults.module_file_extensions),
+        test_environment,
+        test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
+        max_workers: raw.max_workers.map(NumberOrString::into_string),
     })
 }
 
-fn find_config(project_dir: &Path) -> Option<PathBuf> {
-    CONFIG_FILENAMES
+fn find_config(project_dir: &Path) -> Result<Option<PathBuf>, ConfigError> {
+    let mut candidates = CONFIG_FILENAMES
         .iter()
         .map(|name| project_dir.join(name))
-        .find(|candidate| candidate.is_file())
-        .and_then(|candidate| {
-            if candidate.file_name().and_then(|name| name.to_str()) == Some("package.json") {
-                let has_jest = fs::read_to_string(&candidate)
-                    .ok()
-                    .and_then(|source| serde_json::from_str::<Value>(&source).ok())
-                    .is_some_and(|value| value.get("jest").is_some());
-                has_jest.then_some(candidate)
-            } else {
-                Some(candidate)
-            }
-        })
+        .filter(|candidate| candidate.is_file())
+        .collect::<Vec<_>>();
+    let package = project_dir.join("package.json");
+    if package.is_file() && read_json(&package)?.get("jest").is_some() {
+        candidates.push(package);
+    }
+    if candidates.len() > 1 {
+        return Err(ConfigError::MultipleConfigs(
+            candidates
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+    }
+    Ok(candidates.pop())
 }
 
 fn resolve_root_token(base: &Path, value: &str) -> PathBuf {
@@ -300,5 +443,70 @@ mod tests {
 
         let error = load(temp.path(), None).expect_err("unknown option should fail");
         assert!(error.to_string().contains("madeUpOption"));
+    }
+
+    #[test]
+    fn loads_javascript_commonjs_and_typescript_configs() {
+        let fixtures = [
+            (
+                "mjs",
+                "export default async () => ({testMatch: ['**/*.check.js'], testTimeout: 1234, maxWorkers: '25%'});",
+            ),
+            (
+                "cjs",
+                "module.exports = {testMatch: ['**/*.check.js'], testTimeout: 1234, maxWorkers: 2};",
+            ),
+            (
+                "ts",
+                "type Config = {testMatch: string[], testTimeout: number, maxWorkers: string}; const config: Config = {testMatch: ['**/*.check.js'], testTimeout: 1234, maxWorkers: '25%'}; export default config;",
+            ),
+        ];
+        for (extension, source) in fixtures {
+            let temp = tempdir().expect("temp dir");
+            fs::write(temp.path().join(format!("jest.config.{extension}")), source)
+                .expect("write executable config");
+
+            let config = load(temp.path(), None).expect("load executable config");
+            assert_eq!(config.test_match, ["**/*.check.js"]);
+            assert_eq!(config.test_timeout, 1_234);
+            assert!(matches!(config.max_workers.as_deref(), Some("25%" | "2")));
+        }
+    }
+
+    #[test]
+    fn rejects_multiple_config_sources() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(temp.path().join("jest.config.mjs"), "export default {};")
+            .expect("write module config");
+        fs::write(
+            temp.path().join("package.json"),
+            r#"{"jest":{"testTimeout":1000}}"#,
+        )
+        .expect("write package config");
+
+        assert!(matches!(
+            load(temp.path(), None),
+            Err(ConfigError::MultipleConfigs(_))
+        ));
+    }
+
+    #[test]
+    fn follows_package_json_string_config_reference() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(
+            temp.path().join("package.json"),
+            r#"{"jest":"config/rjest.cjs"}"#,
+        )
+        .expect("write package config");
+        fs::create_dir(temp.path().join("config")).expect("config directory");
+        fs::write(
+            temp.path().join("config/rjest.cjs"),
+            "module.exports = {testTimeout: 987};",
+        )
+        .expect("write referenced config");
+
+        let config = load(temp.path(), None).expect("load referenced config");
+        assert_eq!(config.test_timeout, 987);
+        assert_eq!(config.root_dir, temp.path().join("config"));
     }
 }

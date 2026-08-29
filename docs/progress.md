@@ -29,17 +29,23 @@ Last updated: 2026-08-29
   mismatch failures, update mode, natural key sorting, and obsolete removal.
 - Eight semantic differential scenarios in total, including byte-for-byte
   comparison of consumed, newly generated, mismatched, and updated snapshots.
+- Jest-order discovery and Node evaluation of JS, CJS, MJS, TS, CTS, and MTS
+  configuration, including async exported functions and package references.
+- Strict JSON-compatible config handoff with multiple-config detection and
+  normalized `testTimeout`, Node environment, and `maxWorkers` propagation.
+- Twelve semantic differential scenarios in total after executable config
+  coverage for ESM, CommonJS, TypeScript, and package references.
 
 ## Current work
 
-- JavaScript/CJS/MJS/TypeScript Jest configuration loading.
+- Node CommonJS/ESM/package resolution fixtures and resolver compatibility.
 
 ## Compatibility snapshot
 
 | Area | Status | Executable cases |
 | --- | --- | ---: |
 | CLI | partial | 5/5 |
-| Config | partial | 3/3 |
+| Config | partial | 7/7 |
 | Discovery | partial | 3/3 |
 | Core test API | partial | 4/4 |
 | Assertions | partial | 3/3 |
@@ -47,17 +53,18 @@ Last updated: 2026-08-29
 | Snapshots | partial | 4/4 |
 | Transform / ESM / workers | partial | 3/3 |
 
-The Jest/Rjest differential harness passes 8/8 current scenarios; the Rust suite
-contains 15 local tests.
+The Jest/Rjest differential harness passes 12/12 current scenarios; the Rust
+suite contains 18 local tests.
 
 This table describes implemented cases, not percentage compatibility with all of
 Jest.
 
 ## Known blockers
 
-- JavaScript/TypeScript configuration needs the Node runtime bridge.
 - Jest extglob syntax is recognized for the two default patterns; complete custom
   Jest glob semantics are not yet implemented.
+- Config discovery currently starts at the invocation directory and does not yet
+  traverse parent directories like Jest; CLI JSON config strings are also absent.
 - TypeScript support is currently limited to Node's erasable syntax; TSX,
   decorators requiring transformation, and path aliases are not transformed.
 - Inline snapshots, snapshot property matchers/custom serializers, module
@@ -66,8 +73,8 @@ Jest.
 
 ## Next highest-value tasks
 
-1. Load JavaScript/CJS/MJS/TypeScript Jest configuration through a constrained
-   Node bridge while continuing to reject unsupported fields.
-2. Add Node package resolution fixtures and CommonJS/ESM module-import coverage.
+1. Add Node package resolution fixtures and CommonJS/ESM module-import coverage.
+2. Implement `moduleDirectories` and `moduleNameMapper` without diverging from
+   Node/Jest resolution semantics.
 3. Expand matcher and mock differential cases, then add module mocking.
 4. Add inline snapshots only after a source-rewrite design is proven safe.
