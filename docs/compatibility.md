@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 101/101 (100.0%) across its explicitly listed
+The current generated matrix is 102/102 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
 21/21 (100.0%). CLI is 6/6 (100.0%). These are scores for the bounded regression
@@ -121,8 +121,12 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Less common mutable custom-resolver options and pnpm/Yarn PnP
-layouts remain open work.
+instrumentation. Custom resolvers are also checked with disagreeing sync/async
+hooks and with `mainFields`, `alias`, and `extensionAlias` overrides forwarded
+through both default-resolver callbacks. The broader current Jest resolver
+option surface and pnpm/Yarn PnP layouts remain open work; Jest 30's
+`unrs-resolver` bridge no longer exposes the older function-based
+`packageFilter` option.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

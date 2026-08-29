@@ -45,5 +45,6 @@ existing default ESM registry-generation path is unchanged.
 - Async-only resolver exports are awaited by ESM graph preparation and cached
   for the synchronous Node hook; CommonJS intentionally falls back to default
   sync resolution when no `sync` export exists.
-- Some less common mutable default-resolver options need additional oracle
-  fixtures before broad custom-resolver compatibility can be claimed.
+- Differential fixtures verify `mainFields`, `alias`, and `extensionAlias`
+  overrides through both default callbacks. Less common options and
+  package-manager-specific PnP behavior still need broader oracle coverage.

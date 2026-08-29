@@ -37,5 +37,6 @@ ordinary synchronous resolver, matching Jest.
   while CommonJS remains synchronous.
 - Resolver results are stable across the preparation/evaluation boundary and
   keyed by the importing module rather than globally by package name.
-- Mock-aware async custom-resolution edge cases and mutable resolver options
-  still require additional differential probes.
+- A disagreeing dual-hook fixture verifies that CommonJS consumes `sync` while
+  native ESM consumes `async`, including the mutable option forwarding covered
+  by ADR 0023. Mock-aware dual-hook and PnP edge cases remain open.
