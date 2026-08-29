@@ -249,6 +249,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "natord"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "308d96db8debc727c3fd9744aac51751243420e46edf401010908da7f8d5e57c"
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -384,7 +390,18 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "rayon",
  "rjest-core",
+ "rjest-snapshot",
  "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "rjest-snapshot"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "natord",
+ "rjest-core",
  "tempfile",
  "thiserror",
 ]

@@ -2,16 +2,16 @@
   "$schema": "./jest-compatibility.schema.json",
   "generatedFrom": "cargo test and npm run compat executable cases only",
   "score": {
-    "differentialScenariosPassing": 4,
-    "differentialScenariosTotal": 4,
-    "localRustTests": 13,
+    "differentialScenariosPassing": 8,
+    "differentialScenariosTotal": 8,
+    "localRustTests": 15,
     "note": "Passing counts measure implemented cases, not exhaustive Jest coverage"
   },
   "categories": {
     "cli": {
       "status": "partial",
-      "passing": 4,
-      "total": 4,
+      "passing": 5,
+      "total": 5,
       "features": {
         "--listTests": "supported",
         "--showConfig": "supported",
@@ -19,6 +19,7 @@
         "--runInBand": "supported",
         "--maxWorkers": "supported",
         "--testNamePattern": "supported",
+        "--updateSnapshot/-u": "supported",
         "--json": "supported",
         "test execution": "partial"
       }
@@ -71,7 +72,20 @@
         "custom matchers": "planned"
       }
     },
-    "snapshots": {"status": "planned", "passing": 0, "total": 0},
+    "snapshots": {
+      "status": "partial",
+      "passing": 4,
+      "total": 4,
+      "features": {
+        "consume Jest v1 external snapshots": "supported",
+        "write missing snapshots": "supported",
+        "mismatch diagnostics": "supported",
+        "update and obsolete removal": "supported",
+        "stable common-value serialization": "mostly-supported",
+        "inline snapshots": "planned",
+        "property matchers and custom serializers": "planned"
+      }
+    },
     "mocks": {
       "status": "partial",
       "passing": 2,

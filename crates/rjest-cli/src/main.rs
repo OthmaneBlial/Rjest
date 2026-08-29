@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgAction, Parser};
-use rjest_core::{AggregatedResult, TestStatus};
+use rjest_core::{AggregatedResult, SnapshotUpdate, TestStatus};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -67,6 +67,15 @@ struct Cli {
     /// Emit the complete machine-readable result as JSON.
     #[arg(long, action = ArgAction::SetTrue)]
     json: bool,
+
+    /// Rewrite failing snapshots and remove obsolete snapshots.
+    #[arg(
+        short = 'u',
+        long = "updateSnapshot",
+        visible_alias = "update-snapshot",
+        action = ArgAction::SetTrue
+    )]
+    update_snapshot: bool,
 }
 
 fn main() {
@@ -118,6 +127,11 @@ fn run() -> Result<bool> {
     let options = rjest_runner::RunnerOptions {
         max_workers,
         test_name_pattern: cli.test_name_pattern,
+        snapshot_update: if cli.update_snapshot {
+            SnapshotUpdate::All
+        } else {
+            SnapshotUpdate::New
+        },
         ..rjest_runner::RunnerOptions::default()
     };
     let result = rjest_runner::run(&tests, &options)?;
@@ -205,11 +219,33 @@ fn report(result: &AggregatedResult, root_dir: &std::path::Path, silent: bool, v
         result.count(TestStatus::Passed),
         result.total_tests()
     );
+    let snapshot_added = snapshot_sum(result, |snapshot| snapshot.added);
+    let snapshot_matched = snapshot_sum(result, |snapshot| snapshot.matched);
+    let snapshot_unmatched = snapshot_sum(result, |snapshot| snapshot.unmatched);
+    let snapshot_updated = snapshot_sum(result, |snapshot| snapshot.updated);
+    let snapshot_removed = snapshot_sum(result, |snapshot| snapshot.removed);
+    let snapshot_total = snapshot_added + snapshot_matched + snapshot_unmatched + snapshot_updated;
+    if snapshot_total > 0 || snapshot_removed > 0 {
+        println!(
+            "Snapshots:   {snapshot_unmatched} failed, {snapshot_updated} updated, {snapshot_added} written, {snapshot_removed} removed, {snapshot_matched} passed, {snapshot_total} total"
+        );
+    }
     println!(
         "Time:        {}.{:03} s",
         result.duration_ms / 1_000,
         result.duration_ms % 1_000
     );
+}
+
+fn snapshot_sum(
+    result: &AggregatedResult,
+    select: impl Fn(&rjest_core::SnapshotResult) -> usize,
+) -> usize {
+    result
+        .test_results
+        .iter()
+        .map(|file| select(&file.snapshot))
+        .sum()
 }
 
 fn indent(value: &str, spaces: usize) -> String {

@@ -1,0 +1,29 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`snapshot compatibility serializes common JavaScript values 1`] = `
+{
+  "count": 42,
+  "enabled": true,
+  "nested": {
+    "labels": [
+      "rust",
+      "jest",
+    ],
+    "missing": undefined,
+  },
+  "nothing": null,
+  "pattern": /rjest/i,
+}
+`;
+
+exports[`snapshot compatibility serializes multiline strings: multiline 1`] = `
+"line one
+line two"
+`;
+
+exports[`snapshot compatibility serializes sets: set 1`] = `
+Set {
+  "native",
+  "deterministic",
+}
+`;

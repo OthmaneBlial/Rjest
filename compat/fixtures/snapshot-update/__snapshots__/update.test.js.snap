@@ -1,0 +1,12 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`obsolete snapshot 1`] = `"remove me"`;
+
+exports[`updates snapshot data 1`] = `
+{
+  "values": [
+    "stale",
+  ],
+  "version": 1,
+}
+`;

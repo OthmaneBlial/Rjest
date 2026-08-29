@@ -9,7 +9,8 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION, WorkerRequest,
+    AggregatedResult, SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION,
+    WorkerRequest,
 };
 use thiserror::Error;
 
@@ -22,6 +23,7 @@ pub struct RunnerOptions {
     pub max_workers: usize,
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
+    pub snapshot_update: SnapshotUpdate,
 }
 
 impl Default for RunnerOptions {
@@ -32,6 +34,7 @@ impl Default for RunnerOptions {
             max_workers: parallelism.div_ceil(2).max(1),
             test_name_pattern: None,
             default_timeout_ms: 5_000,
+            snapshot_update: SnapshotUpdate::New,
         }
     }
 }
@@ -54,6 +57,8 @@ pub enum RunnerError {
     Wait(#[source] std::io::Error),
     #[error("cannot encode worker request: {0}")]
     Encode(#[from] serde_json::Error),
+    #[error(transparent)]
+    Snapshot(#[from] rjest_snapshot::SnapshotError),
     #[error("worker did not return a protocol result for `{path}`{details}")]
     MissingResult { path: PathBuf, details: String },
     #[error("worker returned invalid JSON for `{path}`: {source}")]
@@ -104,11 +109,16 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
 }
 
 fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, RunnerError> {
+    let snapshot = rjest_snapshot::load(path, options.snapshot_update)?;
     let request = WorkerRequest {
         protocol_version: WORKER_PROTOCOL_VERSION,
         test_path: path.to_path_buf(),
         test_name_pattern: options.test_name_pattern.clone(),
         default_timeout_ms: options.default_timeout_ms,
+        snapshot_update: options.snapshot_update,
+        snapshot_file_exists: snapshot.exists,
+        snapshot_dirty: snapshot.dirty,
+        snapshot_data: snapshot.data,
     };
     let encoded = serde_json::to_vec(&request)?;
     let mut child = Command::new(&options.node_binary)
@@ -158,6 +168,7 @@ fn run_file(path: &Path, options: &RunnerOptions) -> Result<TestFileResult, Runn
             received: result.test_path,
         });
     }
+    rjest_snapshot::persist(&snapshot.path, &result.snapshot.data, result.snapshot.dirty)?;
     Ok(result)
 }
 

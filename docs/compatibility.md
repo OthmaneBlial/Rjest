@@ -9,7 +9,8 @@ output differences.
 
 The current alpha supports normalized JSON/package configuration, native
 discovery, isolated JS and basic TS execution, nested hooks, async tests, common
-matchers, and basic function/method mocks. Snapshot files, module mocks, complete
+matchers, basic function/method mocks, and external Jest v1 snapshots. Inline
+snapshots, snapshot property matchers/custom serializers, module mocks, complete
 resolution/config semantics, fake timers, coverage, watch mode, and browser
 environments remain missing, so Rjest does not claim broad or drop-in Jest
 compatibility yet.

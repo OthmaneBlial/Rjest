@@ -3,7 +3,7 @@ import {isDeepStrictEqual, format, inspect} from 'node:util';
 import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -20,6 +20,20 @@ const fileErrors = [];
 const mockRegistry = new Set();
 let invocationOrder = 0;
 let defaultTimeout = request.defaultTimeoutMs;
+let activeTest;
+const snapshotState = {
+  update: request.snapshotUpdate,
+  fileExists: request.snapshotFileExists,
+  data: {...request.snapshotData},
+  dirty: request.snapshotDirty,
+  unchecked: new Set(Object.keys(request.snapshotData)),
+  counts: new Map(),
+  added: 0,
+  matched: 0,
+  unmatched: 0,
+  updated: 0,
+  removed: 0,
+};
 
 for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
   console[level] = (...values) => {
@@ -338,6 +352,144 @@ function resolveProperty(received, path) {
   return {found: true, value: current};
 }
 
+function prettyFormat(value, indentation = '', stack = []) {
+  if (value === true || value === false || value === null || value === undefined) {
+    return String(value);
+  }
+  if (typeof value === 'number') return Object.is(value, -0) ? '-0' : String(value);
+  if (typeof value === 'bigint') return `${value}n`;
+  if (typeof value === 'string') return `"${value}"`;
+  if (typeof value === 'function') return '[Function]';
+  if (typeof value === 'symbol') return String(value).replace(/\)(.*)$/, ')');
+  if (stack.includes(value)) return '[Circular]';
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? 'Date { NaN }' : value.toISOString();
+  }
+  if (value instanceof Error) return `[${String(value)}]`;
+  if (value instanceof RegExp) {
+    return String(value).replace(/[$()*+.?[\\\]^{|}]/g, '\\$&');
+  }
+  if (value instanceof Promise) return 'Promise {}';
+  if (value instanceof WeakMap) return 'WeakMap {}';
+  if (value instanceof WeakSet) return 'WeakSet {}';
+  if (typeof value.toJSON === 'function') {
+    return prettyFormat(value.toJSON(), indentation, [...stack, value]);
+  }
+
+  const nextIndent = `${indentation}  `;
+  const references = [...stack, value];
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+    const prefix = Array.isArray(value) ? '' : `${value.constructor.name} `;
+    if (value.length === 0) return `${prefix}[]`;
+    const items = [...value]
+      .map(item => `${nextIndent}${prettyFormat(item, nextIndent, references)},`)
+      .join('\n');
+    return `${prefix}[\n${items}\n${indentation}]`;
+  }
+  if (value instanceof Map) {
+    if (value.size === 0) return 'Map {}';
+    const entries = [...value.entries()]
+      .map(
+        ([key, item]) =>
+          `${nextIndent}${prettyFormat(key, nextIndent, references)} => ${prettyFormat(item, nextIndent, references)},`,
+      )
+      .join('\n');
+    return `Map {\n${entries}\n${indentation}}`;
+  }
+  if (value instanceof Set) {
+    if (value.size === 0) return 'Set {}';
+    const items = [...value]
+      .map(item => `${nextIndent}${prettyFormat(item, nextIndent, references)},`)
+      .join('\n');
+    return `Set {\n${items}\n${indentation}}`;
+  }
+
+  const keys = Reflect.ownKeys(value).filter(key =>
+    Object.prototype.propertyIsEnumerable.call(value, key),
+  );
+  const constructor = value.constructor?.name;
+  const prefix = constructor && constructor !== 'Object' ? `${constructor} ` : '';
+  if (keys.length === 0) return `${prefix}{}`;
+  const properties = keys
+    .map(
+      key =>
+        `${nextIndent}${prettyFormat(key, nextIndent, references)}: ${prettyFormat(value[key], nextIndent, references)},`,
+    )
+    .join('\n');
+  return `${prefix}{\n${properties}\n${indentation}}`;
+}
+
+function formatSnapshot(value) {
+  const serialized = prettyFormat(value);
+  return serialized.includes('\n') ? `\n${serialized}\n` : serialized;
+}
+
+function normalizeSnapshotName(value) {
+  return value.replace(/\r\n|\r|\n/g, ending => {
+    if (ending === '\r\n') return '\\r\\n';
+    if (ending === '\r') return '\\r';
+    return '\\n';
+  });
+}
+
+function markSnapshotsChecked(testName) {
+  const normalized = normalizeSnapshotName(testName);
+  for (const key of snapshotState.unchecked) {
+    const keyName = key.replace(/ \d+$/, '');
+    if (keyName === normalized || keyName.startsWith(`${normalized}: `)) {
+      snapshotState.unchecked.delete(key);
+    }
+  }
+}
+
+function matchSnapshot(received, hint) {
+  if (!activeTest) {
+    throw new Error('toMatchSnapshot must be called while a test is running');
+  }
+  const testName = hint
+    ? `${fullName(activeTest)}: ${String(hint)}`
+    : fullName(activeTest);
+  const normalizedName = normalizeSnapshotName(testName);
+  const count = (snapshotState.counts.get(normalizedName) ?? 0) + 1;
+  snapshotState.counts.set(normalizedName, count);
+  const key = `${normalizedName} ${count}`;
+  snapshotState.unchecked.delete(key);
+  const receivedSerialized = formatSnapshot(received);
+  const hasSnapshot = Object.prototype.hasOwnProperty.call(snapshotState.data, key);
+  const expected = snapshotState.data[key];
+
+  if (hasSnapshot && expected === receivedSerialized) {
+    snapshotState.matched += 1;
+    snapshotState.data[key] = receivedSerialized;
+    return {pass: true, key};
+  }
+  if (hasSnapshot && snapshotState.update === 'all') {
+    snapshotState.updated += 1;
+    snapshotState.dirty = true;
+    snapshotState.data[key] = receivedSerialized;
+    return {pass: true, key};
+  }
+  if (
+    !hasSnapshot &&
+    (snapshotState.update === 'new' || snapshotState.update === 'all')
+  ) {
+    snapshotState.added += 1;
+    snapshotState.dirty = true;
+    snapshotState.data[key] = receivedSerialized;
+    return {pass: true, key};
+  }
+
+  snapshotState.unmatched += 1;
+  return {
+    pass: false,
+    key,
+    message:
+      `Snapshot name: ${key}\n` +
+      `Expected: ${expected === undefined ? 'snapshot is missing' : expected}\n` +
+      `Received: ${receivedSerialized}`,
+  };
+}
+
 const matchers = {
   toBe: (received, expected) => Object.is(received, expected),
   toEqual: (received, expected) => deepEqual(received, expected),
@@ -504,6 +656,55 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
       );
     };
   }
+  expectation.toMatchSnapshot = (...arguments_) => {
+    if (isNot) {
+      throw new Error('Snapshot matchers cannot be used with .not');
+    }
+    if (arguments_.length > 1 || (arguments_.length === 1 && typeof arguments_[0] !== 'string')) {
+      throw new Error(
+        'Snapshot property matchers are not supported yet; pass an optional string hint only',
+      );
+    }
+    const evaluate = received => {
+      const outcome = matchSnapshot(received, arguments_[0]);
+      if (!outcome.pass) throw new RjestAssertionError(outcome.message);
+    };
+    if (!promiseMode) return evaluate(actual);
+    let promise;
+    try {
+      promise =
+        typeof actual === 'function' && promiseMode === 'rejects'
+          ? actual()
+          : actual;
+    } catch (error) {
+      promise = Promise.reject(error);
+    }
+    if (!promise || typeof promise.then !== 'function') {
+      return Promise.reject(
+        new RjestAssertionError(
+          `Received value must be a Promise for .${promiseMode}`,
+        ),
+      );
+    }
+    return Promise.resolve(promise).then(
+      value => {
+        if (promiseMode === 'rejects') {
+          throw new RjestAssertionError(
+            'Received promise resolved instead of rejected',
+          );
+        }
+        return evaluate(value);
+      },
+      reason => {
+        if (promiseMode === 'resolves') {
+          throw new RjestAssertionError(
+            `Received promise rejected instead of resolved: ${printable(reason)}`,
+          );
+        }
+        return evaluate(reason);
+      },
+    );
+  };
   return expectation;
 }
 
@@ -848,6 +1049,7 @@ function hookChain(testNode, type) {
 
 function skippedResults(node, status = 'skipped') {
   if (node.type === 'test') {
+    markSnapshotsChecked(fullName(node));
     return [
       {
         name: node.name,
@@ -877,6 +1079,7 @@ async function runTest(
   };
   const isSelected = selected || node.mode === 'only';
   if (node.mode === 'todo') {
+    markSnapshotsChecked(result.fullName);
     result.status = 'todo';
     return result;
   }
@@ -886,9 +1089,11 @@ async function runTest(
     (focusExists && !isSelected) ||
     !matchesName(node)
   ) {
+    markSnapshotsChecked(result.fullName);
     result.status = 'skipped';
     return result;
   }
+  activeTest = node;
   const testStarted = performance.now();
   const failures = beforeAllError ? [beforeAllError] : [];
   if (!beforeAllError) {
@@ -927,6 +1132,7 @@ async function runTest(
     result.status = 'failed';
     result.failureMessage = failures.map(errorText).join('\n\n');
   }
+  activeTest = undefined;
   return result;
 }
 
@@ -995,6 +1201,18 @@ try {
   fileErrors.push(errorText(error));
 }
 
+if (snapshotState.update === 'all' && snapshotState.unchecked.size > 0) {
+  for (const key of snapshotState.unchecked) delete snapshotState.data[key];
+  snapshotState.removed = snapshotState.unchecked.size;
+  snapshotState.unchecked.clear();
+  snapshotState.dirty = true;
+} else if (snapshotState.unchecked.size > 0) {
+  fileErrors.push(
+    `${snapshotState.unchecked.size} obsolete snapshot${snapshotState.unchecked.size === 1 ? '' : 's'} found. Run with --updateSnapshot to remove ${snapshotState.unchecked.size === 1 ? 'it' : 'them'}.\n` +
+      [...snapshotState.unchecked].map(key => `  - ${key}`).join('\n'),
+  );
+}
+
 const result = {
   protocolVersion: PROTOCOL_VERSION,
   testPath: request.testPath,
@@ -1002,6 +1220,16 @@ const result = {
   errors: fileErrors,
   console: consoleEntries,
   durationMs: Math.max(0, Math.round(performance.now() - started)),
+  snapshot: {
+    added: snapshotState.added,
+    matched: snapshotState.matched,
+    unmatched: snapshotState.unmatched,
+    updated: snapshotState.updated,
+    removed: snapshotState.removed,
+    uncheckedKeys: [...snapshotState.unchecked],
+    dirty: snapshotState.dirty,
+    data: snapshotState.data,
+  },
 };
 process.stdout.write(`${RESULT_PREFIX}${JSON.stringify(result)}\n`, () => {
   process.exit(0);

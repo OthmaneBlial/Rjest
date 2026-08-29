@@ -5,7 +5,8 @@ and TypeScript test runner whose coordinator is written in Rust.
 
 > **Status:** early alpha. Real JavaScript and erasable TypeScript tests execute
 > with nested suites, hooks, async behavior, common assertions, basic mocks, and
-> bounded parallel files. Snapshots, module mocks, TSX transforms, watch mode, and
+> bounded parallel files. Jest v1 external snapshots can be consumed, created,
+> and updated. Module mocks, inline snapshots, TSX transforms, watch mode, and
 > many Jest edge cases are not implemented. Rjest does not claim full or
 > production-ready Jest compatibility.
 
@@ -24,6 +25,7 @@ cargo run -p rjest-cli -- --showConfig
 cargo run -p rjest-cli -- --listTests
 cargo run -p rjest-cli -- --runInBand
 cargo run -p rjest-cli -- --maxWorkers=50% --testNamePattern=calculator
+cargo run -p rjest-cli -- --updateSnapshot
 ```
 
 Supported configuration locations are currently `jest.config.json` and the

@@ -1,6 +1,6 @@
 //! Stable data types shared between Rjest's coordinator and subsystems.
 
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,16 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 1;
+pub const WORKER_PROTOCOL_VERSION: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SnapshotUpdate {
+    None,
+    #[default]
+    New,
+    All,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +29,10 @@ pub struct WorkerRequest {
     pub test_path: PathBuf,
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
+    pub snapshot_update: SnapshotUpdate,
+    pub snapshot_file_exists: bool,
+    pub snapshot_dirty: bool,
+    pub snapshot_data: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -57,6 +70,20 @@ pub struct TestFileResult {
     pub errors: Vec<String>,
     pub console: Vec<ConsoleEntry>,
     pub duration_ms: u64,
+    pub snapshot: SnapshotResult,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotResult {
+    pub added: usize,
+    pub matched: usize,
+    pub unmatched: usize,
+    pub updated: usize,
+    pub removed: usize,
+    pub unchecked_keys: Vec<String>,
+    pub dirty: bool,
+    pub data: BTreeMap<String, String>,
 }
 
 impl TestFileResult {
