@@ -188,7 +188,6 @@ const cases = [
   {
     name: 'gap-esm-isolate-modules-async',
     category: 'ESM',
-    compatible: false,
     expectedExit: 0,
     experimentalVmModules: true,
   },
@@ -269,6 +268,14 @@ const cases = [
     useFixtureConfig: true,
   },
   {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0},
+  {
+    name: 'gap-async-transformer',
+    category: 'Transforms',
+    compatible: false,
+    expectedExit: 0,
+    experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
 ];
 
 const outcomes = cases.map(compareCase);

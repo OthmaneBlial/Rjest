@@ -97,7 +97,8 @@ Last updated: 2026-08-29
   caching, rejected-factory retries, concurrent first imports, exotic export
   names, import attributes, conditional package exports, transformed static
   dependency graphs, re-exports, unused-factory laziness, parent-aware
-  `unstable_unmockModule`, and fresh actual/mock registries after `resetModules`.
+  `unstable_unmockModule`, fresh actual/mock registries after `resetModules`,
+  and asynchronous CommonJS/ESM registry isolation with error-safe restoration.
 - Jest-compatible post-transform Babel/Istanbul instrumentation and source-map
   remapping for transformers such as `ts-jest` that do not instrument output.
 - A pinned setup-matlab/Jest 30 corpus: 7/7 suites, 94/94 tests, and exact
@@ -181,10 +182,10 @@ Last updated: 2026-08-29
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 65/66
-  compatible scenarios (98.5%), with ESM at 6/7 (85.7%) and per-category
-  scores in the machine-readable report. This is a score for the versioned
-  probe corpus, not all Jest behavior.
+  preserved known incompatibilities. The current generated result is 66/67
+  compatible scenarios (98.5%), with ESM at 7/7 (100.0%), transforms at 3/4
+  (75.0%), and per-category scores in the machine-readable report. This is a
+  score for the versioned probe corpus, not all Jest behavior.
 
 ## Current work
 
@@ -203,8 +204,8 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 65/66 (98.5%). ESM is 6/7 (85.7%); coverage is 3/3 in its bounded
-scenario category.
+corpus score is 66/67 (98.5%). ESM is 7/7 (100.0%), transforms are 3/4
+(75.0%), and coverage is 3/3 in their bounded scenario categories.
 
 ## Known blockers
 
@@ -212,9 +213,10 @@ scenario category.
   Jest glob semantics are not yet implemented.
 - Config discovery currently starts at the invocation directory and does not yet
   traverse parent directories like Jest.
-- Configured synchronous and implicit `babel-jest` transforms work; async
-  transformers, transformer caches, decorators outside the project transformer,
-  and TypeScript path aliases remain incomplete.
+- Configured synchronous and implicit `babel-jest` transforms work; a preserved
+  ESM differential proves that processAsync-only transformers remain
+  unsupported. Transformer caches, decorators outside the project transformer,
+  and TypeScript path aliases also remain incomplete.
 - Custom resolvers are not implemented; CommonJS and native-ESM
   `moduleNameMapper` rules support the covered mappings, while complete Jest
   resolver conditions and fallback semantics need broader probes.
@@ -222,7 +224,7 @@ scenario category.
   implemented; manual CommonJS mocks, CommonJS automocking, Babel-hoisted and
   virtual factories, and direct/transitive synchronous or asynchronous ESM
   module factories are covered by differential tests. ESM unmock/reset behavior
-  is covered; asynchronous isolated module registries remain unsupported.
+  and asynchronous CommonJS/ESM isolated registries are covered.
 - New/updated inline snapshot source writes, V8 coverage, non-global threshold
   groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
@@ -241,7 +243,7 @@ scenario category.
 1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from deterministic real-project
    failures.
-3. Implement `isolateModulesAsync` across CommonJS and ESM registries.
+3. Implement processAsync-only transformers for native ESM execution.
 4. Add broader timer edge-case probes and modern timer tick-mode controls.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
    stable across a broader independent corpus.

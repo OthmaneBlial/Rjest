@@ -93,8 +93,11 @@ getter-backed function exports as well as explicit accessor spies.
 preserving Jest's evaluated-mock cache behavior; `resetModules` refreshes actual
 ESM instances and re-runs retained mock factories. Async ESM factories reached
 through static imports are initialized only when their dependency graph is
-loaded, so unrelated registered factories are not invoked. Deeply unmocked
-transitive dependencies and `jest.isolateModulesAsync` remain incomplete.
+loaded, so unrelated registered factories are not invoked.
+`jest.isolateModulesAsync` keeps fresh CommonJS and ESM registries active across
+awaits, discards instances first created inside the callback, inherits mocks
+already evaluated outside, and restores the outer registries after errors.
+Deeply unmocked transitive dependencies remain incomplete.
 
 Custom matchers registered through `expect.extend` may return promises and use
 the matcher context such as `this.equals`. `toThrow` and promise-modified

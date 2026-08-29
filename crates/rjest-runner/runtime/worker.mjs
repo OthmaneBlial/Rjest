@@ -49,7 +49,8 @@ const originalModuleResolveFilename = Module._resolveFilename;
 const moduleMocks = new Map();
 const virtualModuleMocks = new Map();
 const esmModuleMocks = [];
-const esmModuleMockCache = new Map();
+let esmModuleMockCache = new Map();
+let inheritedEsmModuleMockCache;
 const esmMockValues = new Map();
 const dynamicImportBridges = new Map();
 const esmStaticDependencyCache = new Map();
@@ -72,7 +73,9 @@ let automockEnabled = false;
 let esmHooksInstalled = false;
 let esmModuleGeneration = 0;
 let esmResolutionDepth = 0;
+let nextEsmModuleGeneration = 1;
 let nextEsmMockId = 1;
+let nextEsmMockValueId = 1;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
   throw new Error(`Unsupported Rjest worker protocol ${request.protocolVersion}`);
@@ -1644,7 +1647,7 @@ function cacheEsmMock(entry, value) {
     );
   }
   entry.generation += 1;
-  entry.valueKey = `${entry.id}:${entry.generation}`;
+  entry.valueKey = `${entry.id}:${nextEsmMockValueId++}`;
   entry.value = value;
   entry.initialized = true;
   esmMockValues.set(entry.valueKey, value);
@@ -1653,8 +1656,27 @@ function cacheEsmMock(entry, value) {
   return entry.url;
 }
 
+function cachedEsmMock(cacheKey) {
+  return (
+    esmModuleMockCache.get(cacheKey) ??
+    inheritedEsmModuleMockCache?.get(cacheKey)
+  );
+}
+
+function adoptCachedEsmMock(entry) {
+  const cached = cachedEsmMock(entry.cacheKey);
+  if (!cached?.initialized) return false;
+  entry.generation = cached.generation;
+  entry.initialized = true;
+  entry.url = cached.url;
+  entry.value = cached.value;
+  entry.valueKey = cached.valueKey;
+  return true;
+}
+
 function initializeEsmMock(entry) {
   if (entry.initialized) return entry.url;
+  if (adoptCachedEsmMock(entry)) return entry.url;
   const value = entry.factory();
   if (value && typeof value.then === 'function') {
     throw new Error(
@@ -1666,6 +1688,7 @@ function initializeEsmMock(entry) {
 
 async function initializeEsmMockAsync(entry) {
   if (entry.initialized) return entry.url;
+  if (adoptCachedEsmMock(entry)) return entry.url;
   return cacheEsmMock(entry, await entry.factory());
 }
 
@@ -2122,16 +2145,132 @@ function versionedEsmResolution(resolution) {
   return url === resolution.url ? resolution : {...resolution, url};
 }
 
+function freshEsmModuleGeneration() {
+  return nextEsmModuleGeneration++;
+}
+
+function clearEsmMockEntry(entry) {
+  entry.initialized = false;
+  entry.url = undefined;
+  entry.value = undefined;
+  entry.valueKey = undefined;
+}
+
+function clearCommonJsModuleCache(cache = Module._cache) {
+  for (const path of Object.keys(cache)) {
+    if (!path.includes('/node_modules/')) delete cache[path];
+  }
+}
+
+function resetCommonJsMockEntries() {
+  for (const registry of [moduleMocks, virtualModuleMocks]) {
+    for (const entry of registry.values()) {
+      entry.initialized = false;
+      entry.value = undefined;
+    }
+  }
+}
+
 function resetEsmModules() {
-  esmModuleGeneration += 1;
+  esmModuleGeneration = freshEsmModuleGeneration();
   esmModuleMockCache.clear();
+  inheritedEsmModuleMockCache = undefined;
   esmMockValues.clear();
   for (const entry of esmModuleMocks) {
-    entry.initialized = false;
-    entry.url = undefined;
-    entry.value = undefined;
-    entry.valueKey = undefined;
+    clearEsmMockEntry(entry);
   }
+}
+
+function snapshotMockEntry(entry) {
+  return {
+    generation: entry.generation,
+    initialized: entry.initialized,
+    url: entry.url,
+    value: entry.value,
+    valueKey: entry.valueKey,
+  };
+}
+
+function restoreMockEntry(entry, snapshot) {
+  entry.generation = snapshot.generation;
+  entry.initialized = snapshot.initialized;
+  entry.url = snapshot.url;
+  entry.value = snapshot.value;
+  entry.valueKey = snapshot.valueKey;
+}
+
+function snapshotCommonJsMockEntries() {
+  return new Map(
+    [moduleMocks, virtualModuleMocks].flatMap(registry =>
+      [...registry.values()].map(entry => [
+        entry,
+        {initialized: entry.initialized, value: entry.value},
+      ]),
+    ),
+  );
+}
+
+function restoreCommonJsMockEntries(snapshots) {
+  for (const registry of [moduleMocks, virtualModuleMocks]) {
+    for (const entry of registry.values()) {
+      const snapshot = snapshots.get(entry);
+      entry.initialized = snapshot?.initialized ?? false;
+      entry.value = snapshot?.value;
+    }
+  }
+}
+
+function beginModuleIsolation() {
+  const state = {
+    active: true,
+    commonJsCache: Module._cache,
+    commonJsMocks: snapshotCommonJsMockEntries(),
+    esmGeneration: esmModuleGeneration,
+    esmMockCache: esmModuleMockCache,
+    esmMockEntries: new Map(
+      esmModuleMocks.map(entry => [entry, snapshotMockEntry(entry)]),
+    ),
+    inheritedEsmMockCache: inheritedEsmModuleMockCache,
+  };
+  Module._cache = Object.create(null);
+  esmModuleGeneration = freshEsmModuleGeneration();
+  inheritedEsmModuleMockCache = esmModuleMockCache;
+  esmModuleMockCache = new Map();
+  return state;
+}
+
+function endModuleIsolation(state) {
+  if (!state.active) return;
+  Module._cache = state.commonJsCache;
+  restoreCommonJsMockEntries(state.commonJsMocks);
+  esmModuleGeneration = state.esmGeneration;
+  esmModuleMockCache = state.esmMockCache;
+  inheritedEsmModuleMockCache = state.inheritedEsmMockCache;
+  for (const entry of esmModuleMocks) {
+    const snapshot = state.esmMockEntries.get(entry);
+    if (snapshot) restoreMockEntry(entry, snapshot);
+    else clearEsmMockEntry(entry);
+  }
+  state.active = false;
+}
+
+function resetModuleIsolation(state) {
+  clearCommonJsModuleCache(Module._cache);
+  clearCommonJsModuleCache(state.commonJsCache);
+  Module._cache = state.commonJsCache;
+  resetCommonJsMockEntries();
+
+  esmModuleMockCache.clear();
+  state.esmMockCache.clear();
+  esmModuleMockCache = state.esmMockCache;
+  inheritedEsmModuleMockCache = undefined;
+  esmMockValues.clear();
+  esmModuleGeneration = freshEsmModuleGeneration();
+  for (const entry of esmModuleMocks) clearEsmMockEntry(entry);
+
+  state.commonJsMocks.clear();
+  state.esmMockEntries.clear();
+  state.active = false;
 }
 
 function configureEsmRuntime() {
@@ -2512,14 +2651,7 @@ function registerEsmModuleMock(specifier, factory, fromPath, returnValue) {
     value: undefined,
     valueKey: undefined,
   };
-  const cached = esmModuleMockCache.get(cacheKey);
-  if (cached?.initialized) {
-    entry.generation = cached.generation;
-    entry.initialized = true;
-    entry.url = cached.url;
-    entry.value = cached.value;
-    entry.valueKey = cached.valueKey;
-  }
+  adoptCachedEsmMock(entry);
   const existing = esmModuleMocks.findIndex(candidate =>
     entry.relative
       ? candidate.identity === entry.identity
@@ -3944,10 +4076,15 @@ const jest = {
     return unregisterEsmModuleMock(specifier, activeModulePath, jest);
   },
   resetModules() {
-    for (const path of Object.keys(Module._cache)) {
-      if (!path.includes('/node_modules/')) delete Module._cache[path];
+    const isolation = jest._isolatedModuleCache;
+    if (isolation?.active) {
+      resetModuleIsolation(isolation);
+      jest._isolatedModuleCache = undefined;
+    } else {
+      clearCommonJsModuleCache();
+      resetCommonJsMockEntries();
+      resetEsmModules();
     }
-    resetEsmModules();
     return jest;
   },
   isolateModules(callback) {
@@ -3955,19 +4092,41 @@ const jest = {
       throw new TypeError('jest.isolateModules expects a callback function');
     }
     if (jest._isolatedModuleCache) {
-      throw new Error('isolateModules cannot be nested inside another isolateModules');
+      throw new Error(
+        'isolateModules cannot be nested inside another isolateModules or isolateModulesAsync.',
+      );
     }
-    const previousCache = Module._cache;
-    const isolatedCache = Object.create(null);
-    jest._isolatedModuleCache = isolatedCache;
-    Module._cache = isolatedCache;
+    const isolation = beginModuleIsolation();
+    jest._isolatedModuleCache = isolation;
     try {
       callback();
     } finally {
-      Module._cache = previousCache;
-      jest._isolatedModuleCache = undefined;
+      endModuleIsolation(isolation);
+      if (jest._isolatedModuleCache === isolation) {
+        jest._isolatedModuleCache = undefined;
+      }
     }
     return jest;
+  },
+  async isolateModulesAsync(callback) {
+    if (typeof callback !== 'function') {
+      throw new TypeError('jest.isolateModulesAsync expects a callback function');
+    }
+    if (jest._isolatedModuleCache) {
+      throw new Error(
+        'isolateModulesAsync cannot be nested inside another isolateModulesAsync or isolateModules.',
+      );
+    }
+    const isolation = beginModuleIsolation();
+    jest._isolatedModuleCache = isolation;
+    try {
+      await callback();
+    } finally {
+      endModuleIsolation(isolation);
+      if (jest._isolatedModuleCache === isolation) {
+        jest._isolatedModuleCache = undefined;
+      }
+    }
   },
   useFakeTimers: installFakeTimers,
   useRealTimers: restoreRealTimers,

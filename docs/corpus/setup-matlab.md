@@ -84,5 +84,5 @@ was sent through CommonJS `require()`. Subsequent preserved fixes added:
 The versioned differential corpus grew from 37 to 42 scenarios to preserve
 these general behaviors. This result proves compatibility for the pinned suite.
 Later differential work covers direct and graph-reachable async ESM mock
-factories plus ESM unmock/reset semantics. Asynchronous module isolation and the
-broader Jest ESM surface remain future work.
+factories, ESM unmock/reset semantics, and asynchronous CommonJS/ESM registry
+isolation. The broader Jest ESM surface remains future work.

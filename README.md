@@ -11,7 +11,7 @@ and TypeScript test runner whose coordinator is written in Rust.
 > supported. CommonJS automocking, manual `__mocks__` resolution,
 > Babel-hoisted and virtual mock factories, native-ESM mapping, and direct
 > synchronous or asynchronous ESM module mocks also work. Writing new inline
-> snapshots, asynchronous module isolation, V8 coverage, watch mode, and many
+> snapshots, `processAsync`-only transformers, V8 coverage, watch mode, and many
 > Jest edge cases remain.
 > Rjest does not claim full or production-ready Jest compatibility.
 
@@ -44,7 +44,8 @@ and does not yet handle TSX or TypeScript features that require code generation.
 
 The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
 package `exports` resolution to Node. Configured synchronous Jest transformers
-can compile JS, JSX, TS, and TSX before CommonJS execution. Ordered
+can compile JS, JSX, TS, and TSX before CommonJS execution; transformers that
+only expose `processAsync` are not yet supported. Ordered
 `moduleNameMapper` rules support capture substitution and fallback targets for
 CommonJS, transformed modules, and the covered native-ESM paths. Custom
 resolvers and nonstandard package-manager layouts are not yet covered. When no
