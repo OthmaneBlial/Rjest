@@ -12,8 +12,8 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, CoverageMap, FakeTimersConfig, MockLifecycleConfig, ModuleNameMapper,
-    SnapshotRequest, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
+    AggregatedResult, CoverageMap, ExecutionOrderConfig, FakeTimersConfig, MockLifecycleConfig,
+    ModuleNameMapper, SnapshotRequest, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
     WORKER_PROTOCOL_VERSION, WorkerRequest,
 };
 use thiserror::Error;
@@ -25,7 +25,7 @@ const WORKER_SOURCE: &str = include_str!("../runtime/worker.mjs");
 pub struct RunnerOptions {
     pub node_binary: PathBuf,
     pub max_workers: usize,
-    pub seed: i32,
+    pub execution_order: ExecutionOrderConfig,
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
     pub snapshot_update: SnapshotUpdate,
@@ -57,7 +57,7 @@ impl Default for RunnerOptions {
         Self {
             node_binary: PathBuf::from("node"),
             max_workers: parallelism.div_ceil(2).max(1),
-            seed: 0,
+            execution_order: ExecutionOrderConfig::default(),
             test_name_pattern: None,
             default_timeout_ms: 5_000,
             snapshot_update: SnapshotUpdate::New,
@@ -301,7 +301,7 @@ fn run_file(
         protocol_version: WORKER_PROTOCOL_VERSION,
         test_path: path.to_path_buf(),
         root_dir: options.root_dir.clone(),
-        seed: options.seed,
+        execution_order: options.execution_order,
         module_file_extensions: options.module_file_extensions.clone(),
         extensions_to_treat_as_esm: options.extensions_to_treat_as_esm.clone(),
         module_name_mapper: options.module_name_mapper.clone(),

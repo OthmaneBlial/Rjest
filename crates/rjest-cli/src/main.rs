@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgAction, Parser};
 use rjest_config::ProjectConfig;
-use rjest_core::{AggregatedResult, SnapshotUpdate, TestStatus};
+use rjest_core::{AggregatedResult, ExecutionOrderConfig, SnapshotUpdate, TestStatus};
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
 
 #[derive(Debug, Parser)]
@@ -169,6 +169,10 @@ struct Cli {
         action = ArgAction::SetTrue
     )]
     show_seed: bool,
+
+    /// Shuffle tests within each describe block using the run seed.
+    #[arg(long, action = ArgAction::SetTrue)]
+    randomize: bool,
 }
 
 struct CoverageRunnerSettings {
@@ -235,6 +239,8 @@ fn run() -> Result<bool> {
     let seed = cli
         .seed
         .map_or_else(|| Ok(generated_seed()), validate_seed)?;
+    let randomize = cli.randomize || config.randomize;
+    let show_seed = randomize || cli.show_seed || config.show_seed;
     let CoverageRunnerSettings {
         enabled: collect_coverage,
         path_ignore_patterns: coverage_path_ignore_patterns,
@@ -242,7 +248,7 @@ fn run() -> Result<bool> {
     } = coverage_runner_settings(&cli, &config)?;
     let options = rjest_runner::RunnerOptions {
         max_workers,
-        seed,
+        execution_order: ExecutionOrderConfig { seed, randomize },
         test_name_pattern: cli.test_name_pattern.clone(),
         default_timeout_ms: config.test_timeout,
         root_dir: config.root_dir.clone(),
@@ -273,7 +279,14 @@ fn run() -> Result<bool> {
     };
     let result = rjest_runner::run(&tests, &options)?;
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
-    emit_results(&cli, &config, &result, coverage_report.as_ref(), seed)?;
+    emit_results(
+        &cli,
+        &config,
+        &result,
+        coverage_report.as_ref(),
+        seed,
+        show_seed,
+    )?;
     Ok(result.is_success()
         && coverage_report
             .as_ref()
@@ -422,6 +435,7 @@ fn emit_results(
     result: &AggregatedResult,
     coverage_report: Option<&CoverageReport>,
     seed: i32,
+    show_seed: bool,
 ) -> Result<()> {
     let serialized = serde_json::to_string(&result)?;
     if let Some(ref output_file) = cli.output_file {
@@ -450,7 +464,7 @@ fn emit_results(
                 silent: cli.silent,
                 verbose: cli.verbose,
                 log_heap_usage: cli.log_heap_usage,
-                show_seed: cli.show_seed,
+                show_seed,
                 seed,
             },
         );

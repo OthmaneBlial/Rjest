@@ -245,6 +245,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-randomize',
+    category: 'Configuration',
+    expectedExit: 0,
+    seed: 1234,
+    useFixtureConfig: true,
+  },
+  {
     name: 'gap-set-mock',
     category: 'Mocks',
     expectedExit: 0,
@@ -278,10 +285,16 @@ const cases = [
   {
     name: 'gap-randomize',
     category: 'CLI',
-    compatible: false,
     expectedExit: 0,
     randomize: true,
     seed: 1234,
+  },
+  {
+    name: 'gap-shard',
+    category: 'CLI',
+    compatible: false,
+    expectedExit: 0,
+    shard: '1/2',
   },
   {
     name: 'retry-before-all-failure',
@@ -427,6 +440,7 @@ function compareCase(testCase) {
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
     if (testCase.seed !== undefined) jestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) jestArguments.push('--randomize');
+    if (testCase.shard) jestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.coverage) {
       jestArguments.push(
         '--coverage',
@@ -469,6 +483,7 @@ function compareCase(testCase) {
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');
     if (testCase.seed !== undefined) rjestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) rjestArguments.push('--randomize');
+    if (testCase.shard) rjestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.coverage) {
       rjestArguments.push(
         '--coverage',

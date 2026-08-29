@@ -11,9 +11,10 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 15;
+const PROTOCOL_VERSION = 16;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
+const RESULT_TEST_NODE = Symbol('rjest.testNode');
 const nativeSetTimeout = globalThis.setTimeout;
 const nativeClearTimeout = globalThis.clearTimeout;
 const nativeSetInterval = globalThis.setInterval;
@@ -91,6 +92,9 @@ if (request.protocolVersion !== PROTOCOL_VERSION) {
 const started = performance.now();
 const consoleEntries = [];
 const fileErrors = [];
+const randomGenerator = request.randomize
+  ? createRandomGenerator(request.seed)
+  : undefined;
 const mockRegistry = new Set();
 const restoreRegistry = new Set();
 const replacedPropertyRegistry = new WeakMap();
@@ -153,7 +157,54 @@ function makeSuite(name, parent, mode) {
     children: [],
     hooks: {beforeAll: [], afterAll: [], beforeEach: [], afterEach: []},
     retryOptions: undefined,
+    shuffled: false,
   };
+}
+
+function createRandomGenerator(seed) {
+  let s01 = -1;
+  let s00 = ~seed;
+  let s11 = seed | 0;
+  let s10 = 0;
+  const unsafeNext = () => {
+    const output = (s00 + s10) | 0;
+    const a0 = s10 ^ s00;
+    const a1 = s11 ^ s01;
+    const previousS00 = s00;
+    const previousS01 = s01;
+    s00 =
+      (previousS00 << 24) ^
+      (previousS01 >>> 8) ^
+      a0 ^
+      (a0 << 16);
+    s01 =
+      (previousS01 << 24) ^
+      (previousS00 >>> 8) ^
+      a1 ^
+      ((a1 << 16) | (a0 >>> 16));
+    s10 = (a1 << 5) ^ (a0 >>> 27);
+    s11 = (a0 << 5) ^ (a1 >>> 27);
+    return output;
+  };
+  return {
+    next(from, to) {
+      const rangeSize = to - from + 1;
+      const maximum =
+        rangeSize > 2
+          ? Math.trunc(0x100000000 / rangeSize) * rangeSize
+          : 0x100000000;
+      let value = unsafeNext() + 0x80000000;
+      while (value >= maximum) value = unsafeNext() + 0x80000000;
+      return (value % rangeSize) + from;
+    },
+  };
+}
+
+function shuffleInPlace(values, random) {
+  for (let index = 0; index < values.length; index += 1) {
+    const target = random.next(index, values.length - 1);
+    [values[index], values[target]] = [values[target], values[index]];
+  }
 }
 
 function assertCanDefine(kind) {
@@ -5117,8 +5168,7 @@ function hookChain(testNode, type) {
 function skippedResults(node, status = 'skipped') {
   if (node.type === 'test') {
     markSnapshotsChecked(fullName(node));
-    return [
-      {
+    const result = {
         name: node.name,
         fullName: fullName(node),
         status: node.mode === 'todo' ? 'todo' : status,
@@ -5126,8 +5176,9 @@ function skippedResults(node, status = 'skipped') {
         failureMessage: null,
         invocations: 0,
         retryReasons: [],
-      },
-    ];
+      };
+    result[RESULT_TEST_NODE] = node;
+    return [result];
   }
   return node.children.flatMap(child => skippedResults(child, status));
 }
@@ -5148,6 +5199,7 @@ async function runTest(
     invocations: node.invocations ?? 0,
     retryReasons: [...(node.retryReasons ?? [])],
   };
+  result[RESULT_TEST_NODE] = node;
   const isSelected = selected || node.mode === 'only';
   if (node.mode === 'todo') {
     markSnapshotsChecked(result.fullName);
@@ -5327,7 +5379,7 @@ async function runSuite(
       if (suite.retryOptions.logErrors) {
         for (const [index, result] of results.entries()) {
           if (!result.failureMessage) continue;
-          retryTests[index]?.retryReasons.push(result.failureMessage);
+          result[RESULT_TEST_NODE]?.retryReasons.push(result.failureMessage);
         }
       }
       fileErrors.splice(fileErrorStart);
@@ -5362,6 +5414,10 @@ async function runSuiteOnce(
   const retryOptions = currentRetryOptions();
   const selected = inheritedOnly || suite.mode === 'only';
   const skipped = inheritedSkip || suite.mode === 'skip';
+  if (randomGenerator && !suite.shuffled) {
+    shuffleInPlace(suite.children, randomGenerator);
+    suite.shuffled = true;
+  }
   if (skipped) return skippedResults(suite);
   if (!hasRunnable(suite, focusExists, selected, skipped)) {
     return skippedResults(suite);

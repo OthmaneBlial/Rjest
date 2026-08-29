@@ -87,6 +87,7 @@ pub enum ConfigError {
 /// Supported, normalized subset of Jest's project configuration.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ProjectConfig {
     pub root_dir: PathBuf,
     pub roots: Vec<PathBuf>,
@@ -111,6 +112,8 @@ pub struct ProjectConfig {
     pub transform: BTreeMap<String, Value>,
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
+    pub randomize: bool,
+    pub show_seed: bool,
     pub max_workers: Option<String>,
     pub worker_idle_memory_limit: Option<String>,
     pub collect_coverage: bool,
@@ -150,6 +153,8 @@ struct RawProjectConfig {
     transform: Option<BTreeMap<String, Value>>,
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
+    randomize: Option<bool>,
+    show_seed: Option<bool>,
     max_workers: Option<NumberOrString>,
     worker_idle_memory_limit: Option<MemoryLimit>,
     collect_coverage: Option<bool>,
@@ -267,6 +272,8 @@ impl ProjectConfig {
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
+            randomize: false,
+            show_seed: false,
             max_workers: None,
             worker_idle_memory_limit: None,
             collect_coverage: false,
@@ -445,6 +452,7 @@ fn normalize_mock_lifecycle(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, ConfigError> {
     reject_unsupported_fields(&raw.unsupported)?;
     let mock_lifecycle_options = (raw.clear_mocks, raw.reset_mocks, raw.restore_mocks);
@@ -533,6 +541,8 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .transform_ignore_patterns
             .unwrap_or(defaults.transform_ignore_patterns),
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
+        randomize: raw.randomize.unwrap_or(defaults.randomize),
+        show_seed: raw.show_seed.unwrap_or(defaults.show_seed),
         max_workers: raw.max_workers.map(NumberOrString::into_string),
         worker_idle_memory_limit: normalize_worker_idle_memory_limit(raw.worker_idle_memory_limit),
         collect_coverage: raw.collect_coverage.unwrap_or(defaults.collect_coverage),

@@ -3,19 +3,19 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 82,
-    "total": 83,
-    "percentage": 98.79518072289156
+    "passing": 84,
+    "total": 85,
+    "percentage": 98.82352941176471
   },
   "categories": {
     "CLI": {
-      "passing": 0,
-      "total": 1,
-      "percentage": 0
+      "passing": 1,
+      "total": 2,
+      "percentage": 50
     },
     "Configuration": {
-      "passing": 16,
-      "total": 16,
+      "passing": 17,
+      "total": 17,
       "percentage": 100
     },
     "Core API": {
@@ -377,6 +377,12 @@
       "differences": []
     },
     {
+      "name": "config-randomize",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "gap-set-mock",
       "category": "Mocks",
       "compatible": true,
@@ -408,6 +414,12 @@
     },
     {
       "name": "gap-randomize",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "gap-shard",
       "category": "CLI",
       "compatible": false,
       "differences": [
