@@ -234,6 +234,11 @@ factory failures, `doMock`, `resetModules`, and TypeScript under JSDOM. Both
 runners pass all 29 tests. Their explicit coverage diagnostics match across 19
 files and both enforce the package's configured 100% global thresholds.
 
+The pinned [AWS Amplify Predictions corpus](corpus/amplify-predictions.md) adds
+AWS machine-learning clients, binary/browser data paths, and a large SDK module
+graph. Both runners discover 4/4 suites and 51/51 tests, and match exact test
+identities/statuses plus every Istanbul summary across 12 source files.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

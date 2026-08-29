@@ -261,6 +261,9 @@ Last updated: 2026-08-30
   tests in the original no-coverage mode, plus aggregate and per-file Istanbul
   parity across 19 source files and the same configured-threshold exit code
   when coverage is explicitly enabled.
+- A pinned AWS Amplify Predictions/Jest 29 corpus: exact 4/4 suites, 51/51
+  tests with one skipped, and aggregate plus per-file Istanbul parity across 12
+  source files on the first Rjest execution.
 - Jest-aligned mock arity, call contexts/instances, recursive result finalization,
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
@@ -319,7 +322,8 @@ are 10/10 (100.0%), and coverage is 3/3 in their bounded scenario categories.
   Next.js is about 35.78 times slower. API REST is about 6.32 times slower and
   the aggregate API package is about 9.92 times slower. PubSub is about 2.20
   times slower, Interactions is about 13.10 times slower, and React Native is
-  about 4.54 times slower in the ordinary no-coverage mode.
+  about 4.54 times slower in the ordinary no-coverage mode. Predictions is
+  about 10.60 times slower by reported runner time.
 
 ## Next highest-value tasks
 
