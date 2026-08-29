@@ -128,6 +128,11 @@ suites and 86 tests over the built GraphQL, Adapter Next.js, SSR, and package
 export surfaces. Test identities/statuses are exact and both runners return the
 same empty coverage map configured by this package.
 
+The pinned [AWS Amplify PubSub corpus](corpus/amplify-pubsub.md) adds
+MQTT-over-WebSocket providers, topic wildcards, network recovery, reconnection
+timers, Observables, and the vendored Paho MQTT runtime. Both runners pass the
+17 tests and agree on every Istanbul summary across 14 source files.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

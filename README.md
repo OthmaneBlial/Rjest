@@ -136,6 +136,11 @@ The pinned [aggregate AWS Amplify API corpus](docs/corpus/amplify-api.md)
 composes GraphQL, Adapter Next.js, SSR, fetch mocks, and package exports. Both
 runners pass 2/2 suites and 86/86 tests with exact test identities/statuses.
 
+The pinned [AWS Amplify PubSub corpus](docs/corpus/amplify-pubsub.md) covers
+MQTT-over-WebSocket reconnection, network recovery, Observables, topic
+wildcards, and vendored JavaScript. Both runners pass 17/17 tests and match all
+coverage summaries across 14 files.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

@@ -150,6 +150,9 @@ Last updated: 2026-08-29
 - A pinned aggregate AWS Amplify API/Jest 29 corpus: exact 2/2 suites and 86/86
   tests on unchanged SSR, GraphQL, Adapter Next.js, and package-export behavior.
   Both runners produce the package's expected empty Istanbul coverage map.
+- A pinned AWS Amplify PubSub/Jest 29 corpus: exact 1/1 suite, 17/17 tests, and
+  aggregate plus per-file Istanbul parity across 14 source files, including
+  MQTT-over-WebSocket reconnection and the vendored Paho MQTT runtime.
 - Jest-aligned mock arity, call contexts/instances, recursive result finalization,
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
@@ -204,7 +207,8 @@ scenario category.
   times slower, Storage is about 14.67 times slower, and DataStore is about
   4.17 times slower. Notifications is about 29.95 times slower and Adapter
   Next.js is about 35.78 times slower. API REST is about 6.32 times slower and
-  the aggregate API package is about 9.92 times slower.
+  the aggregate API package is about 9.92 times slower. PubSub is about 2.20
+  times slower.
 
 ## Next highest-value tasks
 
