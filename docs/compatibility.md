@@ -139,6 +139,12 @@ resolution, and `fflate` compression workers generated with `{eval: true}`.
 Both runners pass all 30 tests and agree on every Istanbul summary across 19
 source files.
 
+The pinned [AWS Amplify React Native corpus](corpus/amplify-react-native.md)
+adds native-module facades, platform selection, optional dependency loaders,
+factory failures, `doMock`, `resetModules`, and TypeScript under JSDOM. Both
+runners pass all 29 tests. Their explicit coverage diagnostics match across 19
+files and both enforce the package's configured 100% global thresholds.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.

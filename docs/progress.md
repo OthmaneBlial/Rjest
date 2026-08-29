@@ -160,6 +160,10 @@ Last updated: 2026-08-29
   tests, and aggregate plus per-file Istanbul parity across 19 source files,
   including real asynchronous `fflate` compression workers and Lex V1/V2 SDK
   clients.
+- A pinned AWS Amplify React Native/Jest 29 corpus: exact 4/4 suites and 29/29
+  tests in the original no-coverage mode, plus aggregate and per-file Istanbul
+  parity across 19 source files and the same configured-threshold exit code
+  when coverage is explicitly enabled.
 - Jest-aligned mock arity, call contexts/instances, recursive result finalization,
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
@@ -216,7 +220,8 @@ scenario category.
   4.17 times slower. Notifications is about 29.95 times slower and Adapter
   Next.js is about 35.78 times slower. API REST is about 6.32 times slower and
   the aggregate API package is about 9.92 times slower. PubSub is about 2.20
-  times slower, while Interactions is about 13.10 times slower.
+  times slower, Interactions is about 13.10 times slower, and React Native is
+  about 4.54 times slower in the ordinary no-coverage mode.
 
 ## Next highest-value tasks
 

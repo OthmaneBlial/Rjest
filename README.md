@@ -146,6 +146,11 @@ covers Lex V1/V2 clients, JSDOM blobs, automatic mocks, and asynchronous
 compression in eval-based Node worker threads. Both runners pass 30/30 tests
 and match every coverage summary across 19 files.
 
+The pinned [AWS Amplify React Native corpus](docs/corpus/amplify-react-native.md)
+covers platform/native-module facades, dynamic loaders, `doMock`, and
+`resetModules`. Both runners pass 29/29 tests and, when coverage is requested,
+match every summary across 19 files and the package's threshold exit code.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).
