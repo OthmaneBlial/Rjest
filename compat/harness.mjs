@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   statSync,
@@ -132,7 +133,7 @@ const cases = [
     compareSnapshots: true,
   },
   {name: 'implicit-babel-transform', category: 'Transforms', expectedExit: 0},
-  {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0, compatible: false},
+  {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0},
 ];
 
 const outcomes = cases.map(compareCase);
@@ -141,6 +142,19 @@ const passing = outcomes.filter(outcome => outcome.compatible).length;
 console.log(`Compatibility: ${passing}/${cases.length} differential scenarios compatible`);
 for (const [category, score] of categoryScores(outcomes)) {
   console.log(`  ${category}: ${score.passing}/${score.total} (${score.percentage.toFixed(1)}%)`);
+}
+
+function defaultProjectConfig(rootDir) {
+  return {
+    rootDir: realpathSync(rootDir),
+    testEnvironment: 'node',
+    transform: {
+      '^.+\\.[jt]sx?$': [
+        'babel-jest',
+        {presets: [[typescriptPreset, {allExtensions: true}]]},
+      ],
+    },
+  };
 }
 
 function compareCase(testCase) {
@@ -159,16 +173,7 @@ function compareCase(testCase) {
     }
     const jestArguments = [jest, '--runInBand', '--json', `--outputFile=${jestOutput}`];
     if (!testCase.useFixtureConfig) {
-      jestArguments.push(`--config=${JSON.stringify({
-        rootDir: jestFixture,
-        testEnvironment: 'node',
-        transform: {
-          '^.+\\.tsx?$': [
-            'babel-jest',
-            {presets: [typescriptPreset]},
-          ],
-        },
-      })}`);
+      jestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(jestFixture))}`);
     }
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
     if (testCase.coverage) {
@@ -207,6 +212,9 @@ function compareCase(testCase) {
         : '--runInBand',
       '--json',
     ];
+    if (!testCase.useFixtureConfig) {
+      rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
+    }
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');
     if (testCase.coverage) {
       rjestArguments.push(

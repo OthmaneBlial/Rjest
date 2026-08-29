@@ -45,6 +45,35 @@ fn shows_config_and_lists_discovered_tests() {
 }
 
 #[test]
+fn accepts_jest_inline_json_config() {
+    let temp = tempdir().expect("temp dir");
+    fs::create_dir(temp.path().join("tests")).expect("test directory");
+
+    let output = command()
+        .current_dir(temp.path())
+        .args([
+            "--showConfig",
+            "--config",
+            r#"{"roots":["<rootDir>/tests"],"testEnvironment":"node"}"#,
+        ])
+        .output()
+        .expect("run inline config");
+
+    assert!(output.status.success());
+    let config: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("valid config JSON");
+    assert_eq!(
+        config["roots"][0],
+        temp.path()
+            .join("tests")
+            .canonicalize()
+            .expect("canonical test directory")
+            .to_string_lossy()
+            .as_ref()
+    );
+}
+
+#[test]
 fn returns_jest_style_exit_codes_for_passing_and_failing_runs() {
     let temp = tempdir().expect("temp dir");
     let test_path = temp.path().join("status.test.js");

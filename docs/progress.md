@@ -79,16 +79,18 @@ Last updated: 2026-08-29
 - Configured and runtime CommonJS automocking with recursive exports, classes,
   built-in exemptions, explicit factories/unmocking, Babel hoisting, and
   transform-tooling isolation.
+- Jest-style inline JSON `--config`, with the differential harness now passing
+  equivalent canonical roots and Babel transforms to both runners.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 36/37
-  compatible scenarios (97.297%), with per-category scores in the
+  preserved known incompatibilities. The current generated result is 37/37
+  compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- Close the remaining TypeScript enum transform probe, then add Node/ESM and
-  monorepo corpora with original Jest configurations.
+- Add Node/ESM and monorepo corpora with original Jest configurations and grow
+  the differential denominator from their observed incompatibilities.
 
 ## Compatibility snapshot
 
@@ -96,7 +98,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 36/37 (97.297%). Coverage is 2/2 in that deliberately bounded
+corpus score is 37/37 (100%). Coverage is 2/2 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -104,7 +106,7 @@ scenario category.
 - Jest extglob syntax is recognized for the two default patterns; complete custom
   Jest glob semantics are not yet implemented.
 - Config discovery currently starts at the invocation directory and does not yet
-  traverse parent directories like Jest; CLI JSON config strings are also absent.
+  traverse parent directories like Jest.
 - Configured synchronous and implicit `babel-jest` transforms work; async
   transformers, transformer caches, decorators outside the project transformer,
   and TypeScript path aliases remain incomplete.
@@ -120,7 +122,7 @@ scenario category.
 
 ## Next highest-value tasks
 
-1. Close the remaining TypeScript enum transform probe.
-2. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
+1. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
+2. Grow the versioned differential denominator from their real failures.
 3. Implement legacy fake-timer behavior.
 4. Extend `moduleNameMapper` and module mocking to native ESM.

@@ -18,9 +18,9 @@ struct Cli {
     #[arg(value_name = "TEST_PATH_PATTERN")]
     test_path_patterns: Vec<PathBuf>,
 
-    /// Path to a Jest configuration file.
-    #[arg(long, value_name = "PATH")]
-    config: Option<PathBuf>,
+    /// Path to a Jest configuration file or an inline JSON object.
+    #[arg(long, value_name = "PATH|JSON")]
+    config: Option<String>,
 
     /// Print all selected test files and exit.
     #[arg(long = "listTests", visible_alias = "list-tests", action = ArgAction::SetTrue)]
@@ -167,7 +167,7 @@ fn main() {
 fn run() -> Result<bool> {
     let cli = Cli::parse();
     let project_dir = std::env::current_dir().context("cannot determine current directory")?;
-    let config = rjest_config::load(&project_dir, cli.config.as_deref())?;
+    let config = load_config(&project_dir, cli.config.as_deref())?;
 
     if cli.show_config {
         println!("{}", serde_json::to_string_pretty(&config)?);
@@ -236,6 +236,19 @@ fn run() -> Result<bool> {
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn load_config(project_dir: &std::path::Path, configured: Option<&str>) -> Result<ProjectConfig> {
+    match configured {
+        Some(value) if value.trim_start().starts_with('{') => {
+            Ok(rjest_config::load_inline_json(project_dir, value)?)
+        }
+        Some(value) => Ok(rjest_config::load(
+            project_dir,
+            Some(std::path::Path::new(value)),
+        )?),
+        None => Ok(rjest_config::load(project_dir, None)?),
+    }
 }
 
 fn coverage_runner_settings(cli: &Cli, config: &ProjectConfig) -> Result<CoverageRunnerSettings> {

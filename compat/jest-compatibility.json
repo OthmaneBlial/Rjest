@@ -3,9 +3,9 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 36,
+    "passing": 37,
     "total": 37,
-    "percentage": 97.2972972972973
+    "percentage": 100
   },
   "categories": {
     "Configuration": {
@@ -59,9 +59,9 @@
       "percentage": 100
     },
     "Transforms": {
-      "passing": 1,
+      "passing": 2,
       "total": 2,
-      "percentage": 50
+      "percentage": 100
     }
   },
   "scenarios": [
@@ -284,11 +284,8 @@
     {
       "name": "gap-typescript-enum",
       "category": "Transforms",
-      "compatible": false,
-      "differences": [
-        "exit Jest=0 Rjest=1",
-        "test results differ"
-      ]
+      "compatible": true,
+      "differences": []
     }
   ]
 }

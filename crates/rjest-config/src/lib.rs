@@ -271,6 +271,25 @@ pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig
     normalize(raw, config_path.parent().unwrap_or(&project_dir))
 }
 
+/// Loads a Jest project configuration supplied as an inline JSON object.
+///
+/// Jest accepts JSON through `--config`; relative paths and `<rootDir>` are
+/// resolved from `project_dir` just as they are for CLI-injected Jest config.
+///
+/// # Errors
+///
+/// Returns [`ConfigError`] when the JSON cannot be decoded or normalized.
+pub fn load_inline_json(project_dir: &Path, source: &str) -> Result<ProjectConfig, ConfigError> {
+    let project_dir = absolute(project_dir)?;
+    let path = PathBuf::from("<inline --config>");
+    let value = serde_json::from_str(source).map_err(|source| ConfigError::Json {
+        path: path.clone(),
+        source,
+    })?;
+    let raw = serde_json::from_value(value).map_err(|source| ConfigError::Json { path, source })?;
+    normalize(raw, &project_dir)
+}
+
 fn read_json(path: &Path) -> Result<Value, ConfigError> {
     let source = fs::read_to_string(path).map_err(|source| ConfigError::Read {
         path: path.to_path_buf(),
@@ -665,6 +684,27 @@ mod tests {
         let config = ProjectConfig::defaults(temp.path()).expect("defaults");
         assert!(config.module_file_extensions.contains(&"tsx".to_owned()));
         assert_eq!(config.roots, vec![temp.path().to_path_buf()]);
+    }
+
+    #[test]
+    fn loads_inline_json_configuration_from_the_project_directory() {
+        let temp = tempdir().expect("temp dir");
+        fs::create_dir(temp.path().join("src")).expect("source directory");
+
+        let config = load_inline_json(
+            temp.path(),
+            r#"{
+              "roots":["<rootDir>/src"],
+              "testRegex":"\\.check\\.ts$",
+              "transform":{"^.+\\.ts$":["babel-jest",{"presets":["preset"]}]}
+            }"#,
+        )
+        .expect("inline config");
+
+        assert_eq!(config.root_dir, temp.path());
+        assert_eq!(config.roots, [temp.path().join("src")]);
+        assert_eq!(config.test_regex, [r"\.check\.ts$"]);
+        assert!(config.transform.contains_key(r"^.+\.ts$"));
     }
 
     #[test]

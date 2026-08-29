@@ -7,6 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
+The current generated matrix is 37/37 (100%) across its explicitly listed
+scenarios and categories. That is complete parity for this bounded regression
+set, not a claim of 100% compatibility with the full Jest API.
+
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous
 Jest transforms for JSX/TypeScript, Node and JSDOM environments, nested hooks,

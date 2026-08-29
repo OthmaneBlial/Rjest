@@ -18,7 +18,8 @@ matched and counted; inserting or updating inline source text is not supported.
 Use `rjest --updateSnapshot` only after reviewing the compatibility result.
 
 Common `jest.config.js`, CJS, ESM, and erasable TypeScript config files can be
-used directly. Rjest normalizes discovery, environment/options, transform,
+used directly, as can Jest's inline JSON form of `--config`. Rjest normalizes
+discovery, environment/options, transform,
 setup-after-env, serializer, module-path, timeout, worker, and common tooling
 fields; unsupported options are migration work items and produce an explicit
 error.
