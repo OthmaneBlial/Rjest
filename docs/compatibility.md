@@ -2,8 +2,16 @@
 
 Compatibility is tracked in the machine-readable
 [`compat/jest-compatibility.json`](../compat/jest-compatibility.json) matrix.
-Counts come only from executable tests; placeholders are never counted.
+Counts come only from executable Rust and Jest/Rjest differential tests;
+placeholders are never counted. The differential harness normalizes test names,
+statuses, files, and exit codes while deliberately ignoring timing and cosmetic
+output differences.
 
-The current foundation supports normalized JSON/package configuration and native
-test discovery. JavaScript execution, snapshots, mocks, and other major areas are
-still planned, so Rjest does not claim broad or drop-in Jest compatibility yet.
+The current alpha supports normalized JSON/package configuration, native
+discovery, isolated JS and basic TS execution, nested hooks, async tests, common
+matchers, and basic function/method mocks. Snapshot files, module mocks, complete
+resolution/config semantics, fake timers, coverage, watch mode, and browser
+environments remain missing, so Rjest does not claim broad or drop-in Jest
+compatibility yet.
+
+Run the oracle locally with `npm run compat`; `make check` includes it.

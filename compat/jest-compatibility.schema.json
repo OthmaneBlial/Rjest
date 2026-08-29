@@ -1,9 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["generatedFrom", "categories"],
+  "required": ["generatedFrom", "score", "categories"],
   "properties": {
     "generatedFrom": {"type": "string"},
+    "score": {
+      "type": "object",
+      "required": ["differentialScenariosPassing", "differentialScenariosTotal", "localRustTests"]
+    },
     "categories": {
       "type": "object",
       "additionalProperties": {

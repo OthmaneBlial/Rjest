@@ -1,23 +1,16 @@
 [package]
-name = "rjest-cli"
+name = "rjest-runner"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-[[bin]]
-name = "rjest"
-path = "src/main.rs"
-
 [dependencies]
-anyhow.workspace = true
-clap.workspace = true
-rjest-config = { path = "../rjest-config" }
+rayon.workspace = true
 rjest-core = { path = "../rjest-core" }
-rjest-discovery = { path = "../rjest-discovery" }
-rjest-runner = { path = "../rjest-runner" }
 serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

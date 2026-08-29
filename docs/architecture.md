@@ -11,8 +11,16 @@ The architecture follows the boundary recorded in
 - `rjest-discovery`: native recursive scanning, matching, filtering, and stable
   ordering.
 - `rjest-core`: stable cross-component data types.
+- `rjest-runner`: bounded parallel dispatch, Node process isolation, versioned
+  request/result validation, and deterministic aggregation.
+- `runtime/worker.mjs`: Jest-style declaration, hooks, assertions, mocks, async
+  timeouts, and per-file execution inside Node.
 
-Upcoming runtime components will communicate through a versioned JSON-lines
-protocol. Rust will bound worker count, own cancellation, validate messages, and
-aggregate results deterministically. Test processes are isolated for reliability
-but are not security sandboxes.
+Workers currently receive one JSON request over stdin and return a prefixed,
+versioned JSON result. Rust bounds process concurrency, rejects malformed or
+mismatched results, and sorts aggregation by canonical path. Each file gets a
+fresh process, which isolates global state and crashes at the cost of startup
+overhead. Worker reuse, cancellation, and restart policy remain future work.
+
+Test processes run with the invoking user's permissions. Process isolation is a
+reliability boundary, not a security sandbox.

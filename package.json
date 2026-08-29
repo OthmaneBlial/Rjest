@@ -1,0 +1,17 @@
+{
+  "name": "rjest-development",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "description": "Local compatibility tooling for the Rust-powered Rjest test runner",
+  "scripts": {
+    "check:runtime": "node --check crates/rjest-runner/runtime/worker.mjs && node --check compat/harness.mjs",
+    "compat": "node compat/harness.mjs"
+  },
+  "devDependencies": {
+    "@babel/preset-typescript": "7.29.7",
+    "jest": "30.5.0"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}
