@@ -122,6 +122,10 @@ Last updated: 2026-08-29
 - Strict `restoreMocks` configuration propagated through worker protocol v11,
   restoring setup- and test-created spies/properties before the first and every
   later user `beforeEach` while preserving standalone mock-function state.
+- Strict `resetMocks` configuration in grouped lifecycle state and worker
+  protocol v12, clearing setup/test mock calls and implementations before every
+  user hook while retaining property replacements and reinstalling configured
+  legacy fake-timer mock APIs without dropping pending timers.
 - A pinned setup-matlab/Jest 30 corpus: 7/7 suites, 94/94 tests, and exact
   aggregate and per-file coverage parity across nine TypeScript source files.
 - A pinned ts-jest/Jest 30 corpus: 20/20 suites, 358/358 tests, and 137/137
@@ -203,9 +207,9 @@ Last updated: 2026-08-29
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 74/75
+  preserved known incompatibilities. The current generated result is 75/76
   compatible scenarios (98.7%), with ESM at 7/7 (100.0%), transforms at 5/5
-  (100.0%), mocks at 12/12 (100.0%), configuration at 14/15 (93.3%), and
+  (100.0%), mocks at 12/12 (100.0%), configuration at 15/16 (93.8%), and
   per-category scores in the machine-readable report. This is a score for the
   versioned probe corpus, not all Jest behavior.
 
@@ -226,8 +230,8 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 74/75 (98.7%). ESM is 7/7 (100.0%), transforms are 5/5
-(100.0%), mocks are 12/12 (100.0%), configuration is 14/15 (93.3%), and
+corpus score is 75/76 (98.7%). ESM is 7/7 (100.0%), transforms are 5/5
+(100.0%), mocks are 12/12 (100.0%), configuration is 15/16 (93.8%), and
 coverage is 3/3 in their bounded scenario categories.
 
 ## Known blockers
@@ -244,7 +248,7 @@ coverage is 3/3 in their bounded scenario categories.
 - Custom resolvers are not implemented; CommonJS and native-ESM
   `moduleNameMapper` rules support the covered mappings, while complete Jest
   resolver conditions and fallback semantics need broader probes.
-- `resetMocks` configuration is not implemented. Manual CommonJS/native-ESM
+- `resetModules` configuration is not implemented. Manual CommonJS/native-ESM
   mocks, CommonJS/native-ESM automocking, transitive CommonJS unmocking,
   property replacement, Babel-hoisted and virtual factories, and
   direct/transitive synchronous or asynchronous ESM module factories are
@@ -268,7 +272,7 @@ coverage is 3/3 in their bounded scenario categories.
 1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from deterministic real-project
    failures.
-3. Implement `resetMocks` configuration and per-test mock-state reset.
+3. Implement `resetModules` configuration for CommonJS and native ESM.
 4. Add broader timer edge-case probes and modern timer tick-mode controls.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
    stable across a broader independent corpus.

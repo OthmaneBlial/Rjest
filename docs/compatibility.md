@@ -7,10 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 74/75 (98.7%) across its explicitly listed
+The current generated matrix is 75/76 (98.7%) across its explicitly listed
 scenarios and categories. ESM is 7/7 (100.0%) and transforms are 5/5 (100.0%);
-mocks are 12/12 (100.0%), while configuration is 14/15 (93.3%) because the
-preserved `resetMocks` probe still differs. These are scores for the bounded
+mocks are 12/12 (100.0%), while configuration is 15/16 (93.8%) because the
+preserved `resetModules` probe still differs. These are scores for the bounded
 regression set, not claims about the unmeasured full Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
@@ -35,6 +35,9 @@ and cycles while retaining explicit-factory priority and ordinary-parent mocks.
 validation, symbol/number keys, and restoration alongside spies.
 Configured `restoreMocks` restores setup- and test-created spies/properties
 before each test while retaining standalone mock state.
+Configured `resetMocks` clears mock calls and implementations before each test,
+without restoring spies/properties, and reinstalls globally enabled legacy timer
+APIs while preserving their pending queue.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -68,7 +71,7 @@ call rejection, cleanup after callback errors, and Jest's reset-inside-isolation
 lifecycle. Async transformer coverage verifies an ESM transformer module with
 top-level await, an asynchronous factory, processAsync-only static and dynamic
 graphs, transformer-injected dependencies, and post-transform Istanbul
-instrumentation. Custom module directories, `resetMocks` configuration, and
+instrumentation. Custom module directories, `resetModules` configuration, and
 pnpm/Yarn PnP layouts remain open work.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.

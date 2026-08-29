@@ -1,9 +1,5 @@
 module.exports = {
-  fakeTimers: {
-    enableGlobally: true,
-    legacyFakeTimers: true,
-  },
-  resetMocks: true,
+  resetModules: true,
   setupFilesAfterEnv: ['./setup-after.cjs'],
   testEnvironment: 'node',
   transform: {},

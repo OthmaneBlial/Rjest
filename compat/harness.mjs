@@ -234,8 +234,15 @@ const cases = [
   {
     name: 'config-reset-mocks',
     category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-reset-modules',
+    category: 'Configuration',
     compatible: false,
     expectedExit: 0,
+    experimentalVmModules: true,
     useFixtureConfig: true,
   },
   {

@@ -137,6 +137,7 @@ struct RawProjectConfig {
     module_paths: Option<Vec<String>>,
     automock: Option<bool>,
     clear_mocks: Option<bool>,
+    reset_mocks: Option<bool>,
     restore_mocks: Option<bool>,
     fake_timers: Option<RawFakeTimersConfig>,
     test_environment: Option<String>,
@@ -430,18 +431,20 @@ fn process_details(stdout: &str, stderr: &str) -> String {
 }
 
 fn normalize_mock_lifecycle(
-    clear_mocks: Option<bool>,
-    restore_mocks: Option<bool>,
+    options: (Option<bool>, Option<bool>, Option<bool>),
     defaults: &ProjectConfig,
 ) -> MockLifecycleConfig {
+    let (clear_mocks, reset_mocks, restore_mocks) = options;
     MockLifecycleConfig {
         clear_mocks: clear_mocks.unwrap_or(defaults.mock_lifecycle.clear_mocks),
+        reset_mocks: reset_mocks.unwrap_or(defaults.mock_lifecycle.reset_mocks),
         restore_mocks: restore_mocks.unwrap_or(defaults.mock_lifecycle.restore_mocks),
     }
 }
 
 fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, ConfigError> {
     reject_unsupported_fields(&raw.unsupported)?;
+    let mock_lifecycle_options = (raw.clear_mocks, raw.reset_mocks, raw.restore_mocks);
 
     let root_dir = raw.root_dir.map_or_else(
         || absolute(config_dir),
@@ -450,7 +453,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     ensure_directory(&root_dir)?;
 
     let defaults = ProjectConfig::defaults(&root_dir)?;
-    let mock_lifecycle = normalize_mock_lifecycle(raw.clear_mocks, raw.restore_mocks, &defaults);
+    let mock_lifecycle = normalize_mock_lifecycle(mock_lifecycle_options, &defaults);
     let roots = normalize_roots(raw.roots, &root_dir, &defaults.roots)?;
 
     let test_environment =
@@ -1006,6 +1009,7 @@ mod tests {
               "extensionsToTreatAsEsm":[".ts"],
               "automock":true,
               "clearMocks":true,
+              "resetMocks":true,
               "restoreMocks":true,
               "fakeTimers":{
                 "enableGlobally":true,
@@ -1056,6 +1060,7 @@ mod tests {
         );
         assert!(config.automock);
         assert!(config.mock_lifecycle.clear_mocks);
+        assert!(config.mock_lifecycle.reset_mocks);
         assert!(config.mock_lifecycle.restore_mocks);
         assert!(config.fake_timers.enable_globally);
         assert!(!config.fake_timers.legacy_fake_timers);

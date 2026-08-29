@@ -14,3 +14,6 @@ jest.replaceProperty(
   'value',
   'setup replaced value',
 );
+
+globalThis.resetMocksTimerCallback = jest.fn();
+setTimeout(globalThis.resetMocksTimerCallback, 100);

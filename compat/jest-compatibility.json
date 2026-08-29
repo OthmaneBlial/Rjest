@@ -3,15 +3,15 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 74,
-    "total": 75,
-    "percentage": 98.66666666666667
+    "passing": 75,
+    "total": 76,
+    "percentage": 98.68421052631578
   },
   "categories": {
     "Configuration": {
-      "passing": 14,
-      "total": 15,
-      "percentage": 93.33333333333333
+      "passing": 15,
+      "total": 16,
+      "percentage": 93.75
     },
     "Core API": {
       "passing": 6,
@@ -361,6 +361,12 @@
     },
     {
       "name": "config-reset-mocks",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-reset-modules",
       "category": "Configuration",
       "compatible": false,
       "differences": [
