@@ -106,7 +106,12 @@ const cases = [
   {name: 'gap-fake-timers-async', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-performance', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-hrtime', category: 'Fake timers', expectedExit: 0},
-  {name: 'gap-fake-timers-frame', category: 'Fake timers', expectedExit: 0, compatible: false},
+  {
+    name: 'gap-fake-timers-frame',
+    category: 'Fake timers',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'gap-inline-snapshot', category: 'Snapshots', expectedExit: 0},
   {name: 'gap-automock', category: 'Mocks', expectedExit: 0, compatible: false},
   {

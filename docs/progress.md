@@ -72,9 +72,11 @@ Last updated: 2026-08-29
 - Ordered `moduleNameMapper` rules for CommonJS and transformed modules,
   including capture substitution, fallback targets, `require.resolve`, and
   shared mapped identity for explicit Jest mocks.
+- Modern animation-frame scheduling and `advanceTimersToNextFrame`, including
+  JSDOM callbacks, cancellation, intermediate timers, and frame timestamps.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 33/37
-  compatible scenarios (89.189%), with per-category scores in the
+  preserved known incompatibilities. The current generated result is 34/37
+  compatible scenarios (91.892%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
@@ -89,7 +91,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 33/37 (89.189%). Coverage is 2/2 in that deliberately bounded
+corpus score is 34/37 (91.892%). Coverage is 2/2 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -109,13 +111,12 @@ scenario category.
 - New/updated inline snapshot source writes, snapshot property matchers, V8
   coverage, non-global threshold groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
-  Modern fake timers still lack animation frame advancement and legacy-timer
-  mode.
+  Legacy-timer mode remains unimplemented.
 
 ## Next highest-value tasks
 
 1. Add Node, ESM, and monorepo corpora with nontrivial Jest configuration.
-2. Complete animation-frame and legacy fake-timer behavior.
+2. Implement legacy fake-timer behavior.
 3. Extend `moduleNameMapper` to native ESM and custom resolvers.
 4. Expand CommonJS mocks toward global automocking, then design ESM module
    mocking at the loader boundary.

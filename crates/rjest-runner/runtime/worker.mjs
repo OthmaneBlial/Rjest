@@ -41,6 +41,7 @@ let runtimePrettyFormatPlugins = [];
 let runtimePrettyFormatSupportsBasicPrototype = false;
 let jsdomEnvironment;
 let nativeWindowTimers;
+let nativeAnimationFrame;
 let transformerDepth = 0;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
@@ -1709,6 +1710,8 @@ function installJsdomEnvironment() {
     setInterval: window.setInterval,
     clearInterval: window.clearInterval,
     queueMicrotask: window.queueMicrotask,
+    requestAnimationFrame: window.requestAnimationFrame,
+    cancelAnimationFrame: window.cancelAnimationFrame,
   };
 }
 
@@ -1742,6 +1745,10 @@ function timerDelay(value) {
   const number = Number(value ?? 0);
   if (!Number.isFinite(number) || number < 0) return 0;
   return Math.floor(number);
+}
+
+function timeToNextFrame() {
+  return 16 - (fakeTimers.monotonicNow % 16);
 }
 
 function scheduleFakeTimer(type, callback, delay, args) {
@@ -1850,6 +1857,10 @@ function installFakeTimers(options = {}) {
   fakeTimers.nextId = 1;
   fakeTimers.timers.clear();
   fakeTimers.ticks.length = 0;
+  nativeAnimationFrame = {
+    request: globalThis.requestAnimationFrame,
+    cancel: globalThis.cancelAnimationFrame,
+  };
   const doNotFake = new Set(options?.doNotFake ?? []);
   if (!doNotFake.has('setTimeout')) {
     const fakeSetTimeout = (callback, delay, ...args) =>
@@ -1898,6 +1909,38 @@ function installFakeTimers(options = {}) {
     globalThis.queueMicrotask = fakeQueueMicrotask;
     if (jsdomEnvironment) {
       jsdomEnvironment.window.queueMicrotask = fakeQueueMicrotask;
+    }
+  }
+  if (
+    !doNotFake.has('requestAnimationFrame') &&
+    typeof nativeAnimationFrame.request === 'function'
+  ) {
+    const fakeRequestAnimationFrame = callback => {
+      if (typeof callback !== 'function') {
+        throw new TypeError('requestAnimationFrame expects a callback function');
+      }
+      return scheduleFakeTimer(
+        'animationFrame',
+        () => callback(fakeTimers.monotonicNow),
+        timeToNextFrame(),
+        [],
+      );
+    };
+    globalThis.requestAnimationFrame = fakeRequestAnimationFrame;
+    if (jsdomEnvironment) {
+      jsdomEnvironment.window.requestAnimationFrame = fakeRequestAnimationFrame;
+    }
+  }
+  if (
+    !doNotFake.has('cancelAnimationFrame') &&
+    typeof nativeAnimationFrame.cancel === 'function'
+  ) {
+    const fakeCancelAnimationFrame = id => {
+      fakeTimers.timers.delete(Number(id));
+    };
+    globalThis.cancelAnimationFrame = fakeCancelAnimationFrame;
+    if (jsdomEnvironment) {
+      jsdomEnvironment.window.cancelAnimationFrame = fakeCancelAnimationFrame;
     }
   }
   if (!doNotFake.has('Date')) {
@@ -1959,6 +2002,18 @@ function restoreRealTimers() {
   }
   process.nextTick = nativeNextTick;
   process.hrtime = nativeHrtime;
+  if (nativeAnimationFrame) {
+    if (nativeAnimationFrame.request === undefined) {
+      delete globalThis.requestAnimationFrame;
+    } else {
+      globalThis.requestAnimationFrame = nativeAnimationFrame.request;
+    }
+    if (nativeAnimationFrame.cancel === undefined) {
+      delete globalThis.cancelAnimationFrame;
+    } else {
+      globalThis.cancelAnimationFrame = nativeAnimationFrame.cancel;
+    }
+  }
   if (jsdomEnvironment && nativeWindowTimers) {
     Object.assign(jsdomEnvironment.window, nativeWindowTimers);
   }
@@ -2060,6 +2115,11 @@ const jest = {
     assertFakeTimers();
     const duration = timerDelay(milliseconds);
     runTimersUntil(fakeTimers.now + duration);
+    return jest;
+  },
+  advanceTimersToNextFrame() {
+    assertFakeTimers();
+    runTimersUntil(fakeTimers.now + timeToNextFrame());
     return jest;
   },
   async advanceTimersByTimeAsync(milliseconds) {

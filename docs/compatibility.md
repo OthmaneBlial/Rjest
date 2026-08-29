@@ -20,6 +20,10 @@ semantics, global automocking, V8 coverage, path/glob threshold groups, and
 watch mode remain missing, so Rjest does not claim broad or drop-in Jest
 compatibility yet.
 
+The modern timer surface includes animation-frame scheduling, cancellation,
+timestamps, and `advanceTimersToNextFrame` in JSDOM. Legacy fake-timer mode is a
+separate unimplemented path.
+
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
 CommonJS mapping is verified for capture expansion, first-match ordering,

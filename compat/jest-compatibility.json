@@ -3,9 +3,9 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 33,
+    "passing": 34,
     "total": 37,
-    "percentage": 89.1891891891892
+    "percentage": 91.8918918918919
   },
   "categories": {
     "Configuration": {
@@ -39,9 +39,9 @@
       "percentage": 100
     },
     "Fake timers": {
-      "passing": 6,
+      "passing": 7,
       "total": 7,
-      "percentage": 85.71428571428571
+      "percentage": 100
     },
     "Mocks": {
       "passing": 1,
@@ -248,11 +248,8 @@
     {
       "name": "gap-fake-timers-frame",
       "category": "Fake timers",
-      "compatible": false,
-      "differences": [
-        "exit Jest=0 Rjest=1",
-        "test results differ"
-      ]
+      "compatible": true,
+      "differences": []
     },
     {
       "name": "gap-inline-snapshot",
