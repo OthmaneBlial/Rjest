@@ -12,8 +12,9 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, CoverageMap, ModuleNameMapper, SnapshotRequest, SnapshotResult,
-    SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION, WorkerRequest,
+    AggregatedResult, CoverageMap, FakeTimersConfig, ModuleNameMapper, SnapshotRequest,
+    SnapshotResult, SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION,
+    WorkerRequest,
 };
 use thiserror::Error;
 
@@ -34,6 +35,7 @@ pub struct RunnerOptions {
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
     pub clear_mocks: bool,
+    pub fake_timers: FakeTimersConfig,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub setup_files: Vec<PathBuf>,
@@ -63,6 +65,7 @@ impl Default for RunnerOptions {
             module_paths: Vec::new(),
             automock: false,
             clear_mocks: false,
+            fake_timers: FakeTimersConfig::default(),
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files: Vec::new(),
@@ -299,6 +302,7 @@ fn run_file(
         module_name_mapper: options.module_name_mapper.clone(),
         automock: options.automock,
         clear_mocks: options.clear_mocks,
+        fake_timers: options.fake_timers.clone(),
         test_environment: options.test_environment.clone(),
         test_environment_options: options.test_environment_options.clone(),
         setup_files: options.setup_files.clone(),

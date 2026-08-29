@@ -4,8 +4,8 @@ Rjest is an early, independent implementation of a Jest-compatible JavaScript
 and TypeScript test runner whose coordinator is written in Rust.
 
 > **Status:** early alpha. JavaScript, configured JSX/TypeScript transforms,
-> Node and JSDOM environments, modern fake timers, CommonJS module factories,
-> and Jest v1 snapshots now execute through isolated workers. Existing inline
+> Node and JSDOM environments, modern and legacy fake timers, CommonJS module
+> factories, and Jest v1 snapshots now execute through isolated workers. Existing inline
 > snapshots, snapshot property matchers, configured serializers,
 > Babel/Istanbul coverage, and CommonJS/transformed `moduleNameMapper` rules are
 > supported. CommonJS automocking, manual `__mocks__` resolution,
@@ -36,10 +36,10 @@ cargo run -p rjest-cli -- --coverage
 Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
 `.ts`, `.cts`, `.mts`, `.json`, and the `jest` field or config reference in
 `package.json`. Jest-style inline JSON passed through `--config` also works.
-Exported async config functions work. Unknown Jest options fail explicitly
-rather than being ignored. Node 22.18 or newer is required; the
-current TypeScript path uses Node's native erasable-syntax support and does not
-yet handle TSX or TypeScript features that require code generation.
+Exported async config functions and supported `fakeTimers` options work. Unknown
+Jest options fail explicitly rather than being ignored. Node 22.18 or newer is
+required; the current TypeScript path uses Node's native erasable-syntax support
+and does not yet handle TSX or TypeScript features that require code generation.
 
 The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
 package `exports` resolution to Node. Configured synchronous Jest transformers

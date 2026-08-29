@@ -4,7 +4,7 @@ Rjest is not ready for production migration yet. Node and JSDOM projects can
 already try replacing `jest` with the built `rjest` binary when they use global
 `describe`/`test`/`it`, hooks, async tests, common matchers, `jest.fn`,
 method/accessor spies, explicit CommonJS module mock factories, configured
-synchronous Jest transforms, modern fake timers, and ordinary external or
+synchronous Jest transforms, modern or legacy fake timers, and ordinary external or
 existing inline snapshots.
 
 Start with `rjest --listTests`, then use `rjest --runInBand` before enabling the
@@ -23,6 +23,13 @@ discovery, environment/options, transform,
 setup-after-env, serializer, module-path, timeout, worker, and common tooling
 fields; unsupported options are migration work items and produce an explicit
 error.
+
+The `fakeTimers` configuration supports global modern or legacy activation,
+`doNotFake`, `now`, and `timerLimit`. Explicit
+`jest.useFakeTimers({legacyFakeTimers: true})` retains Jest's zero-based legacy
+clock, mock timer functions, real `Date`/`performance`, and legacy-only
+`runAllImmediates` behavior. Automatic modern advancement through
+`fakeTimers.advanceTimers` remains an explicit migration gap.
 
 `setupFiles` and `setupFilesAfterEnv` retain their separate Jest lifecycle
 phases. Rjest also accepts Jest's `-w` worker alias and reports per-file heap

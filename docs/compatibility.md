@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 56/56 (100%) across its explicitly listed
+The current generated matrix is 60/60 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 
@@ -16,7 +16,7 @@ configuration, native discovery, isolated JS execution, configured synchronous
 Jest transforms for JSX/TypeScript, Node and JSDOM environments, nested hooks,
 async tests, common matchers, function/method/accessor mocks, CommonJS module
 mocks, external Jest v1 snapshots, existing inline snapshots, configured
-serializers, snapshot property matchers, modern fake timers, and ordered
+serializers, snapshot property matchers, modern and legacy fake timers, and ordered
 `moduleNameMapper` rules for CommonJS and transformed modules. Configured and
 runtime CommonJS automocking covers recursive exports and classes, while
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
@@ -28,8 +28,12 @@ threshold groups, and watch mode remain missing, so Rjest does not claim broad
 or drop-in Jest compatibility yet.
 
 The modern timer surface includes animation-frame scheduling, cancellation,
-timestamps, and `advanceTimersToNextFrame` in JSDOM. Legacy fake-timer mode is a
-separate unimplemented path.
+timestamps, and `advanceTimersToNextFrame` in JSDOM. Legacy mode preserves its
+separate zero-based scheduler, Jest-mock timer APIs, Node timer references, real
+wall-clock APIs and microtask queue, `runAllImmediates`, queue ordering, and
+modern-only API errors. Node and JSDOM behavior is differential-tested, as are
+globally enabled legacy and modern timer configuration. Modern automatic
+wall-clock advancement through `fakeTimers.advanceTimers` remains unsupported.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.

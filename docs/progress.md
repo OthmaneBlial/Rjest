@@ -47,6 +47,12 @@ Last updated: 2026-08-29
 - Custom matchers through `expect.extend`, including `.not` and promise chains.
 - Modern fake timers covering clock control, timeouts, intervals, immediates,
   tick/microtask queues, async advancement, `Date`, `performance`, and `hrtime`.
+- Legacy fake timers with a persistent zero-based scheduler, Jest-mock timer
+  functions, Node and JSDOM handles, native wall-clock APIs, ticks/immediates,
+  animation frames, pending-timer semantics, and legacy-specific API errors.
+- Jest `fakeTimers` configuration normalization and worker propagation for
+  globally enabled modern/legacy modes, `doNotFake`, `now`, and `timerLimit`,
+  including activation before `setupFilesAfterEnv`.
 - Configured Jest transformer execution for JavaScript, JSX, TypeScript, and
   TSX, plus `setupFilesAfterEnv`, JSDOM, snapshot serializers, and Jest's
   `NODE_ENV=test` default.
@@ -168,7 +174,7 @@ Last updated: 2026-08-29
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 56/56
+  preserved known incompatibilities. The current generated result is 60/60
   compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
@@ -190,7 +196,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 56/56 (100%). Coverage is 3/3 in that deliberately bounded
+corpus score is 60/60 (100%). Coverage is 3/3 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -212,7 +218,8 @@ scenario category.
 - New/updated inline snapshot source writes, V8 coverage, non-global threshold
   groups, watch mode, complete custom
   environments, worker reuse, and cooperative cancellation are not implemented.
-  Legacy-timer mode remains unimplemented.
+  Modern `fakeTimers.advanceTimers` automatic wall-clock advancement is not yet
+  implemented.
 - Fresh Node/JSDOM/transformer startup per test file is a major performance
   bottleneck: the pinned Amplify Core serial run is compatible but about 19.35
   times slower than Jest by reported runner time, while Auth is about 19.83
@@ -228,7 +235,7 @@ scenario category.
 1. Run the next high-impact Amplify workspace package unchanged.
 2. Grow the versioned differential denominator from deterministic real-project
    failures.
-3. Implement legacy fake-timer behavior.
-4. Extend native ESM mocking to async factories and unmock/reset semantics.
+3. Extend native ESM mocking to async factories and unmock/reset semantics.
+4. Add automatic modern timer advancement and broader timer edge-case probes.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
    stable across a broader independent corpus.

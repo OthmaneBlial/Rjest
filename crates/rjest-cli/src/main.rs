@@ -224,6 +224,7 @@ fn run() -> Result<bool> {
         module_paths: config.module_paths.clone(),
         automock: config.automock,
         clear_mocks: config.clear_mocks,
+        fake_timers: config.fake_timers.clone(),
         test_environment: config.test_environment.clone(),
         test_environment_options: config.test_environment_options.clone(),
         setup_files: config.setup_files.clone(),

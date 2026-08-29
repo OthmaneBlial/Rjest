@@ -53,6 +53,18 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-fake-timers-legacy',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-fake-timers-modern',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'coverage-basic',
     category: 'Coverage',
     expectedExit: 0,
@@ -110,6 +122,13 @@ const cases = [
   },
   {name: 'failure', category: 'Core API', expectedExit: 1},
   {name: 'fake-timers-clock', category: 'Fake timers', expectedExit: 0},
+  {name: 'fake-timers-legacy', category: 'Fake timers', expectedExit: 0},
+  {
+    name: 'fake-timers-legacy-jsdom',
+    category: 'Fake timers',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'fake-timers-queues', category: 'Fake timers', expectedExit: 0},
   {name: 'focus', category: 'Core API', expectedExit: 0},
   {name: 'gap-process-stdout', category: 'Core API', expectedExit: 0},

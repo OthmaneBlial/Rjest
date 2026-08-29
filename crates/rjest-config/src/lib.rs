@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use rjest_core::ModuleNameMapper;
+use rjest_core::{FakeTimersConfig, ModuleNameMapper};
 
 const CONFIG_FILENAMES: &[&str] = &[
     "jest.config.js",
@@ -25,6 +25,24 @@ const CONFIG_FILENAMES: &[&str] = &[
 ];
 const CONFIG_RESULT_PREFIX: &str = "__RJEST_CONFIG__";
 const CONFIG_LOADER: &str = include_str!("../runtime/config-loader.mjs");
+const FAKEABLE_TIMER_APIS: &[&str] = &[
+    "Date",
+    "Temporal",
+    "cancelAnimationFrame",
+    "cancelIdleCallback",
+    "clearImmediate",
+    "clearInterval",
+    "clearTimeout",
+    "hrtime",
+    "nextTick",
+    "performance",
+    "queueMicrotask",
+    "requestAnimationFrame",
+    "requestIdleCallback",
+    "setImmediate",
+    "setInterval",
+    "setTimeout",
+];
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -82,6 +100,7 @@ pub struct ProjectConfig {
     pub module_paths: Vec<PathBuf>,
     pub automock: bool,
     pub clear_mocks: bool,
+    pub fake_timers: FakeTimersConfig,
     pub test_environment: String,
     pub test_environment_options: Value,
     pub setup_files: Vec<PathBuf>,
@@ -117,6 +136,7 @@ struct RawProjectConfig {
     module_paths: Option<Vec<String>>,
     automock: Option<bool>,
     clear_mocks: Option<bool>,
+    fake_timers: Option<RawFakeTimersConfig>,
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
     setup_files: Option<Vec<String>>,
@@ -135,6 +155,18 @@ struct RawProjectConfig {
     coverage_reporters: Option<Vec<Value>>,
     coverage_threshold: Option<Value>,
     watch_plugins: Option<Value>,
+    #[serde(flatten)]
+    unsupported: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawFakeTimersConfig {
+    enable_globally: Option<bool>,
+    legacy_fake_timers: Option<bool>,
+    do_not_fake: Option<Vec<String>>,
+    now: Option<u64>,
+    timer_limit: Option<u64>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
 }
@@ -219,6 +251,7 @@ impl ProjectConfig {
             module_paths: Vec::new(),
             automock: false,
             clear_mocks: false,
+            fake_timers: FakeTimersConfig::default(),
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files: Vec::new(),
@@ -423,6 +456,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     )?;
     let setup_files = resolve_paths(raw.setup_files)?;
     let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
+    let fake_timers = normalize_fake_timers(raw.fake_timers, defaults.fake_timers)?;
     let (test_match, test_regex) = normalize_test_patterns(
         raw.test_match,
         raw.test_regex,
@@ -462,6 +496,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         module_paths,
         automock: raw.automock.unwrap_or(defaults.automock),
         clear_mocks: raw.clear_mocks.unwrap_or(defaults.clear_mocks),
+        fake_timers,
         test_environment,
         test_environment_options: raw
             .test_environment_options
@@ -504,6 +539,56 @@ fn reject_unsupported_fields(unsupported: &BTreeMap<String, Value>) -> Result<()
     Err(ConfigError::UnsupportedFields(
         unsupported.keys().cloned().collect::<Vec<_>>().join(", "),
     ))
+}
+
+fn normalize_fake_timers(
+    configured: Option<RawFakeTimersConfig>,
+    defaults: FakeTimersConfig,
+) -> Result<FakeTimersConfig, ConfigError> {
+    let Some(configured) = configured else {
+        return Ok(defaults);
+    };
+    if !configured.unsupported.is_empty() {
+        return Err(ConfigError::UnsupportedFields(
+            configured
+                .unsupported
+                .keys()
+                .map(|field| format!("fakeTimers.{field}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+    }
+
+    let legacy_fake_timers = configured.legacy_fake_timers.unwrap_or(false);
+    if legacy_fake_timers
+        && (configured.do_not_fake.is_some()
+            || configured.now.is_some()
+            || configured.timer_limit.is_some())
+    {
+        return Err(ConfigError::UnsupportedValue {
+            field: "fakeTimers".into(),
+            value: "legacyFakeTimers cannot be combined with doNotFake, now, or timerLimit".into(),
+        });
+    }
+
+    let do_not_fake = configured.do_not_fake.unwrap_or_default();
+    if let Some(value) = do_not_fake
+        .iter()
+        .find(|value| !FAKEABLE_TIMER_APIS.contains(&value.as_str()))
+    {
+        return Err(ConfigError::UnsupportedValue {
+            field: "fakeTimers.doNotFake".into(),
+            value: value.clone(),
+        });
+    }
+
+    Ok(FakeTimersConfig {
+        enable_globally: configured.enable_globally.unwrap_or(false),
+        legacy_fake_timers,
+        do_not_fake,
+        now: configured.now,
+        timer_limit: configured.timer_limit,
+    })
 }
 
 fn normalize_worker_idle_memory_limit(configured: Option<MemoryLimit>) -> Option<String> {
@@ -875,6 +960,13 @@ mod tests {
               "extensionsToTreatAsEsm":[".ts"],
               "automock":true,
               "clearMocks":true,
+              "fakeTimers":{
+                "enableGlobally":true,
+                "legacyFakeTimers":false,
+                "doNotFake":["performance"],
+                "now":1234,
+                "timerLimit":50
+              },
               "modulePathIgnorePatterns":["/dist/"],
               "setupFiles":["<rootDir>/test/pre-setup.ts"],
               "setupFilesAfterEnv":["<rootDir>/test/setup.ts"],
@@ -916,6 +1008,11 @@ mod tests {
         );
         assert!(config.automock);
         assert!(config.clear_mocks);
+        assert!(config.fake_timers.enable_globally);
+        assert!(!config.fake_timers.legacy_fake_timers);
+        assert_eq!(config.fake_timers.do_not_fake, ["performance"]);
+        assert_eq!(config.fake_timers.now, Some(1234));
+        assert_eq!(config.fake_timers.timer_limit, Some(50));
         assert_eq!(config.extensions_to_treat_as_esm, [".ts"]);
         assert_eq!(config.setup_files, [temp.path().join("test/pre-setup.ts")]);
         assert_eq!(
@@ -958,6 +1055,28 @@ mod tests {
 
         let error = load(temp.path(), None).expect_err("unknown option should fail");
         assert!(error.to_string().contains("madeUpOption"));
+    }
+
+    #[test]
+    fn rejects_unknown_or_incompatible_fake_timer_options() {
+        let unknown = tempdir().expect("temp dir");
+        fs::write(
+            unknown.path().join("jest.config.json"),
+            r#"{"fakeTimers":{"madeUpOption":true}}"#,
+        )
+        .expect("write config");
+        let error = load(unknown.path(), None).expect_err("unknown timer option should fail");
+        assert!(error.to_string().contains("fakeTimers.madeUpOption"));
+
+        let incompatible = tempdir().expect("temp dir");
+        fs::write(
+            incompatible.path().join("jest.config.json"),
+            r#"{"fakeTimers":{"legacyFakeTimers":true,"now":1234}}"#,
+        )
+        .expect("write config");
+        let error = load(incompatible.path(), None)
+            .expect_err("legacy timers should reject modern-only options");
+        assert!(error.to_string().contains("legacyFakeTimers"));
     }
 
     #[test]

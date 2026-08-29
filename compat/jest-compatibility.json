@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 56,
-    "total": 56,
+    "passing": 60,
+    "total": 60,
     "percentage": 100
   },
   "categories": {
     "Configuration": {
-      "passing": 10,
-      "total": 10,
+      "passing": 12,
+      "total": 12,
       "percentage": 100
     },
     "Core API": {
@@ -39,8 +39,8 @@
       "percentage": 100
     },
     "Fake timers": {
-      "passing": 7,
-      "total": 7,
+      "passing": 9,
+      "total": 9,
       "percentage": 100
     },
     "Mocks": {
@@ -109,6 +109,18 @@
     },
     {
       "name": "config-setup-files",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-fake-timers-legacy",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-fake-timers-modern",
       "category": "Configuration",
       "compatible": true,
       "differences": []
@@ -187,6 +199,18 @@
     },
     {
       "name": "fake-timers-clock",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "fake-timers-legacy",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "fake-timers-legacy-jsdom",
       "category": "Fake timers",
       "compatible": true,
       "differences": []

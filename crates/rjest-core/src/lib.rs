@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 9;
+pub const WORKER_PROTOCOL_VERSION: u32 = 10;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -22,6 +22,20 @@ pub type CoverageMap = BTreeMap<String, serde_json::Value>;
 pub struct ModuleNameMapper {
     pub pattern: String,
     pub replacements: Vec<String>,
+}
+
+/// Normalized Jest fake-timer configuration shared with each JavaScript worker.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FakeTimersConfig {
+    pub enable_globally: bool,
+    pub legacy_fake_timers: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub do_not_fake: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub now: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timer_limit: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -44,6 +58,7 @@ pub struct WorkerRequest {
     pub module_name_mapper: Vec<ModuleNameMapper>,
     pub automock: bool,
     pub clear_mocks: bool,
+    pub fake_timers: FakeTimersConfig,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub setup_files: Vec<PathBuf>,

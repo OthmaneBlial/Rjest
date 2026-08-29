@@ -1,6 +1,6 @@
 import {existsSync, readFileSync} from 'node:fs';
 import Module, {createRequire, registerHooks} from 'node:module';
-import {isDeepStrictEqual, format, inspect} from 'node:util';
+import {isDeepStrictEqual, format, inspect, promisify} from 'node:util';
 import {
   basename,
   dirname,
@@ -11,7 +11,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 9;
+const PROTOCOL_VERSION = 10;
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -2808,14 +2808,57 @@ async function loadRuntimeModule(path) {
   return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
 }
 
+function createFakeTimerState() {
+  return {
+    now: 0,
+    monotonicNow: 0,
+    nextId: 1,
+    timers: new Map(),
+    ticks: [],
+    immediates: [],
+    cancelledTicks: new Set(),
+  };
+}
+
+const fakeTimerStates = {
+  modern: createFakeTimerState(),
+  legacy: createFakeTimerState(),
+};
+
 const fakeTimers = {
   active: false,
-  now: 0,
-  monotonicNow: 0,
-  nextId: 1,
-  timers: new Map(),
-  ticks: [],
+  mode: 'modern',
   maxRuns: 100_000,
+  get now() {
+    return fakeTimerStates[this.mode].now;
+  },
+  set now(value) {
+    fakeTimerStates[this.mode].now = value;
+  },
+  get monotonicNow() {
+    return fakeTimerStates[this.mode].monotonicNow;
+  },
+  set monotonicNow(value) {
+    fakeTimerStates[this.mode].monotonicNow = value;
+  },
+  get nextId() {
+    return fakeTimerStates[this.mode].nextId;
+  },
+  set nextId(value) {
+    fakeTimerStates[this.mode].nextId = value;
+  },
+  get timers() {
+    return fakeTimerStates[this.mode].timers;
+  },
+  get ticks() {
+    return fakeTimerStates[this.mode].ticks;
+  },
+  get immediates() {
+    return fakeTimerStates[this.mode].immediates;
+  },
+  get cancelledTicks() {
+    return fakeTimerStates[this.mode].cancelledTicks;
+  },
 };
 
 function assertFakeTimers() {
@@ -2832,25 +2875,73 @@ function timerDelay(value) {
   return Math.floor(number);
 }
 
+function timerAdvanceDuration(value) {
+  if (
+    fakeTimers.mode === 'legacy' &&
+    value !== null &&
+    typeof value === 'object' &&
+    typeof value.total === 'function'
+  ) {
+    return Number(value.total({unit: 'millisecond'}));
+  }
+  if (fakeTimers.mode === 'legacy') return Number(value ?? 0);
+  return timerDelay(value);
+}
+
 function timeToNextFrame() {
   return 16 - (fakeTimers.monotonicNow % 16);
 }
 
 function scheduleFakeTimer(type, callback, delay, args) {
-  if (typeof callback !== 'function') {
+  if (fakeTimers.mode !== 'legacy' && typeof callback !== 'function') {
     throw new TypeError(`${type} callback must be a function`);
   }
   const id = fakeTimers.nextId++;
-  const duration = type === 'immediate' ? 0 : timerDelay(delay);
+  let duration;
+  if (type === 'immediate') {
+    duration = 0;
+  } else if (fakeTimers.mode === 'legacy' && type === 'interval') {
+    duration = delay == null ? 0 : delay;
+  } else if (fakeTimers.mode === 'legacy') {
+    duration = Number(delay) | 0;
+  } else {
+    duration = timerDelay(delay);
+  }
   fakeTimers.timers.set(id, {
     id,
     type,
     callback,
     args,
     callAt: fakeTimers.now + duration,
-    interval: type === 'interval' ? Math.max(1, duration) : undefined,
+    interval:
+      type === 'interval'
+        ? fakeTimers.mode === 'legacy'
+          ? duration
+          : Math.max(1, duration)
+        : undefined,
   });
-  return id;
+  return legacyTimerReference(id);
+}
+
+function legacyTimerReference(id) {
+  if (fakeTimers.mode !== 'legacy' || jsdomEnvironment) return id;
+  return {
+    id,
+    ref() {
+      return this;
+    },
+    unref() {
+      return this;
+    },
+  };
+}
+
+function timerReferenceId(reference) {
+  if (fakeTimers.mode === 'legacy') {
+    if (jsdomEnvironment) return reference;
+    return reference?.id;
+  }
+  return Number(reference);
 }
 
 function nextFakeTimer(limit = Number.POSITIVE_INFINITY, allowedIds) {
@@ -2880,7 +2971,63 @@ function runAllTicks() {
       );
     }
     const tick = fakeTimers.ticks.shift();
-    tick.callback(...tick.args);
+    if (fakeTimers.mode === 'legacy') {
+      runLegacyTick(tick);
+    } else {
+      tick.callback(...tick.args);
+    }
+  }
+  return jest;
+}
+
+function runLegacyTick(tick) {
+  const {cancelledTicks} = fakeTimerStates.legacy;
+  if (cancelledTicks.has(tick.id)) return;
+  cancelledTicks.add(tick.id);
+  tick.callback.apply(null, tick.args);
+}
+
+function clearLegacyImmediate(id) {
+  const state = fakeTimerStates.legacy;
+  state.immediates = state.immediates.filter(immediate => immediate.id !== id);
+}
+
+function runLegacyImmediate(immediate) {
+  try {
+    immediate.callback.apply(null, immediate.args);
+  } finally {
+    clearLegacyImmediate(immediate.id);
+  }
+}
+
+function scheduleLegacyImmediate(callback, args) {
+  const state = fakeTimerStates.legacy;
+  const id = String(state.nextId++);
+  state.immediates.push({id, callback, args});
+  if (typeof nativeSetImmediate === 'function') {
+    nativeSetImmediate(() => {
+      const pending = state.immediates.find(immediate => immediate.id === id);
+      if (pending) runLegacyImmediate(pending);
+    });
+  }
+  return id;
+}
+
+function runAllLegacyImmediates() {
+  assertFakeTimers();
+  if (fakeTimers.mode !== 'legacy') {
+    throw new TypeError(
+      '`jest.runAllImmediates()` is only available when using legacy fake timers.',
+    );
+  }
+  let runs = 0;
+  while (fakeTimers.immediates.length > 0) {
+    if (++runs > fakeTimers.maxRuns) {
+      throw new Error(
+        `Ran ${fakeTimers.maxRuns} immediates, and there are still more! Assuming we've hit an infinite recursion and bailing out...`,
+      );
+    }
+    runLegacyImmediate(fakeTimers.immediates[0]);
   }
   return jest;
 }
@@ -2890,11 +3037,18 @@ function runTimer(timer) {
   fakeTimers.monotonicNow += timer.callAt - fakeTimers.now;
   fakeTimers.now = timer.callAt;
   if (timer.type === 'interval') {
-    timer.callAt += timer.interval;
+    timer.callAt =
+      fakeTimers.mode === 'legacy'
+        ? fakeTimers.now + (timer.interval || 0)
+        : timer.callAt + timer.interval;
     fakeTimers.timers.set(timer.id, timer);
   }
-  timer.callback(...timer.args);
-  runAllTicks();
+  if (fakeTimers.mode === 'legacy') {
+    timer.callback.apply(null, timer.args);
+  } else {
+    timer.callback(...timer.args);
+  }
+  if (fakeTimers.mode !== 'legacy') runAllTicks();
 }
 
 function runTimersUntil(target, allowedIds) {
@@ -2929,11 +3083,31 @@ async function runTimersUntilAsync(target) {
 }
 
 function installFakeTimers(options = {}) {
-  if (options === 'legacy' || options?.legacyFakeTimers) {
-    throw new Error('Legacy fake timers are not supported yet');
-  }
+  options = {
+    ...(request.fakeTimers ?? {}),
+    ...(options ?? {}),
+  };
+  const mode =
+    options !== null &&
+    typeof options === 'object' &&
+    options.legacyFakeTimers === true
+      ? 'legacy'
+      : 'modern';
   if (fakeTimers.active) restoreRealTimers();
   fakeTimers.active = true;
+  fakeTimers.mode = mode;
+  fakeTimers.maxRuns =
+    mode === 'modern' && Number.isFinite(Number(options.timerLimit))
+      ? Math.max(0, Math.floor(Number(options.timerLimit)))
+      : 100_000;
+  nativeAnimationFrame = {
+    request: globalThis.requestAnimationFrame,
+    cancel: globalThis.cancelAnimationFrame,
+  };
+  if (mode === 'legacy') {
+    installLegacyFakeTimerApis();
+    return jest;
+  }
   fakeTimers.now =
     options?.now === undefined
       ? NativeDate.now()
@@ -2942,39 +3116,48 @@ function installFakeTimers(options = {}) {
   fakeTimers.nextId = 1;
   fakeTimers.timers.clear();
   fakeTimers.ticks.length = 0;
-  nativeAnimationFrame = {
-    request: globalThis.requestAnimationFrame,
-    cancel: globalThis.cancelAnimationFrame,
-  };
   const doNotFake = new Set(options?.doNotFake ?? []);
+  const fakeSetTimeout = (callback, delay, ...args) =>
+    scheduleFakeTimer('timeout', callback, delay, args);
+  fakeSetTimeout.clock = fakeTimers;
+  const fakeClearTimeout = id => fakeTimers.timers.delete(timerReferenceId(id));
   if (!doNotFake.has('setTimeout')) {
-    const fakeSetTimeout = (callback, delay, ...args) =>
-      scheduleFakeTimer('timeout', callback, delay, args);
-    fakeSetTimeout.clock = fakeTimers;
-    const fakeClearTimeout = id => fakeTimers.timers.delete(Number(id));
     globalThis.setTimeout = fakeSetTimeout;
-    globalThis.clearTimeout = fakeClearTimeout;
     if (jsdomEnvironment) {
       jsdomEnvironment.window.setTimeout = fakeSetTimeout;
+    }
+  }
+  if (!doNotFake.has('clearTimeout')) {
+    globalThis.clearTimeout = fakeClearTimeout;
+    if (jsdomEnvironment) {
       jsdomEnvironment.window.clearTimeout = fakeClearTimeout;
     }
   }
+  const fakeSetInterval = (callback, delay, ...args) =>
+    scheduleFakeTimer('interval', callback, delay, args);
+  fakeSetInterval.clock = fakeTimers;
+  const fakeClearInterval = id => fakeTimers.timers.delete(timerReferenceId(id));
   if (!doNotFake.has('setInterval')) {
-    const fakeSetInterval = (callback, delay, ...args) =>
-      scheduleFakeTimer('interval', callback, delay, args);
-    fakeSetInterval.clock = fakeTimers;
-    const fakeClearInterval = id => fakeTimers.timers.delete(Number(id));
     globalThis.setInterval = fakeSetInterval;
-    globalThis.clearInterval = fakeClearInterval;
     if (jsdomEnvironment) {
       jsdomEnvironment.window.setInterval = fakeSetInterval;
+    }
+  }
+  if (!doNotFake.has('clearInterval')) {
+    globalThis.clearInterval = fakeClearInterval;
+    if (jsdomEnvironment) {
       jsdomEnvironment.window.clearInterval = fakeClearInterval;
     }
   }
+  const fakeSetImmediate = (callback, ...args) =>
+    scheduleFakeTimer('immediate', callback, 0, args);
+  const fakeClearImmediate = id =>
+    fakeTimers.timers.delete(timerReferenceId(id));
   if (!doNotFake.has('setImmediate')) {
-    globalThis.setImmediate = (callback, ...args) =>
-      scheduleFakeTimer('immediate', callback, 0, args);
-    globalThis.clearImmediate = id => fakeTimers.timers.delete(Number(id));
+    globalThis.setImmediate = fakeSetImmediate;
+  }
+  if (!doNotFake.has('clearImmediate')) {
+    globalThis.clearImmediate = fakeClearImmediate;
   }
   if (!doNotFake.has('nextTick')) {
     process.nextTick = (callback, ...args) => {
@@ -3021,7 +3204,7 @@ function installFakeTimers(options = {}) {
     typeof nativeAnimationFrame.cancel === 'function'
   ) {
     const fakeCancelAnimationFrame = id => {
-      fakeTimers.timers.delete(Number(id));
+      fakeTimers.timers.delete(timerReferenceId(id));
     };
     globalThis.cancelAnimationFrame = fakeCancelAnimationFrame;
     if (jsdomEnvironment) {
@@ -3066,6 +3249,76 @@ function installFakeTimers(options = {}) {
   return jest;
 }
 
+function installLegacyFakeTimerApis() {
+  const fakeSetTimeout = createMock((callback, delay, ...args) =>
+    scheduleFakeTimer('timeout', callback, delay, args),
+  );
+  fakeSetTimeout[promisify.custom] = (delay, value) =>
+    new Promise(resolve => fakeSetTimeout(resolve, delay, value));
+  const fakeClearTimeout = createMock(reference => {
+    fakeTimers.timers.delete(timerReferenceId(reference));
+  });
+  const fakeSetInterval = createMock((callback, delay, ...args) =>
+    scheduleFakeTimer('interval', callback, delay, args),
+  );
+  const fakeClearInterval = createMock(reference => {
+    fakeTimers.timers.delete(timerReferenceId(reference));
+  });
+
+  globalThis.setTimeout = fakeSetTimeout;
+  globalThis.clearTimeout = fakeClearTimeout;
+  globalThis.setInterval = fakeSetInterval;
+  globalThis.clearInterval = fakeClearInterval;
+  if (jsdomEnvironment) {
+    jsdomEnvironment.window.setTimeout = fakeSetTimeout;
+    jsdomEnvironment.window.clearTimeout = fakeClearTimeout;
+    jsdomEnvironment.window.setInterval = fakeSetInterval;
+    jsdomEnvironment.window.clearInterval = fakeClearInterval;
+  }
+
+  if (typeof nativeSetImmediate === 'function') {
+    const fakeSetImmediate = createMock((callback, ...args) =>
+      scheduleLegacyImmediate(callback, args),
+    );
+    const fakeClearImmediate = createMock(clearLegacyImmediate);
+    globalThis.setImmediate = fakeSetImmediate;
+    globalThis.clearImmediate = fakeClearImmediate;
+  }
+
+  const fakeNextTick = createMock((callback, ...args) => {
+    const state = fakeTimerStates.legacy;
+    const id = String(state.nextId++);
+    const tick = {id, callback, args};
+    state.ticks.push(tick);
+    nativeNextTick(() => runLegacyTick(tick));
+  });
+  process.nextTick = fakeNextTick;
+
+  if (typeof nativeAnimationFrame.request === 'function') {
+    const fakeRequestAnimationFrame = createMock(callback =>
+      scheduleFakeTimer(
+        'timeout',
+        () => callback(fakeTimers.now),
+        1000 / 60,
+        [],
+      ),
+    );
+    globalThis.requestAnimationFrame = fakeRequestAnimationFrame;
+    if (jsdomEnvironment) {
+      jsdomEnvironment.window.requestAnimationFrame = fakeRequestAnimationFrame;
+    }
+  }
+  if (typeof nativeAnimationFrame.cancel === 'function') {
+    const fakeCancelAnimationFrame = createMock(reference => {
+      fakeTimers.timers.delete(timerReferenceId(reference));
+    });
+    globalThis.cancelAnimationFrame = fakeCancelAnimationFrame;
+    if (jsdomEnvironment) {
+      jsdomEnvironment.window.cancelAnimationFrame = fakeCancelAnimationFrame;
+    }
+  }
+}
+
 function restoreRealTimers() {
   globalThis.setTimeout = nativeSetTimeout;
   globalThis.clearTimeout = nativeClearTimeout;
@@ -3103,8 +3356,12 @@ function restoreRealTimers() {
     Object.assign(jsdomEnvironment.window, nativeWindowTimers);
   }
   fakeTimers.active = false;
-  fakeTimers.timers.clear();
-  fakeTimers.ticks.length = 0;
+  if (fakeTimers.mode !== 'legacy') {
+    fakeTimers.timers.clear();
+    fakeTimers.ticks.length = 0;
+    fakeTimers.immediates.length = 0;
+    fakeTimers.cancelledTicks.clear();
+  }
   return jest;
 }
 
@@ -3193,8 +3450,13 @@ const jest = {
   useFakeTimers: installFakeTimers,
   useRealTimers: restoreRealTimers,
   runAllTicks,
+  runAllImmediates: runAllLegacyImmediates,
   runAllTimers() {
     assertFakeTimers();
+    if (fakeTimers.mode === 'legacy') {
+      runAllTicks();
+      runAllLegacyImmediates();
+    }
     let runs = 0;
     let timer;
     while ((timer = nextFakeTimer())) {
@@ -3204,12 +3466,21 @@ const jest = {
         );
       }
       runTimer(timer);
+      if (fakeTimers.mode === 'legacy') {
+        if (fakeTimers.immediates.length > 0) runAllLegacyImmediates();
+        if (fakeTimers.ticks.length > 0) runAllTicks();
+      }
     }
-    runAllTicks();
+    if (fakeTimers.mode !== 'legacy') runAllTicks();
     return jest;
   },
   async runAllTimersAsync() {
     assertFakeTimers();
+    if (fakeTimers.mode === 'legacy') {
+      throw new TypeError(
+        '`jest.runAllTimersAsync()` is not available when using legacy fake timers.',
+      );
+    }
     let runs = 0;
     let timer;
     while ((timer = nextFakeTimer())) {
@@ -3229,6 +3500,18 @@ const jest = {
     const pending = [...fakeTimers.timers.values()].sort(
       (left, right) => left.callAt - right.callAt || left.id - right.id,
     );
+    if (fakeTimers.mode === 'legacy') {
+      for (const immediate of [...fakeTimers.immediates]) {
+        runLegacyImmediate(immediate);
+      }
+      for (const timer of pending) {
+        if (fakeTimers.timers.get(timer.id) !== timer) continue;
+        fakeTimers.monotonicNow += timer.callAt - fakeTimers.now;
+        fakeTimers.now = timer.callAt;
+        runTimer(timer);
+      }
+      return jest;
+    }
     for (const timer of pending) {
       if (fakeTimers.timers.get(timer.id) === timer) runTimer(timer);
     }
@@ -3236,6 +3519,11 @@ const jest = {
   },
   async runOnlyPendingTimersAsync() {
     assertFakeTimers();
+    if (fakeTimers.mode === 'legacy') {
+      throw new TypeError(
+        '`jest.runOnlyPendingTimersAsync()` is not available when using legacy fake timers.',
+      );
+    }
     const pending = [...fakeTimers.timers.values()].sort(
       (left, right) => left.callAt - right.callAt || left.id - right.id,
     );
@@ -3249,17 +3537,27 @@ const jest = {
   },
   advanceTimersByTime(milliseconds) {
     assertFakeTimers();
-    const duration = timerDelay(milliseconds);
+    const duration = timerAdvanceDuration(milliseconds);
     runTimersUntil(fakeTimers.now + duration);
     return jest;
   },
   advanceTimersToNextFrame() {
     assertFakeTimers();
+    if (fakeTimers.mode === 'legacy') {
+      throw new TypeError(
+        '`jest.advanceTimersToNextFrame()` is not available when using legacy fake timers.',
+      );
+    }
     runTimersUntil(fakeTimers.now + timeToNextFrame());
     return jest;
   },
   async advanceTimersByTimeAsync(milliseconds) {
     assertFakeTimers();
+    if (fakeTimers.mode === 'legacy') {
+      throw new TypeError(
+        '`jest.advanceTimersByTimeAsync()` is not available when using legacy fake timers.',
+      );
+    }
     const duration = timerDelay(milliseconds);
     await runTimersUntilAsync(fakeTimers.now + duration);
     return jest;
@@ -3275,6 +3573,11 @@ const jest = {
   },
   async advanceTimersToNextTimerAsync(steps = 1) {
     assertFakeTimers();
+    if (fakeTimers.mode === 'legacy') {
+      throw new TypeError(
+        '`jest.advanceTimersToNextTimerAsync()` is not available when using legacy fake timers.',
+      );
+    }
     for (let index = 0; index < Number(steps); index += 1) {
       const timer = nextFakeTimer();
       if (!timer) break;
@@ -3285,15 +3588,25 @@ const jest = {
   clearAllTimers() {
     assertFakeTimers();
     fakeTimers.timers.clear();
-    fakeTimers.ticks.length = 0;
+    fakeTimers.immediates.length = 0;
+    if (fakeTimers.mode !== 'legacy') fakeTimers.ticks.length = 0;
     return jest;
   },
   getTimerCount() {
     assertFakeTimers();
-    return fakeTimers.timers.size + fakeTimers.ticks.length;
+    return (
+      fakeTimers.timers.size +
+      fakeTimers.ticks.length +
+      fakeTimers.immediates.length
+    );
   },
   setSystemTime(value) {
     assertFakeTimers();
+    if (fakeTimers.mode === 'legacy') {
+      throw new TypeError(
+        '`jest.setSystemTime()` is not available when using legacy fake timers.',
+      );
+    }
     const next = new NativeDate(value ?? NativeDate.now()).getTime();
     const difference = next - fakeTimers.now;
     fakeTimers.now = next;
@@ -3306,6 +3619,11 @@ const jest = {
     return fakeTimers.active ? fakeTimers.now : NativeDate.now();
   },
   getRealSystemTime() {
+    if (fakeTimers.mode === 'legacy') {
+      throw new TypeError(
+        '`jest.getRealSystemTime()` is not available when using legacy fake timers.',
+      );
+    }
     return NativeDate.now();
   },
   clearAllMocks() {
@@ -3653,6 +3971,9 @@ try {
     for (const [name, descriptor] of savedFrameworkGlobals) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
     }
+  }
+  if (request.fakeTimers?.enableGlobally) {
+    installFakeTimers(request.fakeTimers);
   }
   for (const setupPath of request.setupFilesAfterEnv ?? []) {
     await loadRuntimeModule(setupPath);
