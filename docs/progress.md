@@ -153,24 +153,32 @@ Last updated: 2026-08-29
 - A pinned AWS Amplify PubSub/Jest 29 corpus: exact 1/1 suite, 17/17 tests, and
   aggregate plus per-file Istanbul parity across 14 source files, including
   MQTT-over-WebSocket reconnection and the vendored Paho MQTT runtime.
+- Jest-compatible nested Node worker startup: Rjest's embedded ESM worker launch
+  no longer leaks module input mode through `process.execArgv` into user-created
+  `{ eval: true }` workers.
+- A pinned AWS Amplify Interactions/Jest 29 corpus: exact 8/8 suites, 30/30
+  tests, and aggregate plus per-file Istanbul parity across 19 source files,
+  including real asynchronous `fflate` compression workers and Lex V1/V2 SDK
+  clients.
 - Jest-aligned mock arity, call contexts/instances, recursive result finalization,
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
 - An automated differential denominator containing both passing probes and
-  preserved known incompatibilities. The current generated result is 55/55
+  preserved known incompatibilities. The current generated result is 56/56
   compatible scenarios (100%), with per-category scores in the
   machine-readable report. This is a score for the versioned probe corpus, not
   all Jest behavior.
 
 ## Current work
 
-- The unchanged Amplify API GraphQL package now matches 8/8 suites, 149/149
-  tests, and 15/15 snapshots. Its strict corpus result remains open because a
-  delayed WebSocket cleanup branch executes during Jest's longer file run but
-  after Rjest has finished: Rjest is short by 2 covered statements, 1 branch,
-  and 2 lines in one of 36 instrumented files. Keep the strict comparator red
-  until the scheduling difference is understood without adding an artificial
-  delay or weakening coverage comparison.
+- The unchanged Amplify API GraphQL package matches 8/8 suites, 149/149 tests,
+  and 15/15 snapshots. Its strict full-corpus result remains open because a
+  leaked one-second WebSocket cleanup timer lands on a wall-clock boundary:
+  repeated official full runs record one or two hits, while official Jest
+  records zero when the unchanged 42-test contributing file runs alone. Rjest
+  is short by 2 covered statements, 1 branch, and 2 lines in one of 36 files.
+  No artificial wait or comparator relaxation has been added for this
+  timing-dependent signal.
 
 ## Compatibility snapshot
 
@@ -178,7 +186,7 @@ Last updated: 2026-08-29
 records every scenario, whether Jest/Rjest results match, the observed mismatch,
 and category and overall percentages. Known gaps remain executable denominator
 entries, so adding a passing-only fixture cannot hide them. The current probe
-corpus score is 55/55 (100%). Coverage is 3/3 in that deliberately bounded
+corpus score is 56/56 (100%). Coverage is 3/3 in that deliberately bounded
 scenario category.
 
 ## Known blockers
@@ -208,13 +216,14 @@ scenario category.
   4.17 times slower. Notifications is about 29.95 times slower and Adapter
   Next.js is about 35.78 times slower. API REST is about 6.32 times slower and
   the aggregate API package is about 9.92 times slower. PubSub is about 2.20
-  times slower.
+  times slower, while Interactions is about 13.10 times slower.
 
 ## Next highest-value tasks
 
-1. Resolve the API GraphQL cleanup-timer coverage discrepancy without changing
-   the corpus or relaxing the comparator.
-2. Run the next high-impact Amplify workspace package unchanged.
-3. Grow the versioned differential denominator from its real failures.
-4. Implement legacy fake-timer behavior.
-5. Extend native ESM mocking to async factories and unmock/reset semantics.
+1. Run the next high-impact Amplify workspace package unchanged.
+2. Grow the versioned differential denominator from deterministic real-project
+   failures.
+3. Implement legacy fake-timer behavior.
+4. Extend native ESM mocking to async factories and unmock/reset semantics.
+5. Replace per-file Node/JSDOM/transformer startup after correctness remains
+   stable across a broader independent corpus.

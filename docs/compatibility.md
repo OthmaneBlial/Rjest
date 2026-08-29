@@ -7,7 +7,7 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 55/55 (100%) across its explicitly listed
+The current generated matrix is 56/56 (100%) across its explicitly listed
 scenarios and categories. That is complete parity for this bounded regression
 set, not a claim of 100% compatibility with the full Jest API.
 
@@ -132,6 +132,12 @@ The pinned [AWS Amplify PubSub corpus](corpus/amplify-pubsub.md) adds
 MQTT-over-WebSocket providers, topic wildcards, network recovery, reconnection
 timers, Observables, and the vendored Paho MQTT runtime. Both runners pass the
 17 tests and agree on every Istanbul summary across 14 source files.
+
+The pinned [AWS Amplify Interactions corpus](corpus/amplify-interactions.md)
+adds Lex V1/V2 SDK clients, JSDOM blobs, recursive automatic mocks, mapped UUID
+resolution, and `fflate` compression workers generated with `{eval: true}`.
+Both runners pass all 30 tests and agree on every Istanbul summary across 19
+source files.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

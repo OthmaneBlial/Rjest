@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 55,
-    "total": 55,
+    "passing": 56,
+    "total": 56,
     "percentage": 100
   },
   "categories": {
@@ -24,8 +24,8 @@
       "percentage": 100
     },
     "Environment": {
-      "passing": 4,
-      "total": 4,
+      "passing": 5,
+      "total": 5,
       "percentage": 100
     },
     "ESM": {
@@ -169,6 +169,12 @@
     },
     {
       "name": "environment-jsdom-global-date",
+      "category": "Environment",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "environment-worker-exec-argv",
       "category": "Environment",
       "compatible": true,
       "differences": []

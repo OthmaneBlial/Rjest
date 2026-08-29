@@ -92,6 +92,8 @@ pub enum RunnerError {
     },
     #[error("cannot write request to Node worker: {0}")]
     Write(#[source] std::io::Error),
+    #[error("cannot materialize the embedded Node worker source: {0}")]
+    WorkerSource(#[source] std::io::Error),
     #[error("cannot wait for Node worker: {0}")]
     Wait(#[source] std::io::Error),
     #[error("cannot encode worker request: {0}")]
@@ -131,6 +133,16 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
     if options.max_workers == 0 {
         return Err(RunnerError::ZeroWorkers);
     }
+    let mut worker_source = tempfile::Builder::new()
+        .prefix("rjest-worker-")
+        .suffix(".mjs")
+        .tempfile()
+        .map_err(RunnerError::WorkerSource)?;
+    worker_source
+        .write_all(WORKER_SOURCE.as_bytes())
+        .and_then(|()| worker_source.flush())
+        .map_err(RunnerError::WorkerSource)?;
+    let worker_path = worker_source.path();
     let started = Instant::now();
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.max_workers)
@@ -139,7 +151,7 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
         files
             .par_iter()
             .enumerate()
-            .map(|(index, file)| run_file(&file.path, options, index == 0))
+            .map(|(index, file)| run_file(&file.path, options, worker_path, index == 0))
             .collect::<Result<Vec<_>, _>>()
     })?;
     let mut test_results = results;
@@ -274,6 +286,7 @@ fn invalid_coverage(path: &str, message: impl Into<String>) -> RunnerError {
 fn run_file(
     path: &Path,
     options: &RunnerOptions,
+    worker_path: &Path,
     collect_uncovered_sources: bool,
 ) -> Result<TestFileResult, RunnerError> {
     let snapshot = rjest_snapshot::load(path, options.snapshot_update)?;
@@ -311,7 +324,7 @@ fn run_file(
         },
     };
     let encoded = serde_json::to_vec(&request)?;
-    let (stdout, stderr, timed_out) = execute_worker(&encoded, options)?;
+    let (stdout, stderr, timed_out) = execute_worker(&encoded, options, worker_path)?;
     if timed_out {
         return Ok(TestFileResult {
             protocol_version: WORKER_PROTOCOL_VERSION,
@@ -361,6 +374,7 @@ fn run_file(
 fn execute_worker(
     encoded_request: &[u8],
     options: &RunnerOptions,
+    worker_path: &Path,
 ) -> Result<(Vec<u8>, Vec<u8>, bool), RunnerError> {
     let mut command = Command::new(&options.node_binary);
     if std::env::var_os("NODE_ENV").is_none() {
@@ -373,9 +387,7 @@ fn execute_worker(
         );
     }
     let mut child = command
-        .arg("--input-type=module")
-        .arg("--eval")
-        .arg(WORKER_SOURCE)
+        .arg(worker_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

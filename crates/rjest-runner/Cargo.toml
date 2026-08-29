@@ -11,10 +11,8 @@ rayon.workspace = true
 rjest-core = { path = "../rjest-core" }
 rjest-snapshot = { path = "../rjest-snapshot" }
 serde_json.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
 tempfile.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
