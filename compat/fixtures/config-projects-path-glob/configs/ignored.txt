@@ -1,0 +1,1 @@
+Jest ignores non-config files matched by a project glob.

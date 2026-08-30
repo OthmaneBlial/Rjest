@@ -72,6 +72,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-projects-path-glob',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-projects-rootdir-cli-path',
     category: 'Configuration',
     expectedExit: 0,

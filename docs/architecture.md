@@ -59,8 +59,10 @@ configs. The Rust coordinator discovers and executes every project separately,
 attaches its display name to results, and then merges deterministic test,
 snapshot, duration, and coverage state. This deliberately allows the same file
 path to run more than once under different dependency mappings. List mode
-deduplicates those paths to match Jest. String project paths and globs are not
-yet accepted. Preset evaluation happens before normalization and uses the same
+deduplicates those paths to match Jest. String project directories, config-file
+paths, and standard path globs are resolved before child normalization, with
+Jest's distinct parent-root and parent-config anchors and duplicate-config
+rejection. Preset evaluation happens before normalization and uses the same
 trusted Node config boundary, with explicit merge rules for setup arrays,
 module mappings, and transforms.
 

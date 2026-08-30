@@ -34,8 +34,9 @@ Load a configured preset before normalizing a project. Preset setup arrays are
 prepended, mapping and transform objects are merged with explicit project values
 winning, and ordinary unset fields inherit from the preset.
 
-String project paths and globs remain rejected rather than being treated as
-inline configs or silently ignored.
+String project paths and globs initially remained rejected rather than being
+treated as inline configs or silently ignored. ADR 0032 extends this decision
+with explicit path expansion and child-config loading semantics.
 
 ## Consequences
 
@@ -46,6 +47,6 @@ inline configs or silently ignored.
   name added by the coordinator.
 - Differential fixtures preserve duplicate execution, list-mode deduplication,
   child-root CLI semantics, and preset inheritance against official Jest.
-- Cross-project parallel scheduling, string/glob entries, display colors,
-  duplicate-path shard identity, and the broader reporter/coverage edge surface
-  remain explicit follow-up work.
+- Cross-project parallel scheduling, display colors, duplicate-path shard
+  identity, and the broader reporter/coverage edge surface remain explicit
+  follow-up work.

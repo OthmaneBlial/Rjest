@@ -8,9 +8,11 @@ use std::{
     process::{Command, Stdio},
 };
 
+use globset::GlobBuilder;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+use walkdir::WalkDir;
 
 use rjest_core::{
     FakeTimersConfig, HasteConfig, MockLifecycleConfig, ModuleNameMapper, SnapshotFormat,
@@ -398,6 +400,14 @@ impl ProjectConfig {
 /// Returns a [`ConfigError`] when configuration cannot be located, read,
 /// decoded, normalized, or contains unsupported fields.
 pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig, ConfigError> {
+    load_internal(project_dir, explicit, true)
+}
+
+fn load_internal(
+    project_dir: &Path,
+    explicit: Option<&Path>,
+    expand_projects: bool,
+) -> Result<ProjectConfig, ConfigError> {
     let project_dir = absolute(project_dir)?;
     let config_path = match explicit {
         Some(path) => resolve_from(&project_dir, path),
@@ -426,15 +436,18 @@ pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig
                 config_path.parent().unwrap_or(&project_dir),
                 Path::new(&referenced),
             );
-            return load(&project_dir, Some(&referenced));
+            return load_internal(&project_dir, Some(&referenced), expand_projects);
         }
     }
 
-    let raw: RawProjectConfig =
+    let mut raw: RawProjectConfig =
         serde_json::from_value(value).map_err(|source| ConfigError::Json {
             path: config_path.clone(),
             source,
         })?;
+    if !expand_projects {
+        raw.projects = None;
+    }
     let config_dir = config_path.parent().unwrap_or(&project_dir);
     normalize(raw, config_dir, config_dir, &project_dir)
 }
@@ -945,23 +958,142 @@ fn normalize_projects(
     project_dir: &Path,
     parent_root_dir: &Path,
 ) -> Result<Vec<ProjectConfig>, ConfigError> {
-    configured
-        .unwrap_or_default()
-        .into_iter()
-        .enumerate()
-        .map(|(index, project)| match project {
+    let mut projects = Vec::new();
+    let mut config_paths = BTreeMap::<PathBuf, PathBuf>::new();
+    for (index, project) in configured.unwrap_or_default().into_iter().enumerate() {
+        match project {
             RawProjectEntry::Inline(raw) => {
-                normalize(*raw, parent_config_dir, project_dir, project_dir)
+                projects.push(normalize(
+                    *raw,
+                    parent_config_dir,
+                    project_dir,
+                    project_dir,
+                )?);
             }
-            RawProjectEntry::Path(path) => Err(ConfigError::UnsupportedValue {
-                field: format!("projects[{index}]"),
-                value: format!(
-                    "string project `{}` is not supported yet; use an inline project object",
-                    resolve_root_token(parent_root_dir, &path).display()
-                ),
-            }),
-        })
-        .collect()
+            RawProjectEntry::Path(path) => {
+                for project_path in
+                    expand_project_path(&path, parent_config_dir, parent_root_dir, index)?
+                {
+                    if project_path.is_file() && !is_jest_config_path(&project_path) {
+                        continue;
+                    }
+                    let config_path = project_config_path(&project_path)?;
+                    let canonical_config = fs::canonicalize(&config_path).unwrap_or(config_path);
+                    if let Some(previous) =
+                        config_paths.insert(canonical_config.clone(), project_path.clone())
+                    {
+                        return Err(ConfigError::UnsupportedValue {
+                            field: "projects".into(),
+                            value: format!(
+                                "project paths `{}` and `{}` resolve to the same config `{}`",
+                                previous.display(),
+                                project_path.display(),
+                                canonical_config.display(),
+                            ),
+                        });
+                    }
+                    projects.push(load_project_path(&project_path, &canonical_config)?);
+                }
+            }
+        }
+    }
+    Ok(projects)
+}
+
+fn expand_project_path(
+    configured: &str,
+    parent_config_dir: &Path,
+    parent_root_dir: &Path,
+    index: usize,
+) -> Result<Vec<PathBuf>, ConfigError> {
+    let resolved = if configured == "<rootDir>" || configured.starts_with("<rootDir>/") {
+        resolve_root_token(parent_root_dir, configured)
+    } else {
+        resolve_from(parent_config_dir, Path::new(configured))
+    };
+    let resolved = absolute(&resolved)?;
+    if !project_path_has_magic(configured) {
+        return Ok(vec![resolved]);
+    }
+
+    let pattern = resolved.to_string_lossy().replace('\\', "/");
+    let matcher = GlobBuilder::new(&pattern)
+        .literal_separator(true)
+        .backslash_escape(false)
+        .build()
+        .map_err(|error| ConfigError::UnsupportedValue {
+            field: format!("projects[{index}]"),
+            value: format!("invalid project glob `{configured}`: {error}"),
+        })?
+        .compile_matcher();
+    let base = project_glob_base(&resolved);
+    let mut glob_matches = if base.exists() {
+        WalkDir::new(base)
+            .sort_by_file_name()
+            .into_iter()
+            .filter_map(Result::ok)
+            .map(walkdir::DirEntry::into_path)
+            .filter(|path| matcher.is_match(path))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    glob_matches.sort();
+    if glob_matches.is_empty() {
+        glob_matches.push(resolved);
+    }
+    Ok(glob_matches)
+}
+
+fn project_path_has_magic(path: &str) -> bool {
+    path.contains(['*', '?', '[', ']', '{', '}'])
+}
+
+fn project_glob_base(pattern: &Path) -> PathBuf {
+    let mut base = PathBuf::new();
+    for component in pattern.components() {
+        if component
+            .as_os_str()
+            .to_str()
+            .is_some_and(project_path_has_magic)
+        {
+            break;
+        }
+        base.push(component.as_os_str());
+    }
+    base
+}
+
+fn is_jest_config_path(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()) == Some("package.json")
+        || path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                matches!(
+                    extension,
+                    "js" | "ts" | "mjs" | "mts" | "cjs" | "cts" | "json"
+                )
+            })
+}
+
+fn project_config_path(path: &Path) -> Result<PathBuf, ConfigError> {
+    if !path.exists() {
+        return Err(ConfigError::MissingConfig(path.to_path_buf()));
+    }
+    if path.is_dir() {
+        find_config(path)
+    } else {
+        Ok(path.to_path_buf())
+    }
+}
+
+fn load_project_path(path: &Path, config_path: &Path) -> Result<ProjectConfig, ConfigError> {
+    if path.is_dir() {
+        load_internal(path, Some(config_path), false)
+    } else {
+        load_internal(path.parent().unwrap_or(path), Some(config_path), false)
+    }
 }
 
 fn normalize_module_reference(value: &str, root_dir: &Path) -> String {
@@ -1813,6 +1945,62 @@ mod tests {
             Some("blue")
         );
         assert_eq!(config.projects[1].test_environment, "jsdom");
+    }
+
+    #[test]
+    fn expands_string_project_paths_and_globs() {
+        let temp = tempdir().expect("temp dir");
+        for (name, environment) in [("alpha", "node"), ("beta", "jsdom")] {
+            let project = temp.path().join("packages").join(name);
+            fs::create_dir_all(&project).expect("project directory");
+            fs::write(
+                project.join("jest.config.json"),
+                format!(
+                    r#"{{"displayName":"{name}","rootDir":".","testEnvironment":"{environment}"}}"#
+                ),
+            )
+            .expect("project config");
+        }
+
+        let config = load_inline_json(
+            temp.path(),
+            r#"{
+              "projects":[
+                "<rootDir>/packages/alpha",
+                "<rootDir>/packages/b*/jest.config.json"
+              ]
+            }"#,
+        )
+        .expect("string projects");
+        let canonical_root = fs::canonicalize(temp.path()).expect("canonical root");
+
+        assert_eq!(config.projects.len(), 2);
+        assert_eq!(
+            config.projects[0].root_dir,
+            canonical_root.join("packages/alpha")
+        );
+        assert_eq!(
+            config.projects[1].root_dir,
+            canonical_root.join("packages/beta")
+        );
+        assert_eq!(config.projects[0].test_environment, "node");
+        assert_eq!(config.projects[1].test_environment, "jsdom");
+    }
+
+    #[test]
+    fn rejects_string_projects_that_resolve_to_the_same_parent_config() {
+        let temp = tempdir().expect("temp dir");
+        fs::create_dir_all(temp.path().join("packages/alpha")).expect("alpha directory");
+        fs::create_dir_all(temp.path().join("packages/beta")).expect("beta directory");
+        fs::write(
+            temp.path().join("jest.config.json"),
+            r#"{"projects":["<rootDir>/packages/alpha","<rootDir>/packages/beta"]}"#,
+        )
+        .expect("root config");
+
+        let error = load(temp.path(), None).expect_err("duplicate project configs");
+
+        assert!(error.to_string().contains("resolve to the same config"));
     }
 
     #[test]

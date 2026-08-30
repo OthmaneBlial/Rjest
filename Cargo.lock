@@ -429,11 +429,13 @@ dependencies = [
 name = "rjest-config"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "globset",
  "rjest-core",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
+ "walkdir",
 ]
 
 [[package]]
