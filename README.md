@@ -1,17 +1,17 @@
 <div align="center">
 
-<img src="site/og-card.png" alt="Rjest — same tests, different engine" width="100%" />
+<img src="site/og-card.png" alt="Rjest, a Rust-powered Jest-compatible test runner" width="100%" />
 
-# Rjest — the compatibility-first Jest alternative
+# Rjest: a Rust-powered Jest-compatible test runner
 
-### A Rust-powered, Jest-compatible test runner for JavaScript and TypeScript
+### JavaScript and TypeScript testing without rewriting your Jest suite
 
-**Change the command. Keep the suite.**
+**Keep your tests. Change the engine.**
 
-[Website](https://othmaneblial.github.io/rjest/) · [Compatibility report](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
+[Website](https://othmaneblial.github.io/rjest/) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![Differential scenarios: 210/210](https://img.shields.io/badge/Jest_differential-210%2F210-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Jest differential: 210/210](https://img.shields.io/badge/Jest_differential-210%2F210-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111511?style=for-the-badge)](LICENSE)
@@ -19,56 +19,48 @@
 
 </div>
 
-**The target workflow:**
-
 ```diff
 - npx jest
 + npx rjest
 ```
 
-Rjest is a Jest-compatible test runner pursuing the difficult version of a
-Rust-powered Jest alternative: run the suite you already own, with little or no
-migration work. Rust coordinates discovery, dependency analysis, scheduling,
-processes, snapshots, coverage, and reporting. Isolated Node workers preserve
-the JavaScript runtime and Jest ecosystem behavior real projects depend on.
+That is the goal.
 
-This is alpha software. It already runs substantial React, TypeScript, Node,
-JSDOM, CommonJS, native ESM, snapshot, mock, fake-timer, coverage, and monorepo
-test suites. It does not claim the whole Jest surface yet, and `npx rjest` is
-the destination until the npm package is published.
+Rjest is built on a stubborn premise: a Jest alternative is only useful if it
+runs the Jest suite you already have. Rewriting years of tests, snapshots,
+mocks, transforms, and configuration is not a migration. It is a new project.
 
-| Evidence                              |  Current verified result |
-| ------------------------------------- | -----------------------: |
-| Jest/Rjest differential matrix        | **210 / 210 compatible** |
-| Coverage probes, including Babel + V8 |   **19 / 19 compatible** |
-| Local Rust test suite                 |    **117 / 117 passing** |
-| Pinned real-project corpus reports    |                   **25** |
+Rjest keeps JavaScript execution in isolated Node workers and moves discovery,
+scheduling, dependency analysis, process control, coverage aggregation, and
+reporting into Rust. Every compatibility claim must survive the same fixture
+under official Jest and Rjest.
 
-> Rjest is not asking you to trust a feature checklist. It is building a
-> permanent, executable record of where Jest and Rjest agree.
+> Alpha status: Rjest already runs substantial React, TypeScript, Node, JSDOM,
+> CommonJS, ESM, snapshot, mock, fake-timer, coverage, and monorepo suites. It
+> does not cover the entire Jest surface yet, and the npm package is not
+> published. Build it from source and keep Jest as your release gate for now.
 
-## Why another JavaScript test runner?
+## The short version
 
-Jest suites often outlive the runner decisions around them. Replacing thousands
-of tests, snapshots, mocks, transforms, and configuration rules is not a useful
-migration plan.
+| What you probably want to know                                   | Verified answer                                    |
+| ---------------------------------------------------------------- | -------------------------------------------------- |
+| Does it use existing Jest tests?                                 | Yes, across the measured surface                   |
+| Does it read Jest configuration?                                 | Yes, with explicit errors for unsupported options  |
+| Are snapshots, mocks, timers, ESM, JSDOM, and coverage included? | Yes, within the documented boundaries              |
+| Is compatibility measured against official Jest?                 | **210 / 210 executable scenarios pass**            |
+| Has it run serious public projects?                              | **25 pinned corpus reports**                       |
+| Is it production-ready everywhere?                               | No. Current directional readiness is **about 88%** |
+| Is it already faster than Jest?                                  | No published claim yet; correctness comes first    |
 
-Rjest takes a narrower, harder path:
+## Compatibility with receipts
 
-1. Treat official Jest as the behavioral oracle.
-2. Move coordination-heavy work into Rust.
-3. Keep Node where exact JavaScript and ecosystem semantics matter.
-4. Turn every discovered disagreement into a permanent differential fixture.
+Rjest does not award itself points for having a familiar method name. The
+differential harness runs a fixture with pinned official Jest, runs it again
+with Rjest, normalizes observable behavior, and compares the results. A fixed
+mismatch stays in the repository as a regression test.
 
-The result is a Jest alternative built around compatibility evidence—not an API
-that merely looks familiar in a demo.
-
-## Compatibility, with receipts
-
-Every published percentage below is generated by running the same fixture with
-a pinned official Jest oracle and Rjest, then comparing normalized behavior.
-Jest 30.5.0 is the default oracle; one snapshot-format probe intentionally uses
-Jest 29.7.0. No scenario is counted because a feature name appears in the code.
+Jest 30.5.0 is the default oracle. One snapshot-format probe intentionally uses
+Jest 29.7.0.
 
 | Area                 |       Passing | Measured score |
 | -------------------- | ------------: | -------------: |
@@ -88,35 +80,32 @@ Jest 29.7.0. No scenario is counted because a feature name appears in the code.
 | Watch                |         4 / 4 |           100% |
 | **Versioned matrix** | **210 / 210** |       **100%** |
 
-**What that number means:** Rjest matches Jest in all 210 scenarios currently
-checked into this repository.
+The 100% above means every scenario currently in the versioned matrix passes.
+It does not mean Rjest implements 100% of Jest. The matrix is deliberately
+bounded, inspectable, and expected to grow. [Read every measured scenario](compat/jest-compatibility.json).
 
-**What it does not mean:** Rjest implements 100% of every Jest API and ecosystem
-edge case. The matrix is bounded, visible, and growing. [Inspect every scenario
-and its result](compat/jest-compatibility.json).
+### Real Jest projects, unchanged
 
-### Proof from real Jest projects
+Synthetic fixtures are necessary. They are not enough. Rjest also runs the
+original tests and configuration from established open-source projects.
 
-Small fixtures catch semantics. Existing repositories expose the combinations
-that fixtures miss.
+| Project suite                                                 |                        Official Jest baseline |                                            Rjest result |
+| ------------------------------------------------------------- | --------------------------------------------: | ------------------------------------------------------: |
+| [Downshift](docs/corpus/downshift.md)                         |        92 suites · 1,110 tests · 49 snapshots |                                            Exact parity |
+| [React Testing Library](docs/corpus/react-testing-library.md) |          16 suites · 251 tests · 11 snapshots |                             Exact React 19/JSDOM parity |
+| [styled-components web](docs/corpus/styled-components.md)     |       59 suites · 1,465 tests · 749 snapshots |                                            Exact parity |
+| [React Navigation](docs/corpus/react-navigation.md)           |  81 suites · 1,303 identities · 169 snapshots |    Exact parity, including the same 2 upstream failures |
+| [AWS Amplify Auth](docs/corpus/amplify-auth.md)               |                      101 suites · 1,150 tests |             Exact identity, status, and coverage parity |
+| [Apollo Client](docs/corpus/apollo-client.md)                 | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity · zero Rjest-only failures |
 
-| Unmodified project suite |                                 Official Jest |                                           Rjest result |
-| ------------------------ | --------------------------------------------: | -----------------------------------------------------: |
-| Downshift                |        92 suites · 1,110 tests · 49 snapshots |                                           Exact parity |
-| React Testing Library    |          16 suites · 251 tests · 11 snapshots |                            Exact React 19/JSDOM parity |
-| styled-components web    |       59 suites · 1,465 tests · 749 snapshots |                                           Exact parity |
-| React Navigation         |  81 suites · 1,303 identities · 169 snapshots |   Exact parity, including the same 2 upstream failures |
-| AWS Amplify Auth         |                      101 suites · 1,150 tests |            Exact identity, status, and coverage parity |
-| Apollo Client            | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
+The complete corpus spans React, React Native, TypeScript, Node, JSDOM,
+CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play. There
+are [25 pinned reports](docs/corpus), including commands, versions, results,
+timings, and memory where practical.
 
-There are 25 pinned corpus reports across React, React Native, TypeScript,
-JSDOM, CommonJS, ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play. Read the
-[real-project reports](docs/corpus) instead of taking the table on faith.
+## Try Rjest on an existing suite
 
-## Run your first suite
-
-The npm package is not published yet. Build the current alpha from source so
-the native binary and pinned compatibility dependencies stay together:
+The npm package is not published yet. Build the current alpha from source:
 
 ```sh
 git clone https://github.com/OthmaneBlial/rjest.git
@@ -125,26 +114,25 @@ npm ci
 cargo build --release -p rjest-cli
 ```
 
-Then enter an existing Jest project:
+Start in an existing Jest project with the lowest-risk comparison:
 
 ```sh
 cd /path/to/your-jest-project
 
-# 1. Compare discovery
+# Compare discovery first
 /path/to/rjest/target/release/rjest --listTests
 
-# 2. Compare one serial run
+# Then compare a deterministic serial run
 /path/to/rjest/target/release/rjest --runInBand
 
-# 3. Use bounded parallel execution
+# Finally, let Rjest schedule files in parallel
 /path/to/rjest/target/release/rjest
 ```
 
-Keep Jest as the release gate until both runners agree on your project. Rjest
-is most useful when a mismatch becomes a small reproducible issue rather than a
-reason to abandon the migration.
+If both runners disagree, reduce the mismatch to one fixture and open an issue.
+That report is more useful than a broad request for "more Jest support."
 
-## Jest commands should feel familiar
+## Familiar Jest commands
 
 ```sh
 rjest --coverage
@@ -164,127 +152,114 @@ rjest --no-cache
 rjest --clearCache
 ```
 
-Unknown Jest configuration options fail explicitly. Rjest does not quietly
-ignore a setting and give you a reassuring but incomplete run.
+Unsupported configuration is an error. Rjest will not silently ignore a Jest
+option and return a reassuring but incomplete test run.
 
 ## What works today
 
-### Tests and assertions
+### Tests, assertions, and mocks
 
 - `describe`, `test`, `it`, nested hooks, async and callback tests, `.only`,
   `.skip`, `.todo`, `.failing`, retries, bail, sharding, and seeded randomization
-- Jest equality, common matchers, asymmetric matchers, custom async matchers,
-  `.resolves`, `.rejects`, assertion counts, and complete mock return-history
-  assertions including nth and last returned values
-- `jest.fn`, spies, property replacement, CommonJS/native-ESM mocks, manual
-  mocks, automocking, module resets, mock restoration, and mock generation hooks
+- Jest equality, common and asymmetric matchers, custom async matchers,
+  `.resolves`, `.rejects`, assertion counts, and mock return-history matchers
+- `jest.fn`, spies, property replacement, CommonJS and native-ESM mocks, manual
+  mocks, automocking, module resets, restoration, and mock generation hooks
 
-### Runtime and projects
+### JavaScript, TypeScript, and project configuration
 
 - JavaScript, configured JSX/TypeScript/TSX transforms, CommonJS, native ESM,
-  top-level await, Node, JSDOM, custom test environments, and Jest-compatible
-  environment teardown state
+  top-level await, Node, JSDOM, and custom test environments
 - Executable JS/TS configuration, presets, multi-project runs, display-name
-  selection, custom resolvers, custom sequencers, pnpm, and Yarn Plug'n'Play
+  filters, custom resolvers, custom sequencers, pnpm, and Yarn Plug'n'Play
 - CommonJS, ESM, and transformed TypeScript global setup/teardown, custom
   reporters, and test-results processors
 
-### Snapshots, timers, and coverage
+### Snapshots, fake timers, coverage, and watch mode
 
 - External and inline snapshots, property matchers, serializers, update mode,
   obsolete detection, Prettier 2/3, and source-mapped inline writes
-- Modern and legacy fake timers across the covered Node and JSDOM scheduling
-  boundaries, including Jest 30's manual, next-async, and interval tick modes
-- Babel/Istanbul and `coverageProvider: "v8"` collection with JSON, text,
-  LCOV/HTML, Clover, source maps, raw V8 range merging across workers,
-  `collectCoverageFrom` zero-hit files, global/path/directory/per-file-glob
-  thresholds, negative uncovered-count limits, and changed-file instrumentation
+- Modern and legacy fake timers across measured Node and JSDOM boundaries,
+  including Jest 30 manual, next-async, and interval tick modes
+- Babel/Istanbul and V8 coverage, cross-worker merging, source maps,
+  `collectCoverageFrom`, common reports, and scoped thresholds
+- Native filesystem watching, Git-aware affected-test selection, interactive TTY
+  controls, and interruption of active parallel workers
 
-### Watch and changed tests
+The exact boundary is documented in [Jest compatibility](docs/compatibility.md).
 
-- Native debounced filesystem watching with add, edit, delete, and recovery
-- Git-aware direct and transitive affected-test selection for CommonJS, ESM,
-  mapped modules, snapshots, staged files, modified files, and untracked files
-- Interactive `a`, `o`, `f`, `c`, `p`, `t`, `u`, Enter, `q`, Ctrl-C, and Ctrl-D
-  controls on a real TTY
-- Jest-compatible interruption of active parallel runs, including forced
-  termination of blocked Node workers before the next command
-
-## One pipeline, clear ownership
+## Why Rust and Node?
 
 ```text
 01 RUST / PLAN          02 NODE / RUN           03 RUST / REPORT
-config + discovery  →  isolated test workers  →  results + snapshots + coverage
+config + discovery  ->  isolated test workers  ->  results + snapshots + coverage
 ```
 
-Rust owns the work that benefits from native coordination: filesystem scans,
-config normalization, dependency graphs, scheduling, process lifecycles,
-aggregation, coverage merging, and snapshot persistence.
+Rust owns coordination: filesystem scans, configuration normalization,
+dependency graphs, scheduling, worker lifecycles, aggregation, coverage merging,
+and snapshot persistence.
 
-Node owns the parts where pretending to be Node would damage compatibility:
-JavaScript execution, module semantics, Jest transformers, custom environments,
-and ecosystem extensions.
+Node owns JavaScript semantics: module loading, Jest transformers, custom
+environments, runtime extensions, and the test code itself.
 
-Each test file currently gets a fresh worker process. That gives Rjest strong
-isolation and deterministic aggregation, but it also creates startup overhead
-that worker reuse must reduce. The reasoning is recorded in
-[ADR 0001](docs/adr/0001-hybrid-node-runtime.md).
+Each test file currently gets a fresh worker process. Isolation is strong and
+aggregation stays deterministic, but startup cost is real. Worker reuse and
+persistent transform/discovery caches remain open work. The architectural
+reasoning starts in [ADR 0001](docs/adr/0001-hybrid-node-runtime.md).
+
+## Correctness before speed
+
+There is deliberately no "10x faster" badge in this README. The project has not
+published a controlled performance result yet, and some transform-heavy suites
+are currently slower than Jest because workers are not reused.
+
+When benchmarks are published, they will include the exact suite, machine,
+versions, commands, warm-up policy, medians, variance, and peak memory. A runner
+that skips behavior does not get to call itself fast. See the
+[benchmark policy](docs/benchmarks.md).
 
 ## Honest alpha boundaries
 
-Rjest is useful now. It is not yet a universal drop-in replacement.
+The current project-readiness estimate is approximately **88%**. This is a
+directional engineering estimate, not an automated percentage of the Jest API.
+The automated number is the 210-scenario matrix above.
 
-The directional project-readiness estimate is now **approximately 88%**. That
-is a maintained engineering estimate, not an automated percentage of the Jest
-API. The only 100% claim is the visible 210-scenario matrix above.
-
-- Watch plugins, Mercurial/Sapling changed-file selection, and some interactive
-  output polish remain open. Core TTY controls and active-worker interruption
-  are implemented and differentially tested.
-- Transform and discovery caches are not persisted yet, and workers are not
-  reused. Transform-heavy projects can be slower than Jest.
+- Watch plugins, Mercurial/Sapling changed-file selection, and some terminal
+  output details remain open.
+- Transform and discovery caches are not persisted, and workers are not reused.
 - Exact custom-environment VM identity, specialized reporter built-ins, and
-  long-tail resolver/PnP combinations need broader proof. Live custom-reporter
-  case timing is now differentially covered for runnable, skipped, and todo tests.
-- Basic TypeScript can use Node's erasable syntax. TSX and TypeScript syntax
-  requiring code generation still need a configured Jest transformer.
+  long-tail resolver/PnP combinations need broader proof.
+- Basic TypeScript can use Node's erasable syntax. TSX and TypeScript that needs
+  code generation still require a configured Jest transformer.
 - Unlisted behavior is not a compatibility claim, even when it happens to work.
 
-Read the detailed [compatibility boundary](docs/compatibility.md) and
-[migration guide](docs/migration-from-jest.md) before adopting Rjest in a
-release workflow.
+Before using Rjest as a release gate, read the [migration guide](docs/migration-from-jest.md).
 
-## Verify every claim locally
+## Verify the evidence
 
 ```sh
 make check
 ```
 
-The local gate runs Rust formatting, strict Clippy, the complete workspace test
-suite, JavaScript syntax and comparator tests, then all 210 semantic fixtures
-against pinned official Jest oracles, including Jest 29.7.0 and Jest 30.5.0.
-No GitHub Actions are required. The Jest source checkout and project corpus
-remain ignored under `base/`.
+That command runs Rust formatting, strict Clippy, all workspace tests,
+JavaScript syntax and comparator tests, and every differential fixture against
+the pinned official Jest oracles. The current local Rust suite is 117/117, and
+the generated compatibility matrix is 210/210.
 
-## Help close the gap
+## Help close the next gap
 
-The best contribution is not a broad feature request. It is a small test that
-shows one place where Jest and Rjest disagree.
+The most useful contribution is one small proof that Jest and Rjest disagree:
 
-1. Reproduce the behavior with official Jest.
-2. Add the smallest differential fixture that preserves it.
+1. Reproduce it with official Jest.
+2. Add the smallest differential fixture that captures the behavior.
 3. Fix Rjest without weakening the fixture.
-4. Keep the regression in the matrix forever.
-
-If Rjest almost runs your project, open an issue with the smallest test and
-configuration that still fails. That is exactly the kind of report this
-project needs.
-
-If the mission resonates, [star Rjest](https://github.com/OthmaneBlial/rjest)
-and bring it one real Jest suite. Every reproducible mismatch makes the runner
-more useful for the next project.
+4. Keep the regression forever.
 
 [Open an issue](https://github.com/OthmaneBlial/rjest/issues) · [Read the development guide](docs/development.md) · [See current progress](docs/progress.md)
+
+If the idea of a compatibility-first Jest alternative makes sense to you,
+[star Rjest](https://github.com/OthmaneBlial/rjest) and try one real suite. One
+precise mismatch is enough to move the project forward.
 
 ## Project map
 
