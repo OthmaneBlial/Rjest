@@ -4,21 +4,22 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
 use regex::RegexSet;
 use rjest_core::CoverageMap;
 use serde_json::{Map, Value, json};
 use thiserror::Error;
 use walkdir::{DirEntry, WalkDir};
 
-const METRICS: [&str; 4] = ["lines", "statements", "functions", "branches"];
+const METRICS: [&str; 4] = ["statements", "branches", "lines", "functions"];
 
 #[derive(Clone, Debug)]
 pub struct CoverageOptions {
     pub root_dir: PathBuf,
+    pub threshold_base_dir: PathBuf,
     pub coverage_directory: PathBuf,
     pub reporters: Vec<Value>,
     pub thresholds: Value,
@@ -111,6 +112,22 @@ struct Summary {
     statements: Metric,
     functions: Metric,
     branches: Metric,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ThresholdGroupKind {
+    Global,
+    Path,
+    Glob,
+}
+
+struct ThresholdGroup<'a> {
+    name: &'a str,
+    rules: &'a Map<String, Value>,
+    kind: Option<ThresholdGroupKind>,
+    resolved: Option<String>,
+    matcher: Option<GlobMatcher>,
+    files: Vec<usize>,
 }
 
 impl Summary {
@@ -239,7 +256,7 @@ impl<'a> FileCoverage<'a> {
     }
 }
 
-/// Writes configured coverage reports and evaluates global thresholds.
+/// Writes configured coverage reports and evaluates coverage thresholds.
 ///
 /// # Errors
 ///
@@ -297,7 +314,11 @@ pub fn write_reports(
             other => return Err(CoverageError::UnsupportedReporter(other.into())),
         }
     }
-    let threshold_failures = evaluate_global_thresholds(total, &options.thresholds)?;
+    let threshold_failures = evaluate_thresholds(
+        &file_summaries,
+        &options.thresholds,
+        &options.threshold_base_dir,
+    )?;
     Ok(CoverageReport {
         summary: summary_json,
         terminal_output,
@@ -801,47 +822,211 @@ fn html_page(title: &str, body: &str) -> String {
     )
 }
 
-fn evaluate_global_thresholds(
-    total: Summary,
+fn evaluate_thresholds(
+    files: &[(&str, Summary)],
     thresholds: &Value,
+    root_dir: &Path,
 ) -> Result<Vec<String>, CoverageError> {
     let Some(thresholds) = thresholds.as_object() else {
         return Err(CoverageError::InvalidThreshold(
             "coverageThreshold must be an object".into(),
         ));
     };
-    let Some(global) = thresholds.get("global") else {
-        return Ok(Vec::new());
-    };
-    let global = global.as_object().ok_or_else(|| {
-        CoverageError::InvalidThreshold("coverageThreshold.global must be an object".into())
-    })?;
+    let mut groups = parse_threshold_groups(thresholds, root_dir)?;
+    assign_threshold_files(&mut groups, files);
+    let mut failures = Vec::new();
+    for group in groups {
+        failures.extend(evaluate_threshold_group(group, files)?);
+    }
+    Ok(failures)
+}
+
+fn parse_threshold_groups<'a>(
+    thresholds: &'a Map<String, Value>,
+    root_dir: &Path,
+) -> Result<Vec<ThresholdGroup<'a>>, CoverageError> {
+    thresholds
+        .iter()
+        .map(|(name, value)| {
+            let rules = value.as_object().ok_or_else(|| {
+                CoverageError::InvalidThreshold(format!(
+                    "coverageThreshold.{name} must be an object"
+                ))
+            })?;
+            if name == "global" {
+                return Ok(ThresholdGroup {
+                    name,
+                    rules,
+                    kind: Some(ThresholdGroupKind::Global),
+                    resolved: None,
+                    matcher: None,
+                    files: Vec::new(),
+                });
+            }
+            let resolved = resolve_threshold_group(root_dir, name);
+            let matcher = Glob::new(&resolved)
+                .map_err(|source| {
+                    CoverageError::InvalidThreshold(format!(
+                        "coverageThreshold pattern `{name}` is invalid: {source}"
+                    ))
+                })?
+                .compile_matcher();
+            Ok(ThresholdGroup {
+                name,
+                rules,
+                kind: None,
+                resolved: Some(resolved),
+                matcher: Some(matcher),
+                files: Vec::new(),
+            })
+        })
+        .collect()
+}
+
+fn assign_threshold_files(groups: &mut [ThresholdGroup<'_>], files: &[(&str, Summary)]) {
+    let global_index = groups.iter().position(|group| group.name == "global");
+    for (file_index, (file, _)) in files.iter().enumerate() {
+        let file = normalize_threshold_path(Path::new(file));
+        let file = file.to_string_lossy().replace('\\', "/");
+        let mut matched = false;
+        for group in groups.iter_mut().filter(|group| group.name != "global") {
+            let resolved = group
+                .resolved
+                .as_deref()
+                .expect("non-global group is resolved");
+            if file.starts_with(resolved) {
+                group.kind = Some(ThresholdGroupKind::Path);
+                group.files.push(file_index);
+                matched = true;
+                continue;
+            }
+            if group
+                .matcher
+                .as_ref()
+                .expect("non-global group has a matcher")
+                .is_match(&file)
+            {
+                group.kind = Some(ThresholdGroupKind::Glob);
+                group.files.push(file_index);
+                matched = true;
+            }
+        }
+        if !matched && let Some(global_index) = global_index {
+            groups[global_index].files.push(file_index);
+        }
+    }
+}
+
+fn evaluate_threshold_group(
+    group: ThresholdGroup<'_>,
+    files: &[(&str, Summary)],
+) -> Result<Vec<String>, CoverageError> {
+    let mut failures = Vec::new();
+    match group.kind {
+        Some(ThresholdGroupKind::Global) => {
+            let selected = if group.files.is_empty() {
+                (0..files.len()).collect::<Vec<_>>()
+            } else {
+                group.files
+            };
+            if let Some(summary) = combine_summaries(files, &selected) {
+                failures.extend(check_threshold_group(group.name, group.rules, summary)?);
+            }
+        }
+        Some(ThresholdGroupKind::Path) => {
+            if let Some(summary) = combine_summaries(files, &group.files) {
+                failures.extend(check_threshold_group(group.name, group.rules, summary)?);
+            }
+        }
+        Some(ThresholdGroupKind::Glob) => {
+            for file_index in group.files {
+                failures.extend(check_threshold_group(
+                    files[file_index].0,
+                    group.rules,
+                    files[file_index].1,
+                )?);
+            }
+        }
+        None => failures.push(format!(
+            "Jest: Coverage data for {} was not found.",
+            group.name
+        )),
+    }
+    Ok(failures)
+}
+
+fn check_threshold_group(
+    name: &str,
+    thresholds: &Map<String, Value>,
+    summary: Summary,
+) -> Result<Vec<String>, CoverageError> {
     let mut failures = Vec::new();
     for metric_name in METRICS {
-        let Some(threshold) = global.get(metric_name) else {
+        let Some(threshold) = thresholds.get(metric_name) else {
             continue;
         };
         let threshold = threshold.as_f64().ok_or_else(|| {
-            CoverageError::InvalidThreshold(format!("global.{metric_name} must be a number"))
+            CoverageError::InvalidThreshold(format!("{name}.{metric_name} must be a number"))
         })?;
-        let metric = total.metric(metric_name).expect("known metric");
+        let metric = summary.metric(metric_name).expect("known metric");
         if threshold < 0.0 {
             let maximum = threshold.abs();
             let uncovered = u32::try_from(metric.uncovered()).unwrap_or(u32::MAX);
             if f64::from(uncovered) > maximum {
                 failures.push(format!(
-                    "Jest: Uncovered count for {metric_name} ({}) exceeds global threshold ({maximum})",
+                    "Jest: Uncovered count for {metric_name} ({}) exceeds {name} threshold ({maximum})",
                     metric.uncovered(),
                 ));
             }
         } else if metric.percentage() < threshold {
             failures.push(format!(
-                "Jest: \"global\" coverage threshold for {metric_name} ({threshold}%) not met: {}%",
+                "Jest: Coverage for {metric_name} ({}%) does not meet \"{name}\" threshold ({threshold}%)",
                 display_pct(metric.percentage()),
             ));
         }
     }
     Ok(failures)
+}
+
+fn combine_summaries(files: &[(&str, Summary)], selected: &[usize]) -> Option<Summary> {
+    let mut selected = selected.iter();
+    let first = *selected.next()?;
+    let mut combined = files[first].1;
+    for index in selected {
+        combined.add(files[*index].1);
+    }
+    Some(combined)
+}
+
+fn resolve_threshold_group(root_dir: &Path, group: &str) -> String {
+    let trailing_separator = group.ends_with('/') || group.ends_with('\\');
+    let group_path = Path::new(group);
+    let absolute = if group_path.is_absolute() {
+        group_path.to_path_buf()
+    } else {
+        root_dir.join(group_path)
+    };
+    let mut normalized = normalize_threshold_path(&absolute)
+        .to_string_lossy()
+        .replace('\\', "/");
+    if trailing_separator && !normalized.ends_with('/') {
+        normalized.push('/');
+    }
+    normalized
+}
+
+fn normalize_threshold_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn coverage_line(path: &str, entry: &Value, key: &str) -> Result<u64, CoverageError> {
@@ -905,6 +1090,22 @@ mod tests {
         )])
     }
 
+    fn fully_covered_fixture(path: &Path) -> CoverageMap {
+        let mut coverage = fixture(path);
+        let record = coverage.values_mut().next().expect("coverage record");
+        record["s"]["1"] = json!(1);
+        record["b"]["0"][1] = json!(1);
+        coverage
+    }
+
+    fn two_uncovered_statements_fixture(path: &Path) -> CoverageMap {
+        let mut coverage = fixture(path);
+        let record = coverage.values_mut().next().expect("coverage record");
+        record["statementMap"]["2"] = json!({"start": {"line": 3}});
+        record["s"]["2"] = json!(0);
+        coverage
+    }
+
     #[test]
     fn writes_machine_and_human_reports_from_istanbul_data() {
         let temp = tempfile::tempdir().expect("temp dir");
@@ -913,6 +1114,7 @@ mod tests {
         let directory = temp.path().join("coverage");
         let options = CoverageOptions {
             root_dir: temp.path().to_path_buf(),
+            threshold_base_dir: temp.path().to_path_buf(),
             coverage_directory: directory.clone(),
             reporters: ["json", "json-summary", "text-summary", "lcov", "clover"]
                 .into_iter()
@@ -935,6 +1137,187 @@ mod tests {
     }
 
     #[test]
+    fn excludes_path_threshold_files_from_the_global_bucket() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let partial = temp.path().join("src/partial.js");
+        let full = temp.path().join("src/full.js");
+        let mut coverage = fixture(&partial);
+        coverage.extend(fully_covered_fixture(&full));
+        let report = write_reports(
+            &coverage,
+            &CoverageOptions {
+                root_dir: temp.path().to_path_buf(),
+                threshold_base_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({
+                    "./src/partial.js": {"statements": 0},
+                    "global": {"statements": 100}
+                }),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert!(report.threshold_failures.is_empty());
+    }
+
+    #[test]
+    fn resolves_threshold_paths_from_the_explicit_invocation_directory() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let project_root = temp.path().join("project");
+        let partial = project_root.join("src/partial.js");
+        let full = project_root.join("src/full.js");
+        let mut coverage = fixture(&partial);
+        coverage.extend(fully_covered_fixture(&full));
+        let report = write_reports(
+            &coverage,
+            &CoverageOptions {
+                root_dir: project_root,
+                threshold_base_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({
+                    "./project/src/partial.js": {"statements": 0},
+                    "global": {"statements": 100}
+                }),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert!(report.threshold_failures.is_empty());
+    }
+
+    #[test]
+    fn evaluates_glob_thresholds_for_each_matching_file() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let partial = temp.path().join("src/partial.js");
+        let full = temp.path().join("src/full.js");
+        let mut coverage = fixture(&partial);
+        coverage.extend(fully_covered_fixture(&full));
+        let report = write_reports(
+            &coverage,
+            &CoverageOptions {
+                root_dir: temp.path().to_path_buf(),
+                threshold_base_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({"./src/*.js": {"statements": 75}}),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert_eq!(report.threshold_failures.len(), 1);
+        assert!(report.threshold_failures[0].contains("partial.js"));
+        assert!(report.threshold_failures[0].contains("Coverage for statements (50%)"));
+    }
+
+    #[test]
+    fn reports_a_threshold_group_without_coverage_data() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let source = temp.path().join("src/source.js");
+        let report = write_reports(
+            &fixture(&source),
+            &CoverageOptions {
+                root_dir: temp.path().to_path_buf(),
+                threshold_base_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({"./src/missing.js": {"statements": 0}}),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert_eq!(
+            report.threshold_failures,
+            ["Jest: Coverage data for ./src/missing.js was not found."]
+        );
+    }
+
+    #[test]
+    fn aggregates_path_groups_and_checks_every_overlapping_group() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let partial = temp.path().join("src/partial.js");
+        let full = temp.path().join("src/full.js");
+        let mut coverage = fixture(&partial);
+        coverage.extend(fully_covered_fixture(&full));
+        let report = write_reports(
+            &coverage,
+            &CoverageOptions {
+                root_dir: temp.path().to_path_buf(),
+                threshold_base_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({
+                    "./src/": {"statements": 75},
+                    "./src/partial.js": {"statements": 75}
+                }),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert_eq!(report.threshold_failures.len(), 1);
+        assert!(report.threshold_failures[0].contains("\"./src/partial.js\" threshold"));
+    }
+
+    #[test]
+    fn falls_back_to_all_files_when_every_file_has_a_specific_group() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let partial = temp.path().join("src/partial.js");
+        let full = temp.path().join("src/full.js");
+        let mut coverage = fixture(&partial);
+        coverage.extend(fully_covered_fixture(&full));
+        let report = write_reports(
+            &coverage,
+            &CoverageOptions {
+                root_dir: temp.path().to_path_buf(),
+                threshold_base_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({
+                    "./src/partial.js": {"statements": 0},
+                    "./src/full.js": {"statements": 100},
+                    "global": {"statements": 80}
+                }),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert_eq!(report.threshold_failures.len(), 1);
+        assert!(report.threshold_failures[0].contains("\"global\" threshold (80%)"));
+    }
+
+    #[test]
+    fn applies_negative_uncovered_limits_to_each_glob_match() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let partial = temp.path().join("src/partial.js");
+        let full = temp.path().join("src/full.js");
+        let mut coverage = two_uncovered_statements_fixture(&partial);
+        coverage.extend(fully_covered_fixture(&full));
+        let report = write_reports(
+            &coverage,
+            &CoverageOptions {
+                root_dir: temp.path().to_path_buf(),
+                threshold_base_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({"./src/*.js": {"statements": -1}}),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert_eq!(report.threshold_failures.len(), 1);
+        assert!(report.threshold_failures[0].contains("Uncovered count for statements (2)"));
+        assert!(report.threshold_failures[0].contains("partial.js"));
+    }
+
+    #[test]
     fn matches_istanbul_package_summary_for_multiple_source_directories() {
         let temp = tempfile::tempdir().expect("temp dir");
         let alpha = temp.path().join("packages/alpha/source.js");
@@ -945,6 +1328,7 @@ mod tests {
             &coverage,
             &CoverageOptions {
                 root_dir: temp.path().to_path_buf(),
+                threshold_base_dir: temp.path().to_path_buf(),
                 coverage_directory: temp.path().join("coverage"),
                 reporters: vec![Value::String("none".into())],
                 thresholds: json!({}),

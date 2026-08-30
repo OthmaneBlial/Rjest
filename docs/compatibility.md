@@ -9,12 +9,12 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 194/194 (100.0%) across its explicitly listed
+The current generated matrix is 202/202 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
 Expect is 7/7 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 10/10 (100.0%), coverage is 7/7 (100.0%), and custom
+(100.0%). Fake timers are 10/10 (100.0%), coverage is 15/15 (100.0%), and custom
 reporters are 6/6 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -91,6 +91,15 @@ files, while loaded but unchanged sources are excluded. The permanent oracle
 fixture changes `a.js`, selects a test that loads both `a.js` and `b.js`, and
 proves that both runners report only `a.js`. Configured `collectCoverageFrom`
 source collection remains separate from this runtime instrumentation filter.
+
+Coverage-threshold probes cover positive percentages and negative uncovered
+limits for global, exact-path, directory-prefix, and glob groups. Like Jest,
+files matched by a path or glob are removed from the ordinary global bucket;
+an empty global bucket falls back to all covered files. Directory paths merge
+their files before checking, globs check every matching file independently,
+overlapping groups all apply, and a configured group with no coverage data
+fails instead of being silently ignored. Relative threshold keys resolve from
+the invocation directory even when configuration selects a different `rootDir`.
 
 Explicit `--findRelatedTests` probes treat positional arguments as source
 paths rather than test patterns. They cover direct and transitive inverse
@@ -305,15 +314,15 @@ packages: strict equality with explicit testers, generic iterable equality,
 expected/received color functions, structural diffs, and
 `printDiffOrStringify`. Rjest currently emits plain text from the color helpers.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
-Istanbul-map merging, `collectCoverageFrom`, common reports, and global
+Istanbul-map merging, `collectCoverageFrom`, common reports, and grouped
 thresholds. Top-level coverage patterns are matched from the global root and
 partitioned across project roots, so imported and untested sources from a
 multi-project run share one Jest-compatible summary. Manual `__mocks__` lookup,
 virtual CommonJS factories, assertion counts, and transformer/test cache
-isolation are covered. Complete
-resolution/config semantics, V8 coverage, path/glob threshold groups, watch
-plugins, and non-Git changed-file selection remain missing, so Rjest does not
-claim broad or drop-in Jest compatibility yet.
+isolation are covered. Complete resolution/config semantics, V8 coverage,
+broader platform-specific glob edges, watch plugins, and non-Git changed-file
+selection remain missing, so Rjest does not claim broad or drop-in Jest
+compatibility yet.
 
 The modern timer surface includes animation-frame scheduling, cancellation,
 timestamps, and `advanceTimersToNextFrame` in JSDOM. Legacy mode preserves its

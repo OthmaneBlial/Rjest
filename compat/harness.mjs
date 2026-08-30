@@ -394,6 +394,104 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'coverage-threshold-path-global',
+    fixtureName: 'coverage-threshold-groups',
+    category: 'Coverage',
+    expectedExit: 0,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {
+      './src/partial.js': {statements: 0},
+      global: {statements: 100},
+    },
+  },
+  {
+    name: 'coverage-threshold-glob-per-file',
+    fixtureName: 'coverage-threshold-groups',
+    category: 'Coverage',
+    expectedExit: 1,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {'./src/*.js': {statements: 100}},
+    requiredOutputPatterns: ['partial.js'],
+  },
+  {
+    name: 'coverage-threshold-missing-path',
+    fixtureName: 'coverage-threshold-groups',
+    category: 'Coverage',
+    expectedExit: 1,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {'./src/missing.js': {statements: 0}},
+    requiredOutputPatterns: ['Coverage data for ./src/missing.js was not found.'],
+  },
+  {
+    name: 'coverage-threshold-directory-aggregate',
+    fixtureName: 'coverage-threshold-groups',
+    category: 'Coverage',
+    expectedExit: 0,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {'./src/': {statements: 70}},
+  },
+  {
+    name: 'coverage-threshold-overlap',
+    fixtureName: 'coverage-threshold-groups',
+    category: 'Coverage',
+    expectedExit: 1,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {
+      './src/': {statements: 70},
+      './src/partial.js': {statements: 70},
+    },
+    requiredOutputPatterns: ['"./src/partial.js" threshold (70%)'],
+  },
+  {
+    name: 'coverage-threshold-global-fallback',
+    fixtureName: 'coverage-threshold-groups',
+    category: 'Coverage',
+    expectedExit: 1,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {
+      './src/full.js': {statements: 100},
+      './src/partial.js': {statements: 0},
+      global: {statements: 75},
+    },
+    requiredOutputPatterns: ['"global" threshold (75%)'],
+  },
+  {
+    name: 'coverage-threshold-negative-glob',
+    fixtureName: 'coverage-threshold-groups',
+    category: 'Coverage',
+    expectedExit: 1,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {'./src/*.js': {statements: -1}},
+    requiredOutputPatterns: ['Uncovered count for statements (2)', 'partial.js'],
+  },
+  {
+    name: 'coverage-threshold-rootdir-cwd',
+    category: 'Coverage',
+    expectedExit: 0,
+    coverage: true,
+    compareCoverage: true,
+    collectCoverageFrom: ['src/*.js'],
+    coverageThreshold: {
+      './project/src/partial.js': {statements: 0},
+      global: {statements: 100},
+    },
+    useFixtureConfig: true,
+  },
+  {
     name: 'coverage-post-transform',
     category: 'Coverage',
     expectedExit: 0,
@@ -1454,6 +1552,9 @@ function compareCase(testCase) {
         jestArguments.push(`--collectCoverageFrom=${pattern}`);
       }
     }
+    if (testCase.coverageThreshold) {
+      jestArguments.push(`--coverageThreshold=${JSON.stringify(testCase.coverageThreshold)}`);
+    }
     const jestEnvironment = {
       ...process.env,
       CI: '',
@@ -1570,6 +1671,9 @@ function compareCase(testCase) {
       for (const pattern of testCase.collectCoverageFrom ?? []) {
         rjestArguments.push(`--collectCoverageFrom=${pattern}`);
       }
+    }
+    if (testCase.coverageThreshold) {
+      rjestArguments.push(`--coverageThreshold=${JSON.stringify(testCase.coverageThreshold)}`);
     }
     const rjestEnvironment = {
       ...process.env,

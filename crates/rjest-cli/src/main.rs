@@ -1869,7 +1869,7 @@ fn run_test_cycle(
     if let Some(session) = global_hook_session.as_mut() {
         session.finish()?;
     }
-    let coverage_report = coverage_report(cli, config, &result, collect_coverage)?;
+    let coverage_report = coverage_report(cli, config, &result, collect_coverage, project_dir)?;
     let base_success = result.is_success()
         && reporters_succeeded
         && coverage_report
@@ -3056,6 +3056,7 @@ fn coverage_report(
     config: &ProjectConfig,
     result: &AggregatedResult,
     enabled: bool,
+    threshold_base_dir: &Path,
 ) -> Result<Option<CoverageReport>> {
     if !enabled {
         return Ok(None);
@@ -3090,6 +3091,7 @@ fn coverage_report(
         &result.coverage_map,
         &CoverageOptions {
             root_dir: config.root_dir.clone(),
+            threshold_base_dir: threshold_base_dir.to_path_buf(),
             coverage_directory,
             reporters,
             thresholds,

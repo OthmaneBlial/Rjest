@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 194,
-    "total": 194,
+    "passing": 202,
+    "total": 202,
     "percentage": 100
   },
   "categories": {
@@ -24,8 +24,8 @@
       "percentage": 100
     },
     "Coverage": {
-      "passing": 7,
-      "total": 7,
+      "passing": 15,
+      "total": 15,
       "percentage": 100
     },
     "Environment": {
@@ -376,6 +376,54 @@
     },
     {
       "name": "coverage-threshold",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-path-global",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-glob-per-file",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-missing-path",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-directory-aggregate",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-overlap",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-global-fallback",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-negative-glob",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-threshold-rootdir-cwd",
       "category": "Coverage",
       "compatible": true,
       "differences": []
