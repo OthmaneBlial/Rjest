@@ -4,7 +4,7 @@ use std::{
     collections::BTreeMap,
     fs,
     io::Write,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -802,6 +802,26 @@ fn normalize(
             });
         }
     };
+    let test_path_ignore_patterns = normalize_regex_path_patterns(
+        raw.test_path_ignore_patterns,
+        defaults.test_path_ignore_patterns,
+        &root_dir,
+    );
+    let module_path_ignore_patterns = normalize_regex_path_patterns(
+        raw.module_path_ignore_patterns,
+        defaults.module_path_ignore_patterns,
+        &root_dir,
+    );
+    let transform_ignore_patterns = normalize_regex_path_patterns(
+        raw.transform_ignore_patterns,
+        defaults.transform_ignore_patterns,
+        &root_dir,
+    );
+    let coverage_path_ignore_patterns = normalize_regex_path_patterns(
+        raw.coverage_path_ignore_patterns,
+        defaults.coverage_path_ignore_patterns,
+        &root_dir,
+    );
 
     Ok(ProjectConfig {
         display_name,
@@ -810,12 +830,8 @@ fn normalize(
         roots,
         test_match,
         test_regex,
-        test_path_ignore_patterns: raw
-            .test_path_ignore_patterns
-            .unwrap_or(defaults.test_path_ignore_patterns),
-        module_path_ignore_patterns: raw
-            .module_path_ignore_patterns
-            .unwrap_or(defaults.module_path_ignore_patterns),
+        test_path_ignore_patterns,
+        module_path_ignore_patterns,
         module_file_extensions: raw
             .module_file_extensions
             .unwrap_or(defaults.module_file_extensions),
@@ -857,9 +873,7 @@ fn normalize(
         snapshot_format,
         prettier_path,
         transform,
-        transform_ignore_patterns: raw
-            .transform_ignore_patterns
-            .unwrap_or(defaults.transform_ignore_patterns),
+        transform_ignore_patterns,
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
         bail: normalize_bail(raw.bail, defaults.bail)?,
         randomize: raw.randomize.unwrap_or(defaults.randomize),
@@ -872,9 +886,7 @@ fn normalize(
             .collect_coverage_from
             .unwrap_or(defaults.collect_coverage_from),
         coverage_directory,
-        coverage_path_ignore_patterns: raw
-            .coverage_path_ignore_patterns
-            .unwrap_or(defaults.coverage_path_ignore_patterns),
+        coverage_path_ignore_patterns,
         coverage_provider,
         coverage_reporters: raw
             .coverage_reporters
@@ -1306,6 +1318,19 @@ fn normalize_test_patterns(
     ))
 }
 
+fn normalize_regex_path_patterns(
+    configured: Option<Vec<String>>,
+    defaults: Vec<String>,
+    root_dir: &Path,
+) -> Vec<String> {
+    let root = root_dir.to_string_lossy().replace('\\', "/");
+    configured
+        .unwrap_or(defaults)
+        .into_iter()
+        .map(|pattern| pattern.replace("<rootDir>", &root))
+        .collect()
+}
+
 fn normalize_roots(
     configured: Option<Vec<String>>,
     root_dir: &Path,
@@ -1465,16 +1490,31 @@ fn resolve_from(base: &Path, path: &Path) -> PathBuf {
 }
 
 fn absolute(path: &Path) -> Result<PathBuf, ConfigError> {
-    if path.is_absolute() {
-        Ok(path.to_path_buf())
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
     } else {
         std::env::current_dir()
             .map(|cwd| cwd.join(path))
             .map_err(|source| ConfigError::Read {
                 path: path.to_path_buf(),
                 source,
-            })
+            })?
+    };
+    Ok(normalize_absolute_path(&absolute))
+}
+
+fn normalize_absolute_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            component => normalized.push(component.as_os_str()),
+        }
     }
+    normalized
 }
 
 fn ensure_directory(path: &Path) -> Result<(), ConfigError> {
@@ -1501,6 +1541,41 @@ mod tests {
         assert_eq!(config.bail, 0);
         assert_eq!(config.max_concurrency, 5);
         assert!(!config.pass_with_no_tests);
+    }
+
+    #[test]
+    fn expands_root_tokens_in_regex_path_patterns_and_normalizes_the_root() {
+        let temp = tempdir().expect("temp dir");
+        let config = load_inline_json(
+            temp.path(),
+            r#"{
+              "rootDir":".",
+              "testPathIgnorePatterns":["plain-test","<rootDir>/ignored-test"],
+              "modulePathIgnorePatterns":["<rootDir>/ignored-module"],
+              "transformIgnorePatterns":["<rootDir>/ignored-transform"],
+              "coveragePathIgnorePatterns":["<rootDir>/ignored-coverage"]
+            }"#,
+        )
+        .expect("root-token regex patterns");
+        let root = temp.path().to_string_lossy();
+
+        assert_eq!(config.root_dir, temp.path());
+        assert_eq!(
+            config.test_path_ignore_patterns,
+            ["plain-test".to_owned(), format!("{root}/ignored-test")]
+        );
+        assert_eq!(
+            config.module_path_ignore_patterns,
+            [format!("{root}/ignored-module")]
+        );
+        assert_eq!(
+            config.transform_ignore_patterns,
+            [format!("{root}/ignored-transform")]
+        );
+        assert_eq!(
+            config.coverage_path_ignore_patterns,
+            [format!("{root}/ignored-coverage")]
+        );
     }
 
     #[test]

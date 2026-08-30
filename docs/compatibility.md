@@ -7,10 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 126/126 (100.0%) across its explicitly listed
+The current generated matrix is 128/128 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 14/14 (100.0%), and configuration is
-28/28 (100.0%). Resolution is 12/12 (100.0%), snapshots are 13/13 (100.0%),
+29/29 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -356,6 +356,15 @@ suites and 29/29 tests and match all 3 snapshots. The automated comparator
 reports exact paths, identities, statuses, and snapshot counts. This is focused
 evidence for Granite's Jest-based `style-utils` workspace, not its separate
 Vitest packages or every PnP topology.
+
+The pinned [styled-components web corpus](corpus/styled-components.md) adds a
+pnpm 10 hoisted workspace with React 19, Jest 30.3, JSDOM, Babel TypeScript/TSX,
+legacy fake timers, setup modules, a custom HTML snapshot serializer, and SSR.
+Both runners discover and pass the same 59/59 suites and 1,465/1,465 tests and
+match all 749 snapshots. The comparator reports exact paths, identities,
+statuses, and snapshot totals. The evidence is scoped to the original web Jest
+configuration; the project's separate native, build-output, and type-check
+suites remain independent work.
 
 The pinned [Apollo Client corpus](corpus/apollo-client.md) records a separate
 official Jest 30 baseline across six Core/React project configs: 563 suites,

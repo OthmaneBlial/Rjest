@@ -53,13 +53,16 @@ const RuntimeResolverFactory =
   usesCustomModuleDirectories || request.resolver || usesHastePlatformResolution
   ? requireFromTest(request.resolverEnginePath ?? 'unrs-resolver').ResolverFactory
   : undefined;
+let installedJestPackagePath;
 let installedJestMajorVersion;
 try {
-  installedJestMajorVersion = Number.parseInt(
-    requireFromTest('jest/package.json').version.split('.')[0],
-    10,
+  installedJestPackagePath = requireFromTest.resolve('jest/package.json');
+  const installedJestPackage = JSON.parse(
+    readFileSync(installedJestPackagePath, 'utf8'),
   );
+  installedJestMajorVersion = Number.parseInt(installedJestPackage.version, 10);
 } catch {
+  installedJestPackagePath = undefined;
   installedJestMajorVersion = undefined;
 }
 const originalModuleLoad = Module._load;
@@ -2510,6 +2513,17 @@ function runtimeToolSpecifier(specifier) {
   return request.runtimeToolPaths?.[specifier] ?? specifier;
 }
 
+function installedJestToolSpecifier(specifier) {
+  if (!installedJestPackagePath) return undefined;
+  try {
+    const requireFromJest = createRequire(installedJestPackagePath);
+    const corePackagePath = requireFromJest.resolve('@jest/core/package.json');
+    return createRequire(corePackagePath).resolve(specifier);
+  } catch {
+    return undefined;
+  }
+}
+
 let configuredCommonJsResolver;
 let configuredEsmResolver;
 let customResolverSync;
@@ -4663,7 +4677,9 @@ function configureSnapshotFormat() {
     runtimeSnapshotSerializers.push(serializer);
   }
   try {
-    const loaded = loadUnmockedRuntimeTool('pretty-format');
+    const loaded = loadUnmockedRuntimeTool(
+      installedJestToolSpecifier('pretty-format') ?? 'pretty-format',
+    );
     runtimePrettyFormatter =
       typeof loaded === 'function' ? loaded : loaded.format;
     try {

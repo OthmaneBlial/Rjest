@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 126,
-    "total": 126,
+    "passing": 128,
+    "total": 128,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 28,
-      "total": 28,
+      "passing": 29,
+      "total": 29,
       "percentage": 100
     },
     "Core API": {
@@ -59,8 +59,8 @@
       "percentage": 100
     },
     "Snapshots": {
-      "passing": 13,
-      "total": 13,
+      "passing": 14,
+      "total": 14,
       "percentage": 100
     },
     "Transforms": {
@@ -144,6 +144,12 @@
     },
     {
       "name": "config-rootdir-test-match",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-rootdir-ignore-patterns",
       "category": "Configuration",
       "compatible": true,
       "differences": []
@@ -648,6 +654,12 @@
     },
     {
       "name": "snapshot-format-config",
+      "category": "Snapshots",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "snapshot-installed-jest-formatter",
       "category": "Snapshots",
       "compatible": true,
       "differences": []

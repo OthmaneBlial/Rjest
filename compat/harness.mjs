@@ -1,12 +1,14 @@
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -18,6 +20,7 @@ import {fileURLToPath} from 'node:url';
 const repository = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const rjest = join(repository, 'target', 'debug', 'rjest');
 const jest = join(repository, 'node_modules', 'jest', 'bin', 'jest.js');
+const jest30_3 = join(repository, 'node_modules', 'jest-30-3', 'bin', 'jest.js');
 const fixtures = join(repository, 'compat', 'fixtures');
 const require = createRequire(import.meta.url);
 const typescriptPreset = require.resolve('@babel/preset-typescript');
@@ -83,6 +86,12 @@ const cases = [
   },
   {
     name: 'config-rootdir-test-match',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-rootdir-ignore-patterns',
     category: 'Configuration',
     expectedExit: 0,
     useFixtureConfig: true,
@@ -532,6 +541,14 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'snapshot-installed-jest-formatter',
+    category: 'Snapshots',
+    expectedExit: 0,
+    installedJestPackage: 'jest-30-3',
+    jestExecutable: jest30_3,
+    useFixtureConfig: true,
+  },
+  {
     name: 'snapshot-mock-function',
     category: 'Snapshots',
     compareSnapshots: true,
@@ -710,13 +727,17 @@ function compareCase(testCase) {
       preparePnpFixture(jestFixture);
       preparePnpFixture(rjestFixture);
     }
+    if (testCase.installedJestPackage) {
+      prepareInstalledJest(jestFixture, testCase.installedJestPackage);
+      prepareInstalledJest(rjestFixture, testCase.installedJestPackage);
+    }
     const jestCwd = testCase.workingDirectory
       ? join(jestFixture, testCase.workingDirectory)
       : jestFixture;
     const rjestCwd = testCase.workingDirectory
       ? join(rjestFixture, testCase.workingDirectory)
       : rjestFixture;
-    const jestArguments = [jest, '--runInBand'];
+    const jestArguments = [testCase.jestExecutable ?? jest, '--runInBand'];
     if (testCase.compareExecutionMarkers) jestArguments.push('--no-cache');
     else jestArguments.push('--json', `--outputFile=${jestOutput}`);
     if (!testCase.useFixtureConfig) {
@@ -938,6 +959,16 @@ function preparePnpFixture(fixture) {
   if (installation.status !== 0) {
     fail(`Yarn PnP fixture install exited ${installation.status}`, installation);
   }
+}
+
+function prepareInstalledJest(fixture, packageName) {
+  const nodeModules = join(fixture, 'node_modules');
+  mkdirSync(nodeModules, {recursive: true});
+  symlinkSync(
+    join(repository, 'node_modules', packageName),
+    join(nodeModules, 'jest'),
+    'junction',
+  );
 }
 
 function fixtureNodeOptions(testCase, fixture) {
