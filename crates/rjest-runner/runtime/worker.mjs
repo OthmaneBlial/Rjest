@@ -484,7 +484,7 @@ function printable(value) {
 }
 
 class RjestAsymmetricMatcher {
-  constructor(match, description, sample, inverse) {
+  constructor(match, description, sample, inverse, formatter) {
     this.$$typeof = Symbol.for('jest.asymmetricMatcher');
     this.sample = sample;
     this.inverse = inverse;
@@ -492,6 +492,7 @@ class RjestAsymmetricMatcher {
       [ASYMMETRIC]: {value: true},
       match: {value: match},
       description: {value: description},
+      formatter: {value: formatter},
     });
   }
 
@@ -504,14 +505,21 @@ class RjestAsymmetricMatcher {
   }
 
   toAsymmetricMatcher() {
+    if (this.formatter) return this.formatter();
     return this.description === 'Any'
       ? `Any<${this.sample?.name ?? 'anonymous'}>`
       : this.description;
   }
 }
 
-function asymmetric(match, description, sample, inverse = false) {
-  return new RjestAsymmetricMatcher(match, description, sample, inverse);
+function asymmetric(match, description, sample, inverse = false, formatter) {
+  return new RjestAsymmetricMatcher(
+    match,
+    description,
+    sample,
+    inverse,
+    formatter,
+  );
 }
 
 function isAsymmetric(value) {
@@ -744,10 +752,10 @@ function subsetEqual(received, expected, receivedStack = [], expectedStack = [])
   return result;
 }
 
-function objectContainingEqual(received, sample) {
+function objectContainingEqual(received, sample, matcherName) {
   if (typeof sample !== 'object' || sample === null) {
     throw new TypeError(
-      `You must provide an object to ObjectContaining, not '${typeof sample}'.`,
+      `You must provide an object to ${matcherName}, not '${typeof sample}'.`,
     );
   }
   if (
@@ -761,7 +769,7 @@ function objectContainingEqual(received, sample) {
     .filter(key => Object.prototype.propertyIsEnumerable.call(sample, key))
     .every(
       key =>
-        key in Object(received) && deepEqual(received[key], sample[key]),
+        key in Object(received) && deepEqual(sample[key], received[key]),
     );
 }
 
@@ -2076,13 +2084,147 @@ expect.hasAssertions = () => {
   activeTest.requiresAssertions = true;
   expectState.isExpectingAssertions = true;
 };
+
+function hasObjectTag(value, tag) {
+  return Object.prototype.toString.call(value) === `[object ${tag}]`;
+}
+
+function isNumberValue(value) {
+  return typeof value === 'number' || hasObjectTag(value, 'Number');
+}
+
+function isStringValue(value) {
+  return typeof value === 'string' || hasObjectTag(value, 'String');
+}
+
+function isRegExpValue(value) {
+  return hasObjectTag(value, 'RegExp');
+}
+
+function makeArrayContaining(sample, inverse) {
+  const description = `Array${inverse ? 'Not' : ''}Containing`;
+  return asymmetric(
+    value => {
+      if (!Array.isArray(sample)) {
+        throw new TypeError(
+          `You must provide an array to ${description}, not '${typeof sample}'.`,
+        );
+      }
+      const result =
+        sample.length === 0 ||
+        (Array.isArray(value) &&
+          sample.every(expected =>
+            value.some(actual => deepEqual(expected, actual)),
+          ));
+      return inverse ? !result : result;
+    },
+    description,
+    sample,
+    inverse,
+  );
+}
+
+function makeArrayOf(sample, inverse) {
+  const description = `${inverse ? 'Not' : ''}ArrayOf`;
+  return asymmetric(
+    value => {
+      const result =
+        Array.isArray(value) &&
+        value.every(actual => deepEqual(sample, actual));
+      return inverse ? !result : result;
+    },
+    description,
+    sample,
+    inverse,
+  );
+}
+
+function makeStringContaining(sample, inverse) {
+  if (!isStringValue(sample)) {
+    throw new Error('Expected is not a string');
+  }
+  const description = `String${inverse ? 'Not' : ''}Containing`;
+  return asymmetric(
+    value => {
+      const result =
+        isStringValue(value) && String(value).includes(String(sample));
+      return inverse ? !result : result;
+    },
+    description,
+    sample,
+    inverse,
+  );
+}
+
+function makeStringMatching(sample, inverse) {
+  if (!isStringValue(sample) && !isRegExpValue(sample)) {
+    throw new Error('Expected is not a String or a RegExp');
+  }
+  const pattern = new RegExp(sample);
+  const description = `String${inverse ? 'Not' : ''}Matching`;
+  return asymmetric(
+    value => {
+      const result = isStringValue(value) && pattern.test(String(value));
+      return inverse ? !result : result;
+    },
+    description,
+    pattern,
+    inverse,
+  );
+}
+
+function makeCloseTo(expected, precision = 2, inverse = false) {
+  if (!isNumberValue(expected)) {
+    throw new Error('Expected is not a Number');
+  }
+  if (!isNumberValue(precision)) {
+    throw new Error('Precision is not a Number');
+  }
+  const description = `Number${inverse ? 'Not' : ''}CloseTo`;
+  const numericPrecision = Number(precision);
+  return asymmetric(
+    received => {
+      if (!isNumberValue(received)) return false;
+      let result;
+      if (
+        received === Number.POSITIVE_INFINITY &&
+        expected === Number.POSITIVE_INFINITY
+      ) {
+        result = true;
+      } else if (
+        received === Number.NEGATIVE_INFINITY &&
+        expected === Number.NEGATIVE_INFINITY
+      ) {
+        result = true;
+      } else {
+        result =
+          Math.abs(Number(expected) - Number(received)) <
+          Math.pow(10, -numericPrecision) / 2;
+      }
+      return inverse ? !result : result;
+    },
+    description,
+    expected,
+    inverse,
+    () =>
+      `${description} ${String(expected)} (${numericPrecision} ${
+        numericPrecision === 1 ? 'digit' : 'digits'
+      })`,
+  );
+}
+
 expect.anything = () =>
   asymmetric(
     value => value !== null && value !== undefined,
     'Anything',
   );
-expect.any = constructor =>
-  asymmetric(value => {
+expect.any = constructor => {
+  if (constructor === undefined) {
+    throw new TypeError(
+      'any() expects to be passed a constructor function. Please pass one or use anything() to match any object.',
+    );
+  }
+  return asymmetric(value => {
     if (constructor === String) {
       return typeof value === 'string' || value instanceof String;
     }
@@ -2092,42 +2234,32 @@ expect.any = constructor =>
     if (constructor === Boolean) {
       return typeof value === 'boolean' || value instanceof Boolean;
     }
-    if (constructor === BigInt) return typeof value === 'bigint';
-    if (constructor === Symbol) return typeof value === 'symbol';
+    if (constructor === Function) {
+      return typeof value === 'function' || value instanceof Function;
+    }
+    if (constructor === BigInt) {
+      return typeof value === 'bigint' || value instanceof BigInt;
+    }
+    if (constructor === Symbol) {
+      return typeof value === 'symbol' || value instanceof Symbol;
+    }
+    if (constructor === Object) return typeof value === 'object';
+    if (constructor === Array) return Array.isArray(value);
     return value instanceof constructor;
   }, 'Any', constructor);
-expect.arrayContaining = sample =>
-  asymmetric(
-    value =>
-      Array.isArray(value) &&
-      sample.every(expected =>
-        value.some(actual => deepEqual(actual, expected)),
-      ),
-    'ArrayContaining',
-    sample,
-  );
+};
+expect.arrayContaining = sample => makeArrayContaining(sample, false);
+expect.arrayOf = sample => makeArrayOf(sample, false);
+expect.closeTo = (expected, precision) =>
+  makeCloseTo(expected, precision, false);
 expect.objectContaining = sample =>
   asymmetric(
-    value => objectContainingEqual(value, sample),
+    value => objectContainingEqual(value, sample, 'ObjectContaining'),
     'ObjectContaining',
     sample,
   );
-expect.stringContaining = sample =>
-  asymmetric(
-    value => typeof value === 'string' && value.includes(String(sample)),
-    'StringContaining',
-    sample,
-  );
-expect.stringMatching = sample =>
-  asymmetric(
-    value =>
-      typeof value === 'string' &&
-      (sample instanceof RegExp
-        ? sample.test(value)
-        : value.includes(String(sample))),
-    'StringMatching',
-    sample,
-  );
+expect.stringContaining = sample => makeStringContaining(sample, false);
+expect.stringMatching = sample => makeStringMatching(sample, false);
 expect.extend = extensions => {
   if (!extensions || typeof extensions !== 'object') {
     throw new TypeError('expect.extend expects an object of matcher functions');
@@ -2176,47 +2308,19 @@ expect.addEqualityTesters = testers => {
   }
 };
 expect.not = {
-  arrayContaining: sample =>
-    asymmetric(
-      value =>
-        !(
-          Array.isArray(value) &&
-          sample.every(expected =>
-            value.some(actual => deepEqual(actual, expected)),
-          )
-        ),
-      'ArrayNotContaining',
-      sample,
-      true,
-    ),
+  arrayContaining: sample => makeArrayContaining(sample, true),
+  arrayOf: sample => makeArrayOf(sample, true),
+  closeTo: (expected, precision) => makeCloseTo(expected, precision, true),
   objectContaining: sample =>
     asymmetric(
-      value => !objectContainingEqual(value, sample),
+      value =>
+        !objectContainingEqual(value, sample, 'ObjectNotContaining'),
       'ObjectNotContaining',
       sample,
       true,
     ),
-  stringContaining: sample =>
-    asymmetric(
-      value =>
-        !(typeof value === 'string' && value.includes(String(sample))),
-      'StringNotContaining',
-      sample,
-      true,
-    ),
-  stringMatching: sample =>
-    asymmetric(
-      value =>
-        !(
-          typeof value === 'string' &&
-          (sample instanceof RegExp
-            ? sample.test(value)
-            : value.includes(String(sample)))
-        ),
-      'StringNotMatching',
-      sample,
-      true,
-    ),
+  stringContaining: sample => makeStringContaining(sample, true),
+  stringMatching: sample => makeStringMatching(sample, true),
 };
 globalThis.expect = expect;
 

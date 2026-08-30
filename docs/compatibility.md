@@ -9,11 +9,11 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 210/210 (100.0%) across its explicitly listed
+The current generated matrix is 211/211 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 14/14 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
-Expect is 8/8 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
+Expect is 9/9 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 11/11 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -319,6 +319,11 @@ Mock return-history assertions include `toHaveLastReturnedWith` and
 `toHaveNthReturnedWith`. Their nth index follows call order, thrown and
 incomplete calls never count as returns, asymmetric/custom equality remains
 active, and invalid positions throw Jest's positive-integer diagnostic.
+Jest 30 asymmetric factories include `expect.arrayOf`, `expect.closeTo`, and
+their `expect.not` inverses. Nested factories use custom equality testers in
+Jest's sample-first order. Existing `any`, `arrayContaining`,
+`stringContaining`, and `stringMatching` factories also retain Jest's special
+constructor, empty-sample, input-validation, and string-to-RegExp semantics.
 `expect.objectContaining` requires each requested top-level property while its
 nested values use Jest's loose `toEqual` semantics, including omission of
 properties whose expected value is `undefined`.
