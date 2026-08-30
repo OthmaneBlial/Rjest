@@ -1189,6 +1189,11 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'expect-call-contracts',
+    category: 'Expect',
+    expectedExit: 0,
+  },
+  {
     name: 'expect-package-shared-state',
     category: 'Expect',
     expectedExit: 0,

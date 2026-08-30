@@ -2290,7 +2290,10 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
   return expectation;
 }
 
-function expect(actual) {
+function expect(actual, ...rest) {
+  if (rest.length > 0) {
+    throw new Error('Expect takes at most one argument.');
+  }
   return makeExpectation(actual);
 }
 expect.getState = () => expectState;

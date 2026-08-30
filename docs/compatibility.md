@@ -9,11 +9,11 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 228/228 (100.0%) across its explicitly listed
+The current generated matrix is 229/229 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 15/15 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
-Expect is 13/13 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
+Expect is 14/14 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -217,6 +217,8 @@ The same async-local identity is exposed through
 `currentConcurrentTestName()`. Concurrent callbacks keep distinct stable test
 entries across awaits; sequential per-test hooks and bodies share one entry;
 suite hooks observe `undefined`, matching Jest's state contract.
+The `expect` entry point itself accepts zero or one argument and rejects every
+additional argument with Jest's diagnostic instead of silently discarding it.
 `jest.getSeed`, `--seed`, and `--showSeed` share one validated signed 32-bit run
 seed across workers.
 `--randomize` uses Jest's seeded xoroshiro128plus stream and in-place
