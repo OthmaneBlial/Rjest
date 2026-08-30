@@ -413,6 +413,7 @@ struct Cli {
 
 struct CoverageRunnerSettings {
     enabled: bool,
+    provider: String,
     path_ignore_patterns: Vec<String>,
     filter: Option<Vec<PathBuf>>,
     sources: Vec<PathBuf>,
@@ -2580,10 +2581,14 @@ fn runner_options(
         runtime_tool_paths: internal_node_module_paths(&[
             "@babel/core",
             "@babel/generator",
+            "@bcoe/v8-coverage",
             "@jridgewell/trace-mapping",
             "babel-plugin-istanbul",
+            "collect-v8-coverage",
             "convert-source-map",
+            "istanbul-lib-coverage",
             "pretty-format",
+            "v8-to-istanbul",
         ]),
         automock: run.config.automock,
         reset_modules: run.config.reset_modules,
@@ -2607,6 +2612,7 @@ fn runner_options(
         transform: run.config.transform.clone(),
         transform_ignore_patterns: run.config.transform_ignore_patterns.clone(),
         collect_coverage: coverage.enabled,
+        coverage_provider: coverage.provider,
         coverage_path_ignore_patterns: coverage.path_ignore_patterns,
         coverage_filter: coverage.filter,
         coverage_sources: coverage.sources,
@@ -2995,10 +3001,8 @@ fn coverage_runner_settings(
         .coverage_provider
         .as_deref()
         .unwrap_or(&global_config.coverage_provider);
-    if enabled && provider != "babel" {
-        bail!(
-            "coverageProvider `{provider}` is not supported yet; use Jest's default `babel` provider"
-        );
+    if provider != "babel" && provider != "v8" {
+        bail!("coverageProvider `{provider}` must be either `babel` or `v8`");
     }
     let collect_from = if cli.collect_coverage_from.is_empty() {
         &global_config.collect_coverage_from
@@ -3077,6 +3081,7 @@ fn coverage_runner_settings(
     };
     Ok(CoverageRunnerSettings {
         enabled,
+        provider: provider.to_owned(),
         path_ignore_patterns,
         filter,
         sources,
@@ -4115,6 +4120,8 @@ mod tests {
             heap_used_bytes: None,
             snapshot: SnapshotResult::default(),
             coverage: std::collections::BTreeMap::new(),
+            v8_coverage: Vec::new(),
+            v8_transforms: std::collections::BTreeMap::new(),
         };
 
         cache.record(&AggregatedResult {
@@ -4203,5 +4210,19 @@ mod tests {
             .expect("find-related coverage settings");
         assert_eq!(explicit.filter, Some(vec![a.clone()]));
         assert_eq!(explicit.sources, vec![a]);
+    }
+
+    #[test]
+    fn accepts_v8_coverage_provider_for_worker_execution() {
+        let temp = tempdir().expect("temp dir");
+        let config = ProjectConfig::defaults(temp.path()).expect("config");
+        let cli = Cli::try_parse_from(["rjest", "--coverage", "--coverageProvider=v8"])
+            .expect("V8 coverage CLI");
+
+        let settings =
+            coverage_runner_settings(&cli, &config, &config, None).expect("V8 coverage settings");
+
+        assert!(settings.enabled);
+        assert_eq!(settings.provider, "v8");
     }
 }

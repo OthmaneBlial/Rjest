@@ -27,6 +27,7 @@ use thiserror::Error;
 const RESULT_PREFIX: &str = "__RJEST_RESULT__";
 const EVENT_PREFIX: &str = "__RJEST_EVENT__";
 const WORKER_SOURCE: &str = include_str!("../runtime/worker.mjs");
+const V8_COVERAGE_SOURCE: &str = include_str!("../runtime/v8-coverage.mjs");
 
 /// Thread-safe signal used to interrupt an active test-file execution batch.
 #[derive(Clone, Debug, Default)]
@@ -86,6 +87,7 @@ pub struct RunnerOptions {
     pub transform: BTreeMap<String, serde_json::Value>,
     pub transform_ignore_patterns: Vec<String>,
     pub collect_coverage: bool,
+    pub coverage_provider: String,
     pub coverage_path_ignore_patterns: Vec<String>,
     pub coverage_filter: Option<Vec<PathBuf>>,
     pub coverage_sources: Vec<PathBuf>,
@@ -133,6 +135,7 @@ impl Default for RunnerOptions {
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
             collect_coverage: false,
+            coverage_provider: "babel".into(),
             coverage_path_ignore_patterns: vec!["/node_modules/".into()],
             coverage_filter: None,
             coverage_sources: Vec::new(),
@@ -163,6 +166,22 @@ pub enum RunnerError {
     Wait(#[source] std::io::Error),
     #[error("cannot encode worker request: {0}")]
     Encode(#[from] serde_json::Error),
+    #[error("cannot materialize the V8 coverage bridge: {0}")]
+    V8CoverageSource(#[source] std::io::Error),
+    #[error("cannot start V8 coverage bridge `{binary}`: {source}")]
+    V8CoverageSpawn {
+        binary: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("cannot write V8 coverage request: {0}")]
+    V8CoverageWrite(#[source] std::io::Error),
+    #[error("cannot wait for V8 coverage bridge: {0}")]
+    V8CoverageWait(#[source] std::io::Error),
+    #[error("V8 coverage conversion failed: {0}")]
+    V8CoverageFailure(String),
+    #[error("V8 coverage bridge returned invalid JSON: {0}")]
+    V8CoverageResult(#[source] serde_json::Error),
     #[error(transparent)]
     Snapshot(#[from] rjest_snapshot::SnapshotError),
     #[error("worker did not return a protocol result for `{path}`{details}")]
@@ -367,12 +386,97 @@ fn run_internal(
     };
     let mut test_results = results;
     test_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
-    let coverage_map = merge_coverage_maps(&test_results)?;
+    let coverage_map = if options.collect_coverage && options.coverage_provider == "v8" {
+        finalize_v8_coverage(&test_results, options)?
+    } else {
+        merge_coverage_maps(&test_results)?
+    };
+    if options.collect_coverage && options.coverage_provider == "v8" {
+        for result in &mut test_results {
+            result.v8_coverage.clear();
+            result.v8_transforms.clear();
+            result.coverage.clear();
+        }
+        if let Some(result) = test_results.first_mut() {
+            result.coverage.clone_from(&coverage_map);
+        }
+    }
     Ok(AggregatedResult {
         test_results,
         duration_ms: millis(started.elapsed()),
         coverage_map,
     })
+}
+
+fn finalize_v8_coverage(
+    results: &[TestFileResult],
+    options: &RunnerOptions,
+) -> Result<CoverageMap, RunnerError> {
+    let mut transforms = BTreeMap::new();
+    for result in results {
+        for (path, transformed) in &result.v8_transforms {
+            transforms
+                .entry(path.clone())
+                .or_insert_with(|| transformed.clone());
+        }
+    }
+    let request = serde_json::json!({
+        "rootDir": options.root_dir,
+        "runtimeToolPaths": options.runtime_tool_paths,
+        "coverageSources": options.coverage_sources,
+        "v8Coverage": results
+            .iter()
+            .map(|result| &result.v8_coverage)
+            .collect::<Vec<_>>(),
+        "v8Transforms": transforms,
+    });
+    let encoded = serde_json::to_vec(&request)?;
+    let mut bridge_source = tempfile::Builder::new()
+        .prefix("rjest-v8-coverage-")
+        .suffix(".mjs")
+        .tempfile()
+        .map_err(RunnerError::V8CoverageSource)?;
+    bridge_source
+        .write_all(V8_COVERAGE_SOURCE.as_bytes())
+        .and_then(|()| bridge_source.flush())
+        .map_err(RunnerError::V8CoverageSource)?;
+    let mut command = Command::new(&options.node_binary);
+    if std::env::var_os("NODE_ENV").is_none() {
+        command.env("NODE_ENV", "test");
+    }
+    if let Some(node_path) = worker_node_path(options) {
+        command.env("NODE_PATH", node_path);
+    }
+    let mut child = command
+        .arg(bridge_source.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| RunnerError::V8CoverageSpawn {
+            binary: options.node_binary.clone(),
+            source,
+        })?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .expect("piped V8 coverage bridge stdin is available");
+    stdin
+        .write_all(&encoded)
+        .map_err(RunnerError::V8CoverageWrite)?;
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .map_err(RunnerError::V8CoverageWait)?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(RunnerError::V8CoverageFailure(if message.is_empty() {
+            format!("bridge exited with {}", output.status)
+        } else {
+            message
+        }));
+    }
+    serde_json::from_slice(&output.stdout).map_err(RunnerError::V8CoverageResult)
 }
 
 fn run_files_with_cancellation(
@@ -637,6 +741,7 @@ fn run_file(
         transform: options.transform.clone(),
         transform_ignore_patterns: options.transform_ignore_patterns.clone(),
         collect_coverage: options.collect_coverage,
+        coverage_provider: options.coverage_provider.clone(),
         coverage_path_ignore_patterns: options.coverage_path_ignore_patterns.clone(),
         coverage_filter: options.coverage_filter.clone(),
         coverage_sources: if collect_uncovered_sources {
@@ -714,6 +819,8 @@ fn timed_out_result(path: &Path, file_timeout_ms: u64) -> TestFileResult {
         heap_used_bytes: None,
         snapshot: SnapshotResult::default(),
         coverage: CoverageMap::new(),
+        v8_coverage: Vec::new(),
+        v8_transforms: BTreeMap::new(),
     }
 }
 
@@ -1525,6 +1632,8 @@ mod tests {
                     "b": {"0": [first_branch, second_branch]}
                 }),
             )]),
+            v8_coverage: Vec::new(),
+            v8_transforms: BTreeMap::new(),
         };
 
         let coverage =

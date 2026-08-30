@@ -9,12 +9,12 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 203/203 (100.0%) across its explicitly listed
+The current generated matrix is 207/207 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
 Expect is 7/7 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 10/10 (100.0%), coverage is 15/15 (100.0%), and custom
+(100.0%). Fake timers are 10/10 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -102,6 +102,14 @@ their files before checking, globs check every matching file independently,
 overlapping groups all apply, and a configured group with no coverage data
 fails instead of being silently ignored. Relative threshold keys resolve from
 the invocation directory even when configuration selects a different `rootDir`.
+
+V8 coverage probes exercise the same precise-coverage pipeline Jest uses:
+opposite branches run in two isolated workers, raw ranges merge before Istanbul
+conversion, and an unexecuted `collectCoverageFrom` file remains in the report
+at zero. Additional oracles preserve threshold failures and remap generated
+JavaScript ranges to their TypeScript source through a custom transformer's
+source map. These are exact summary comparisons, not provider-acceptance smoke
+tests.
 
 Explicit `--findRelatedTests` probes treat positional arguments as source
 paths rather than test patterns. They cover direct and transitive inverse
@@ -321,8 +329,8 @@ thresholds. Top-level coverage patterns are matched from the global root and
 partitioned across project roots, so imported and untested sources from a
 multi-project run share one Jest-compatible summary. Manual `__mocks__` lookup,
 virtual CommonJS factories, assertion counts, and transformer/test cache
-isolation are covered. Complete resolution/config semantics, V8 coverage,
-broader platform-specific glob edges, watch plugins, and non-Git changed-file
+isolation are covered. Complete resolution/config semantics, broader
+platform-specific glob edges, watch plugins, and non-Git changed-file
 selection remain missing, so Rjest does not claim broad or drop-in Jest
 compatibility yet.
 

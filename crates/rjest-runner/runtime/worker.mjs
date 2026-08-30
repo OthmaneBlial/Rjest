@@ -13,7 +13,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 24;
+const PROTOCOL_VERSION = 25;
 const supportsSyncEvaluate =
   typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
@@ -91,6 +91,7 @@ const transformerModuleCache = Object.create(null);
 const transformCacheFs = new Map();
 const transformedSourceCache = new Map();
 const runtimeSourceMaps = new Map();
+const v8TransformResults = new Map();
 const pendingAsyncTransforms = new Map();
 const instrumentedFiles = new Set();
 const runtimeSnapshotSerializers = [];
@@ -112,6 +113,7 @@ let pnpResolutionDepth = 0;
 let nextEsmModuleGeneration = 1;
 let nextEsmMockId = 1;
 let nextEsmMockValueId = 1;
+let v8CoverageInstrumenter;
 
 if (request.protocolVersion !== PROTOCOL_VERSION) {
   throw new Error(`Unsupported Rjest worker protocol ${request.protocolVersion}`);
@@ -3429,7 +3431,7 @@ async function staticEsmSpecifiers(url) {
       selected,
       source,
       filename,
-      shouldInstrument(filename),
+      shouldBabelInstrument(filename),
       true,
     )).code;
   }
@@ -3817,7 +3819,7 @@ function configureEsmRuntime() {
             selected,
             source,
             filename,
-            shouldInstrument(filename),
+            shouldBabelInstrument(filename),
             true,
           );
           return {
@@ -4780,6 +4782,10 @@ function shouldInstrument(filename) {
   );
 }
 
+function shouldBabelInstrument(filename) {
+  return request.coverageProvider !== 'v8' && shouldInstrument(filename);
+}
+
 function normalizedRuntimePath(path) {
   return resolvePath(path).replaceAll('\\', '/');
 }
@@ -4858,7 +4864,7 @@ function compileRuntimeModule(module, filename) {
     selected,
     source,
     filename,
-    shouldInstrument(filename),
+    shouldBabelInstrument(filename),
   );
   const previousModulePath = activeModulePath;
   activeModulePath = filename;
@@ -4953,6 +4959,7 @@ async function invokeTransformerAsync(selected, source, filename, context) {
 function finalizeRuntimeTransform(
   selected,
   transformed,
+  originalSource,
   filename,
   instrument,
   supportsStaticEsm,
@@ -5028,6 +5035,13 @@ function finalizeRuntimeTransform(
   if (sourceMap) {
     runtimeSourceMaps.set(normalizedRuntimePath(filename), sourceMap);
   }
+  if (request.collectCoverage && request.coverageProvider === 'v8') {
+    v8TransformResults.set(normalizedRuntimePath(filename), {
+      code,
+      originalSource,
+      sourceMap,
+    });
+  }
   const result = {code};
   transformedSourceCache.set(cacheKey, result);
   return result;
@@ -5061,6 +5075,7 @@ function transformRuntimeSource(
   return finalizeRuntimeTransform(
     selected,
     transformed,
+    source,
     filename,
     instrument,
     supportsStaticEsm,
@@ -5099,6 +5114,7 @@ async function transformRuntimeSourceAsync(
     return finalizeRuntimeTransform(
       selected,
       transformed,
+      source,
       filename,
       instrument,
       supportsStaticEsm,
@@ -5117,6 +5133,7 @@ async function collectUncoveredCoverage() {
   if (!request.collectCoverage || !(request.coverageSources ?? []).length) {
     return;
   }
+  if (request.coverageProvider === 'v8') return;
   const loaded = requireFromTest('istanbul-lib-instrument');
   const readInitialCoverage = loaded?.readInitialCoverage;
   if (typeof readInitialCoverage !== 'function') {
@@ -5149,8 +5166,65 @@ async function collectUncoveredCoverage() {
   }
 }
 
+async function startV8Coverage() {
+  if (!request.collectCoverage || request.coverageProvider !== 'v8') return;
+  transformerDepth += 1;
+  try {
+    const {CoverageInstrumenter} = requireFromTest(
+      runtimeToolSpecifier('collect-v8-coverage'),
+    );
+    v8CoverageInstrumenter = new CoverageInstrumenter();
+    await v8CoverageInstrumenter.startInstrumenting();
+  } finally {
+    transformerDepth -= 1;
+  }
+}
+
+async function stopV8Coverage() {
+  if (!v8CoverageInstrumenter) return [];
+  transformerDepth += 1;
+  try {
+    return await v8CoverageInstrumenter.stopInstrumenting();
+  } finally {
+    v8CoverageInstrumenter = undefined;
+    transformerDepth -= 1;
+  }
+}
+
+function v8CoverageFilename(url) {
+  if (typeof url !== 'string') return undefined;
+  try {
+    if (url.startsWith('file://')) return fileURLToPath(url);
+  } catch {
+    return undefined;
+  }
+  return isAbsolute(url) ? url : undefined;
+}
+
+function preparedV8Coverage(rawV8Coverage) {
+  return (rawV8Coverage ?? [])
+    .map(result => {
+      const filename = v8CoverageFilename(result.url);
+      return filename ? {...result, url: normalizedRuntimePath(filename)} : null;
+    })
+    .filter(
+      result =>
+        result &&
+        projectContainsRuntimePath(result.url) &&
+        shouldInstrument(result.url),
+    );
+}
+
+function collectedV8Transforms(v8Coverage) {
+  const coveredFiles = new Set(v8Coverage.map(result => result.url));
+  return Object.fromEntries(
+    [...v8TransformResults].filter(([filename]) => coveredFiles.has(filename)),
+  );
+}
+
 async function collectedCoverage() {
   if (!request.collectCoverage) return {};
+  if (request.coverageProvider === 'v8') return {};
   const collected = Object.fromEntries(
     Object.entries(globalThis.__coverage__ ?? {}).filter(([filename]) =>
       instrumentedFiles.has(normalizedRuntimePath(filename)),
@@ -7302,6 +7376,7 @@ process.on('uncaughtException', error => {
 });
 
 let tests = [];
+let rawV8Coverage = [];
 try {
   configureFileEnvironment();
   await configureCustomTestEnvironment();
@@ -7347,6 +7422,7 @@ try {
     }
   }
   await setupCustomTestEnvironment();
+  await startV8Coverage();
   const runtimeGlobals = {
     afterAll,
     afterEach,
@@ -7395,6 +7471,12 @@ try {
   fileErrors.push(errorText(error));
 }
 
+try {
+  rawV8Coverage = await stopV8Coverage();
+} catch (error) {
+  fileErrors.push(errorText(error));
+}
+
 if (snapshotState.inlineUpdates.length > 0) {
   try {
     await persistInlineSnapshots();
@@ -7420,8 +7502,15 @@ if (
 }
 
 let coverage = {};
+let v8Coverage = [];
+let v8Transforms = {};
 try {
-  coverage = await collectedCoverage();
+  if (request.collectCoverage && request.coverageProvider === 'v8') {
+    v8Coverage = preparedV8Coverage(rawV8Coverage);
+    v8Transforms = collectedV8Transforms(v8Coverage);
+  } else {
+    coverage = await collectedCoverage();
+  }
 } catch (error) {
   fileErrors.push(errorText(error));
 }
@@ -7452,6 +7541,8 @@ const result = {
     data: snapshotState.data,
   },
   coverage,
+  v8Coverage,
+  v8Transforms,
 };
 jsdomEnvironment?.window.close();
 process.stdout.write(`${RESULT_PREFIX}${JSON.stringify(result)}\n`, () => {

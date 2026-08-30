@@ -394,6 +394,44 @@ const cases = [
     rjestMaxWorkers: 2,
   },
   {
+    name: 'coverage-v8-basic',
+    category: 'Coverage',
+    expectedExit: 0,
+    coverage: true,
+    coverageProvider: 'v8',
+    compareCoverage: true,
+    collectCoverageFrom: ['**/*.js', '!**/*.test.js'],
+    jestMaxWorkers: 2,
+    rjestMaxWorkers: 2,
+  },
+  {
+    name: 'coverage-v8-config',
+    fixtureName: 'coverage-v8-basic',
+    category: 'Coverage',
+    expectedExit: 0,
+    compareCoverage: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'coverage-v8-threshold',
+    fixtureName: 'coverage-threshold',
+    category: 'Coverage',
+    expectedExit: 1,
+    coverageProvider: 'v8',
+    compareCoverage: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'coverage-v8-source-map',
+    category: 'Coverage',
+    expectedExit: 0,
+    coverage: true,
+    coverageProvider: 'v8',
+    compareCoverage: true,
+    collectCoverageFrom: ['**/*.ts', '!**/*.test.ts'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'coverage-threshold',
     category: 'Coverage',
     expectedExit: 1,
@@ -1559,6 +1597,9 @@ function compareCase(testCase) {
         jestArguments.push(`--collectCoverageFrom=${pattern}`);
       }
     }
+    if (testCase.coverageProvider) {
+      jestArguments.push(`--coverageProvider=${testCase.coverageProvider}`);
+    }
     if (testCase.coverageThreshold) {
       jestArguments.push(`--coverageThreshold=${JSON.stringify(testCase.coverageThreshold)}`);
     }
@@ -1678,6 +1719,9 @@ function compareCase(testCase) {
       for (const pattern of testCase.collectCoverageFrom ?? []) {
         rjestArguments.push(`--collectCoverageFrom=${pattern}`);
       }
+    }
+    if (testCase.coverageProvider) {
+      rjestArguments.push(`--coverageProvider=${testCase.coverageProvider}`);
     }
     if (testCase.coverageThreshold) {
       rjestArguments.push(`--coverageThreshold=${JSON.stringify(testCase.coverageThreshold)}`);
@@ -1850,14 +1894,23 @@ function compareCase(testCase) {
       }
     }
     if (testCase.compareCoverage) {
-      const jestCoverage = normalizeCoverageSummary(
-        JSON.parse(readFileSync(join(jestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
-      );
-      const rjestCoverage = normalizeCoverageSummary(
-        JSON.parse(readFileSync(join(rjestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
-      );
-      if (JSON.stringify(jestCoverage) !== JSON.stringify(rjestCoverage)) {
-        differences.push('coverage summaries differ');
+      let jestCoverage;
+      try {
+        jestCoverage = normalizeCoverageSummary(
+          JSON.parse(readFileSync(join(jestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
+        );
+      } catch (error) {
+        fail(`${label}: Jest coverage summary unavailable: ${error.message}`, jestRun);
+      }
+      try {
+        const rjestCoverage = normalizeCoverageSummary(
+          JSON.parse(readFileSync(join(rjestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
+        );
+        if (JSON.stringify(jestCoverage) !== JSON.stringify(rjestCoverage)) {
+          differences.push('coverage summaries differ');
+        }
+      } catch (error) {
+        differences.push(`Rjest coverage summary unavailable: ${error.message}`);
       }
     }
 

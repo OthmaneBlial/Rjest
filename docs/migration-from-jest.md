@@ -167,17 +167,19 @@ Assignments to `window.XMLHttpRequest`, `window.FileReader`, and
 constructors, matching the covered Jest behavior while transformer tooling
 continues to use Node host intrinsics.
 
-`rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
-positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
-JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global,
-exact-path, directory, and per-file glob positive-percentage or
-negative-uncovered thresholds. Global coverage globs
+`rjest --coverage` supports Babel-Jest instrumentation and
+`coverageProvider: "v8"`, parallel map/range merging, positive and negated
+`collectCoverageFrom` globs, coverage path ignores, JSON, JSON-summary, text,
+text-summary, LCOV/HTML, and Clover output, plus global, exact-path, directory,
+and per-file glob positive-percentage or negative-uncovered thresholds. V8
+ranges are merged across workers before Istanbul conversion and source maps are
+applied to transformed files. Global coverage globs
 also include imported and untested files across covered inline project roots.
 `rjest --no-coverage` overrides config-enabled collection, including across a
 multi-project matrix, and is reported to custom extensions through Jest's
 `globalConfig.collectCoverage` field.
-Keep Jest as the coverage gate when using the V8 provider, custom Istanbul
-reporters, or unmeasured cross-project threshold combinations.
+Keep Jest as the coverage gate for custom Istanbul reporters or unmeasured
+cross-project threshold/provider combinations.
 
 Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.

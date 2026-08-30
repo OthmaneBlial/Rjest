@@ -20,7 +20,8 @@ The architecture follows the boundary recorded in
   inverse transitive affected-test selection.
 - `rjest-runner`: bounded parallel dispatch, Node process isolation, versioned
   request/result validation, thread-safe file lifecycle observation,
-  deterministic aggregation, and coverage-counter merging.
+  deterministic aggregation, Istanbul counter merging, and raw V8 range
+  aggregation before conversion.
 - `rjest-snapshot`: safe Jest v1 snapshot parsing, natural key ordering,
   template-literal escaping, deterministic coordinator-side persistence, and
   obsolete-file cleanup.
@@ -30,6 +31,9 @@ The architecture follows the boundary recorded in
   snapshots, fake timers, configured sync/async transforms, JSDOM globals,
   custom-environment lifecycle bridging, async timeouts, and per-file execution
   inside Node.
+- `runtime/v8-coverage.mjs`: one coordinator-side conversion pass over merged
+  worker ranges, transformed-source metadata, source maps, and zero-hit
+  `collectCoverageFrom` files.
 - `runtime/custom-reporters.mjs`: persistent CommonJS/ESM reporter loading,
   serialized Jest lifecycle dispatch, result projection, and final reporter
   error collection across the Rust-coordinated run.
@@ -104,9 +108,9 @@ Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.
 
-Worker protocol v24 carries assertion ancestor titles/counts and optional live
-test-case lifecycle events used by reporter payloads in addition to the
-supported snapshot-format options. Project identity
+Worker protocol v25 carries assertion ancestor titles/counts, optional live
+test-case lifecycle events used by reporter payloads, and raw V8 coverage plus
+transform metadata when that provider is active. Project identity
 remains coordinator-owned because a worker executes one fully normalized
 project/file pair and should not need root-configuration context. Custom
 reporters use a separate persistent line protocol: Rust observes live file and

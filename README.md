@@ -2,38 +2,52 @@
 
 <img src="site/og-card.png" alt="Rjest — same tests, different engine" width="100%" />
 
-# Rjest
+# Rjest — the compatibility-first Jest alternative
 
 ### A Rust-powered, Jest-compatible test runner for JavaScript and TypeScript
 
-Change the command. Keep the tests.
+**Change the command. Keep the suite.**
 
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility report](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![Differential scenarios: 203/203](https://img.shields.io/badge/Jest_differential-203%2F203-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Differential scenarios: 207/207](https://img.shields.io/badge/Jest_differential-207%2F207-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111511?style=for-the-badge)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/OthmaneBlial/rjest?style=for-the-badge&color=111511)](https://github.com/OthmaneBlial/rjest/stargazers)
 
 </div>
+
+**The target workflow:**
 
 ```diff
 - npx jest
 + npx rjest
 ```
 
-Rjest is attempting the difficult version of a Rust test runner: run existing
-Jest suites without asking teams to rewrite them. Rust handles discovery,
-dependency analysis, scheduling, process control, snapshots, coverage merging,
-and result aggregation. Isolated Node workers preserve the JavaScript runtime
-and Jest ecosystem behavior that real projects depend on.
+Rjest is a Jest-compatible test runner pursuing the difficult version of a
+Rust-powered Jest alternative: run the suite you already own, with little or no
+migration work. Rust coordinates discovery, dependency analysis, scheduling,
+processes, snapshots, coverage, and reporting. Isolated Node workers preserve
+the JavaScript runtime and Jest ecosystem behavior real projects depend on.
 
 This is alpha software. It already runs substantial React, TypeScript, Node,
 JSDOM, CommonJS, native ESM, snapshot, mock, fake-timer, coverage, and monorepo
-test suites. It does not claim the whole Jest surface yet.
+test suites. It does not claim the whole Jest surface yet, and `npx rjest` is
+the destination until the npm package is published.
 
-## Why Rjest exists
+| Evidence                              |  Current verified result |
+| ------------------------------------- | -----------------------: |
+| Jest/Rjest differential matrix        | **207 / 207 compatible** |
+| Coverage probes, including Babel + V8 |   **19 / 19 compatible** |
+| Local Rust test suite                 |    **117 / 117 passing** |
+| Pinned real-project corpus reports    |                   **25** |
+
+> Rjest is not asking you to trust a feature checklist. It is building a
+> permanent, executable record of where Jest and Rjest agree.
+
+## Why another JavaScript test runner?
 
 Jest suites often outlive the runner decisions around them. Replacing thousands
 of tests, snapshots, mocks, transforms, and configuration rules is not a useful
@@ -46,8 +60,8 @@ Rjest takes a narrower, harder path:
 3. Keep Node where exact JavaScript and ecosystem semantics matter.
 4. Turn every discovered disagreement into a permanent differential fixture.
 
-The result is a Jest alternative built around compatibility evidence, not an
-API that merely looks familiar in a demo.
+The result is a Jest alternative built around compatibility evidence—not an API
+that merely looks familiar in a demo.
 
 ## Compatibility, with receipts
 
@@ -56,25 +70,25 @@ a pinned official Jest oracle and Rjest, then comparing normalized behavior.
 Jest 30.5.0 is the default oracle; one snapshot-format probe intentionally uses
 Jest 29.7.0. No scenario is counted because a feature name appears in the code.
 
-| Area | Passing | Measured score |
-| --- | ---: | ---: |
-| CLI | 36 / 36 | 100% |
-| Configuration | 48 / 48 | 100% |
-| Core API | 13 / 13 | 100% |
-| Coverage | 15 / 15 | 100% |
-| Environment | 7 / 7 | 100% |
-| ESM | 8 / 8 | 100% |
-| Expect | 7 / 7 | 100% |
-| Fake timers | 10 / 10 | 100% |
-| Mocks | 14 / 14 | 100% |
-| Reporters | 7 / 7 | 100% |
-| Resolution | 12 / 12 | 100% |
-| Snapshots | 15 / 15 | 100% |
-| Transforms | 7 / 7 | 100% |
-| Watch | 4 / 4 | 100% |
-| **Versioned matrix** | **203 / 203** | **100%** |
+| Area                 |       Passing | Measured score |
+| -------------------- | ------------: | -------------: |
+| CLI                  |       36 / 36 |           100% |
+| Configuration        |       48 / 48 |           100% |
+| Core API             |       13 / 13 |           100% |
+| Coverage             |       19 / 19 |           100% |
+| Environment          |         7 / 7 |           100% |
+| ESM                  |         8 / 8 |           100% |
+| Expect               |         7 / 7 |           100% |
+| Fake timers          |       10 / 10 |           100% |
+| Mocks                |       14 / 14 |           100% |
+| Reporters            |         7 / 7 |           100% |
+| Resolution           |       12 / 12 |           100% |
+| Snapshots            |       15 / 15 |           100% |
+| Transforms           |         7 / 7 |           100% |
+| Watch                |         4 / 4 |           100% |
+| **Versioned matrix** | **207 / 207** |       **100%** |
 
-**What that number means:** Rjest matches Jest in all 203 scenarios currently
+**What that number means:** Rjest matches Jest in all 207 scenarios currently
 checked into this repository.
 
 **What it does not mean:** Rjest implements 100% of every Jest API and ecosystem
@@ -86,14 +100,14 @@ and its result](compat/jest-compatibility.json).
 Small fixtures catch semantics. Existing repositories expose the combinations
 that fixtures miss.
 
-| Unmodified project suite | Official Jest | Rjest result |
-| --- | ---: | ---: |
-| Downshift | 92 suites · 1,110 tests · 49 snapshots | Exact parity |
-| React Testing Library | 16 suites · 251 tests · 11 snapshots | Exact React 19/JSDOM parity |
-| styled-components web | 59 suites · 1,465 tests · 749 snapshots | Exact parity |
-| React Navigation | 81 suites · 1,303 identities · 169 snapshots | Exact parity, including the same 2 upstream failures |
-| AWS Amplify Auth | 101 suites · 1,150 tests | Exact identity, status, and coverage parity |
-| Apollo Client | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
+| Unmodified project suite |                                 Official Jest |                                           Rjest result |
+| ------------------------ | --------------------------------------------: | -----------------------------------------------------: |
+| Downshift                |        92 suites · 1,110 tests · 49 snapshots |                                           Exact parity |
+| React Testing Library    |          16 suites · 251 tests · 11 snapshots |                            Exact React 19/JSDOM parity |
+| styled-components web    |       59 suites · 1,465 tests · 749 snapshots |                                           Exact parity |
+| React Navigation         |  81 suites · 1,303 identities · 169 snapshots |   Exact parity, including the same 2 upstream failures |
+| AWS Amplify Auth         |                      101 suites · 1,150 tests |            Exact identity, status, and coverage parity |
+| Apollo Client            | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
 
 There are 25 pinned corpus reports across React, React Native, TypeScript,
 JSDOM, CommonJS, ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play. Read the
@@ -179,9 +193,10 @@ ignore a setting and give you a reassuring but incomplete run.
   obsolete detection, Prettier 2/3, and source-mapped inline writes
 - Modern and legacy fake timers across the covered Node and JSDOM scheduling
   boundaries
-- Istanbul/Babel coverage with JSON, text, LCOV/HTML, Clover, source maps,
-  cross-worker merging, global/path/directory/per-file-glob thresholds,
-  negative uncovered-count limits, and changed-file instrumentation
+- Babel/Istanbul and `coverageProvider: "v8"` collection with JSON, text,
+  LCOV/HTML, Clover, source maps, raw V8 range merging across workers,
+  `collectCoverageFrom` zero-hit files, global/path/directory/per-file-glob
+  thresholds, negative uncovered-count limits, and changed-file instrumentation
 
 ### Watch and changed tests
 
@@ -217,6 +232,10 @@ that worker reuse must reduce. The reasoning is recorded in
 
 Rjest is useful now. It is not yet a universal drop-in replacement.
 
+The directional project-readiness estimate is now **approximately 88%**. That
+is a maintained engineering estimate, not an automated percentage of the Jest
+API. The only 100% claim is the visible 207-scenario matrix above.
+
 - Watch plugins, Mercurial/Sapling changed-file selection, and some interactive
   output polish remain open. Core TTY controls and active-worker interruption
   are implemented and differentially tested.
@@ -240,7 +259,7 @@ make check
 ```
 
 The local gate runs Rust formatting, strict Clippy, the complete workspace test
-suite, JavaScript syntax and comparator tests, then all 203 semantic fixtures
+suite, JavaScript syntax and comparator tests, then all 207 semantic fixtures
 against pinned official Jest oracles, including Jest 29.7.0 and Jest 30.5.0.
 No GitHub Actions are required. The Jest source checkout and project corpus
 remain ignored under `base/`.
@@ -258,6 +277,10 @@ shows one place where Jest and Rjest disagree.
 If Rjest almost runs your project, open an issue with the smallest test and
 configuration that still fails. That is exactly the kind of report this
 project needs.
+
+If the mission resonates, [star Rjest](https://github.com/OthmaneBlial/rjest)
+and bring it one real Jest suite. Every reproducible mismatch makes the runner
+more useful for the next project.
 
 [Open an issue](https://github.com/OthmaneBlial/rjest/issues) · [Read the development guide](docs/development.md) · [See current progress](docs/progress.md)
 

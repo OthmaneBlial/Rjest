@@ -4,18 +4,22 @@
   "private": true,
   "description": "Local compatibility tooling for the Rust-powered Rjest test runner",
   "scripts": {
-    "check:runtime": "node --check crates/rjest-config/runtime/config-loader.mjs && node --check crates/rjest-cli/runtime/test-sequencer.mjs && node --check crates/rjest-cli/runtime/custom-reporters.mjs && node --check crates/rjest-cli/runtime/global-hooks.mjs && node --check crates/rjest-cli/runtime/test-results-processor.mjs && node --check crates/rjest-dependency/runtime/dependency-graph.mjs && node --check crates/rjest-runner/runtime/worker.mjs && node --check compat/harness.mjs && node --check compat/compare-corpus-results.mjs && node --check site/app.js && node --test compat/compare-corpus-results.test.mjs",
+    "check:runtime": "node --check crates/rjest-config/runtime/config-loader.mjs && node --check crates/rjest-cli/runtime/test-sequencer.mjs && node --check crates/rjest-cli/runtime/custom-reporters.mjs && node --check crates/rjest-cli/runtime/global-hooks.mjs && node --check crates/rjest-cli/runtime/test-results-processor.mjs && node --check crates/rjest-dependency/runtime/dependency-graph.mjs && node --check crates/rjest-runner/runtime/worker.mjs && node --check crates/rjest-runner/runtime/v8-coverage.mjs && node --check compat/harness.mjs && node --check compat/compare-corpus-results.mjs && node --check site/app.js && node --test compat/compare-corpus-results.test.mjs",
     "compat": "node compat/harness.mjs",
     "compare:corpus": "node compat/compare-corpus-results.mjs"
   },
   "dependencies": {
     "@babel/core": "7.29.7",
     "@babel/generator": "7.29.8",
+    "@bcoe/v8-coverage": "0.2.3",
     "@jridgewell/trace-mapping": "0.3.31",
     "babel-plugin-istanbul": "8.0.0",
+    "collect-v8-coverage": "1.0.3",
     "convert-source-map": "2.0.0",
+    "istanbul-lib-coverage": "3.2.2",
     "pretty-format": "30.5.0",
-    "unrs-resolver": "1.12.2"
+    "unrs-resolver": "1.12.2",
+    "v8-to-istanbul": "9.3.0"
   },
   "devDependencies": {
     "@babel/preset-typescript": "7.29.7",
