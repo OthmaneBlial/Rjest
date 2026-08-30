@@ -24,7 +24,6 @@ const nativeClearTimeout = globalThis.clearTimeout;
 const nativeSetInterval = globalThis.setInterval;
 const nativeClearInterval = globalThis.clearInterval;
 const nativeSetImmediate = globalThis.setImmediate;
-const nativeClearImmediate = globalThis.clearImmediate;
 const nativeQueueMicrotask = globalThis.queueMicrotask;
 const NativeDate = globalThis.Date;
 const NativeFunction = globalThis.Function;
@@ -5222,7 +5221,12 @@ function projectCustomEnvironmentGlobals() {
 function hideUnavailableCustomEnvironmentHostGlobals() {
   const environmentGlobal = customTestEnvironment?.global;
   if (!environmentGlobal || typeof environmentGlobal !== 'object') return;
-  for (const key of ['fetch']) {
+  for (const key of [
+    'fetch',
+    'setImmediate',
+    'clearImmediate',
+    'MessageChannel',
+  ]) {
     if (key in environmentGlobal) continue;
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
     if (descriptor?.configurable) delete globalThis[key];
@@ -5558,6 +5562,7 @@ const fakeTimers = {
   mode: 'modern',
   maxRuns: 100_000,
   autoAdvanceHandle: undefined,
+  realImmediateDescriptors: undefined,
   get now() {
     return fakeTimerStates[this.mode].now;
   },
@@ -5849,6 +5854,10 @@ function installFakeTimers(options = {}) {
     mode === 'modern' && Number(options.timerLimit) > 0
       ? Number(options.timerLimit)
       : 100_000;
+  fakeTimers.realImmediateDescriptors = {
+    clear: Object.getOwnPropertyDescriptor(globalThis, 'clearImmediate'),
+    set: Object.getOwnPropertyDescriptor(globalThis, 'setImmediate'),
+  };
   nativeAnimationFrame = {
     request: globalThis.requestAnimationFrame,
     cancel: globalThis.cancelAnimationFrame,
@@ -5902,10 +5911,18 @@ function installFakeTimers(options = {}) {
     scheduleFakeTimer('immediate', callback, 0, args);
   const fakeClearImmediate = id =>
     fakeTimers.timers.delete(timerReferenceId(id));
-  if (!doNotFake.has('setImmediate')) {
+  if (
+    !doNotFake.has('setImmediate') &&
+    fakeTimers.realImmediateDescriptors.set &&
+    typeof globalThis.setImmediate === 'function'
+  ) {
     globalThis.setImmediate = fakeSetImmediate;
   }
-  if (!doNotFake.has('clearImmediate')) {
+  if (
+    !doNotFake.has('clearImmediate') &&
+    fakeTimers.realImmediateDescriptors.clear &&
+    typeof globalThis.clearImmediate === 'function'
+  ) {
     globalThis.clearImmediate = fakeClearImmediate;
   }
   if (!doNotFake.has('nextTick')) {
@@ -6043,7 +6060,12 @@ function installLegacyFakeTimerApis() {
     jsdomEnvironment.window.clearInterval = fakeClearInterval;
   }
 
-  if (typeof nativeSetImmediate === 'function') {
+  if (
+    fakeTimers.realImmediateDescriptors.set &&
+    fakeTimers.realImmediateDescriptors.clear &&
+    typeof globalThis.setImmediate === 'function' &&
+    typeof globalThis.clearImmediate === 'function'
+  ) {
     const fakeSetImmediate = createMock((callback, ...args) =>
       scheduleLegacyImmediate(callback, args),
     );
@@ -6092,8 +6114,13 @@ function restoreRealTimers() {
   globalThis.clearTimeout = nativeClearTimeout;
   globalThis.setInterval = nativeSetInterval;
   globalThis.clearInterval = nativeClearInterval;
-  globalThis.setImmediate = nativeSetImmediate;
-  globalThis.clearImmediate = nativeClearImmediate;
+  for (const [key, descriptor] of [
+    ['setImmediate', fakeTimers.realImmediateDescriptors?.set],
+    ['clearImmediate', fakeTimers.realImmediateDescriptors?.clear],
+  ]) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else delete globalThis[key];
+  }
   globalThis.queueMicrotask = nativeQueueMicrotask;
   globalThis.Date = NativeDate;
   globalThis.performance = nativePerformance;

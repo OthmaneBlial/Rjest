@@ -124,6 +124,7 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `local-state/export.ts` + `local-state/general.ts` | Core / min-RxJS / GraphQL 16 | 177 passed, 15 snapshots | 177 passed, 15 snapshots |
 | `useLoadableQuery.test.tsx` | React 18 / 19 | 98 / 98 passed | 98 / 98 passed |
 | `useSuspenseFragment.test.tsx` | React 18 / 19 | 52 passed, 28 skipped | 52 passed, 28 skipped |
+| `useSuspenseQuery.test.tsx` | React 18 / 19 | 318 / 318 passed | 318 / 318 passed |
 | `streamGraphQL17Alpha9.test.tsx` | React 18 / 19 | 36 / 36 passed | 36 / 36 passed |
 | `useFragment.test.tsx` | React 17 / 18 / 19 | 99 passed, 6 skipped | 99 passed, 6 skipped |
 | `useQuery.test.tsx` | React 17 / 18 / 19 | 477 / 477 passed | 476 / 477 passed |

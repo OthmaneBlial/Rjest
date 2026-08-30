@@ -347,6 +347,13 @@ Last updated: 2026-08-30
   environment realm does not expose it, before user modules are evaluated.
   Apollo's unchanged `HttpLink` development-warning probe now matches all 255
   statuses across the Core projects: 9 selected passes and 246 skips.
+- Custom JSDOM setup also hides Node-only `setImmediate`, `clearImmediate`, and
+  `MessageChannel` scheduler globals when the environment omits them, including
+  across modern fake-timer activation and restoration. React 19 therefore
+  follows Jest's JSDOM scheduling path; Apollo's four query-key suspense
+  regressions are repaired, and the complete unchanged
+  `useSuspenseQuery.test.tsx` now matches 318/318 passing tests across React 18
+  and 19.
 - `expect.objectContaining` now combines required top-level keys with Jest's
   loose nested equality, so nested `undefined` properties behave like
   `toEqual`. Apollo's unchanged `ApolloClient/general.test.ts` matches all 447

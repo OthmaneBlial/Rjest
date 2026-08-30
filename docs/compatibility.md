@@ -139,17 +139,20 @@ projected globals, custom export conditions, and awaited circus lifecycle
 events. Differential fixtures cover a Node subclass with exact setup, hook,
 test, run, and teardown events plus an ESM JSDOM subclass with browser globals
 and configured URL. Rjest currently bridges environment globals into its Node
-worker realm. Host performance and scheduling functions stay native because
-projecting JSDOM's same-named functions into that shared realm makes JSDOM call
-itself recursively; the environment's `window` functions remain available.
+worker realm. Host implementations remain behind JSDOM's timer, microtask, and
+performance entry points because projecting those same-named functions into
+the shared realm makes JSDOM call itself recursively; the environment's
+`window` functions remain available.
 Exact custom VM-context identity and every mutable circus state field remain
 outside this bounded claim.
 Bespoke JSDOM environment globals preserve `window === globalThis` while
 forwarding Window event-target methods to the environment realm, including
-listener registration, removal, and dispatch. Configurable Node host `fetch`
-is removed before user modules execute when the custom environment realm does
-not provide it, while a later user assignment remains visible through the
-shared global identity.
+listener registration, removal, and dispatch. Configurable Node host `fetch`,
+`setImmediate`, `clearImmediate`, and `MessageChannel` are removed before user
+modules execute when the custom environment realm does not provide them, while
+a later user assignment remains visible through the shared global identity.
+Modern fake-timer activation and restoration preserve the environment's absent
+immediate APIs instead of reintroducing Node's host functions.
 Bespoke equality functions registered through `expect.addEqualityTesters`
 participate recursively in equality-based matchers and receive Jest's matcher
 context. Setup modules that extend the installed `expect` package share the
@@ -361,8 +364,12 @@ mock-function snapshot serialization. The first full Rjest capture reported
 current `useQuery.test.tsx` probe now executes all 477 statuses and passes 476;
 the `HttpLink` development-warning probe matches all 255 statuses across the
 three Core projects (9 selected passes and 246 skips) after isolating custom
-JSDOM from Node's host `fetch`. The fresh full rerun is still required, so these
-results remain progress evidence rather than a corpus-wide parity claim.
+JSDOM from Node's host `fetch`. Four React 19 query-key render mismatches also
+disappear when host-only scheduler globals are isolated: the focused
+probe led to exact full-file parity for `useSuspenseQuery.test.tsx`, with all
+318 tests passing across React 18 and 19. The fresh full rerun is still
+required, so these results remain progress evidence rather than a corpus-wide
+parity claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

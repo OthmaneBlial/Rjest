@@ -25,9 +25,22 @@ test('forwards Window event-target methods through the custom realm', () => {
 test('does not inherit Node host globals absent from the JSDOM realm', () => {
   expect(window.fetch).toBeUndefined();
   expect(() => fetch).toThrow(ReferenceError);
+  expect(typeof setImmediate).toBe('undefined');
+  expect(typeof clearImmediate).toBe('undefined');
+  expect(typeof MessageChannel).toBe('undefined');
 
   const localFetch = () => Promise.resolve();
   window.fetch = localFetch;
   expect(fetch).toBe(localFetch);
   delete window.fetch;
+});
+
+test('keeps unavailable scheduler globals absent through fake timers', () => {
+  jest.useFakeTimers();
+  expect(typeof setImmediate).toBe('undefined');
+  expect(typeof clearImmediate).toBe('undefined');
+
+  jest.useRealTimers();
+  expect(typeof setImmediate).toBe('undefined');
+  expect(typeof clearImmediate).toBe('undefined');
 });
