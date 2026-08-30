@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 224,
-    "total": 224,
+    "passing": 225,
+    "total": 225,
     "percentage": 100
   },
   "categories": {
@@ -49,8 +49,8 @@
       "percentage": 100
     },
     "Mocks": {
-      "passing": 15,
-      "total": 15,
+      "passing": 16,
+      "total": 16,
       "percentage": 100
     },
     "Reporters": {
@@ -610,6 +610,12 @@
     },
     {
       "name": "mock-with-implementation",
+      "category": "Mocks",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "mock-reset-restore-contracts",
       "category": "Mocks",
       "compatible": true,
       "differences": []

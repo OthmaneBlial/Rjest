@@ -2642,6 +2642,7 @@ function createMock(implementation) {
     state = newMockState();
     once.length = 0;
     defaultImplementation = undefined;
+    name = 'jest.fn()';
     return mock;
   };
   mock.mockRestore = () => {
@@ -2650,10 +2651,10 @@ function createMock(implementation) {
     restore = undefined;
     if (callback) {
       restoreRegistry.delete(callback);
-      callback();
+      return callback();
     }
-    return mock;
   };
+  if (Symbol.dispose) mock[Symbol.dispose] = mock.mockRestore;
   mock.mockImplementation = fn => {
     defaultImplementation = fn;
     return mock;
@@ -2715,7 +2716,6 @@ function newMockState() {
     instances: [],
     invocationCallOrder: [],
     results: [],
-    lastCall: undefined,
   };
 }
 
