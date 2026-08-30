@@ -264,6 +264,12 @@ Last updated: 2026-08-30
 - A pinned AWS Amplify Predictions/Jest 29 corpus: exact 4/4 suites, 51/51
   tests with one skipped, and aggregate plus per-file Istanbul parity across 12
   source files on the first Rjest execution.
+- A pinned AWS Amplify RTN Push Notification/Jest 29 corpus: exact 12/12 suites,
+  28/28 tests, and aggregate plus per-file Istanbul parity across 13 source
+  files on the first Rjest execution.
+- A pinned top-level AWS Amplify facade/Jest 29 corpus: exact 7/7 suites, 50/50
+  tests, and aggregate plus per-file Istanbul parity across 21 source files,
+  including the public export inventory of the built workspace.
 - Jest-aligned mock arity, call contexts/instances, recursive result finalization,
   undefined one-shot fallback behavior, repeated-spy identity, and restoration
   across inherited prototype methods.
@@ -323,7 +329,8 @@ are 10/10 (100.0%), and coverage is 3/3 in their bounded scenario categories.
   the aggregate API package is about 9.92 times slower. PubSub is about 2.20
   times slower, Interactions is about 13.10 times slower, and React Native is
   about 4.54 times slower in the ordinary no-coverage mode. Predictions is
-  about 10.60 times slower by reported runner time.
+  about 10.60 times slower, RTN Push Notification about 12.80 times slower, and
+  the top-level Amplify facade about 17.09 times slower by reported runner time.
 
 ## Next highest-value tasks
 

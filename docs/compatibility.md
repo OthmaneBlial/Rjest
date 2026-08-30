@@ -239,6 +239,16 @@ AWS machine-learning clients, binary/browser data paths, and a large SDK module
 graph. Both runners discover 4/4 suites and 51/51 tests, and match exact test
 identities/statuses plus every Istanbul summary across 12 source files.
 
+The pinned [AWS Amplify RTN Push Notification corpus](corpus/amplify-rtn-push-notification.md)
+adds React Native facades, event listeners, permissions, and headless tasks.
+Both runners pass 12/12 suites and 28/28 tests with exact test identities and
+coverage across 13 files.
+
+The pinned [top-level AWS Amplify facade corpus](corpus/amplify-aws-amplify.md)
+validates public exports across built workspace packages, cookie storage, and
+server-context cleanup. Both runners pass 7/7 suites and 50/50 tests with exact
+test identities and coverage across 21 files.
+
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
 unknown fields rather than silently discarding them.
