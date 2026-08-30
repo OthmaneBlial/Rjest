@@ -138,6 +138,9 @@ pub struct ProjectConfig {
     pub randomize: bool,
     pub show_seed: bool,
     pub silent: bool,
+    /// Normalized Jest reporter entries. `None` preserves Jest's implicit
+    /// default reporter, while `Some` records the explicitly configured list.
+    pub reporters: Option<Vec<(String, Value)>>,
     pub max_workers: Option<String>,
     pub worker_idle_memory_limit: Option<String>,
     pub collect_coverage: bool,
@@ -208,6 +211,7 @@ struct RawProjectConfig {
     randomize: Option<bool>,
     show_seed: Option<bool>,
     silent: Option<bool>,
+    reporters: Option<Vec<Value>>,
     max_workers: Option<NumberOrString>,
     worker_idle_memory_limit: Option<MemoryLimit>,
     collect_coverage: Option<bool>,
@@ -386,6 +390,7 @@ impl ProjectConfig {
             randomize: false,
             show_seed: false,
             silent: false,
+            reporters: None,
             max_workers: None,
             worker_idle_memory_limit: None,
             collect_coverage: false,
@@ -699,6 +704,7 @@ fn merge_preset(
         randomize,
         show_seed,
         silent,
+        reporters,
         max_workers,
         worker_idle_memory_limit,
         collect_coverage,
@@ -853,6 +859,7 @@ fn normalize(
     let test_sequencer = raw
         .test_sequencer
         .map(|value| normalize_module_reference(&value, &root_dir));
+    let reporters = normalize_reporters(raw.reporters, &root_dir)?;
     let module_directories = raw
         .module_directories
         .unwrap_or(defaults.module_directories)
@@ -980,6 +987,7 @@ fn normalize(
         randomize: raw.randomize.unwrap_or(defaults.randomize),
         show_seed: raw.show_seed.unwrap_or(defaults.show_seed),
         silent: raw.silent.unwrap_or(defaults.silent),
+        reporters,
         max_workers: raw.max_workers.map(NumberOrString::into_string),
         worker_idle_memory_limit: normalize_worker_idle_memory_limit(raw.worker_idle_memory_limit),
         collect_coverage: raw.collect_coverage.unwrap_or(defaults.collect_coverage),
@@ -1220,6 +1228,69 @@ pub fn normalize_module_reference(value: &str, root_dir: &Path) -> String {
     } else {
         value.to_owned()
     }
+}
+
+fn normalize_reporters(
+    configured: Option<Vec<Value>>,
+    root_dir: &Path,
+) -> Result<Option<Vec<(String, Value)>>, ConfigError> {
+    let Some(configured) = configured else {
+        return Ok(None);
+    };
+    configured
+        .into_iter()
+        .enumerate()
+        .map(|(index, reporter)| {
+            let (module, options) = match reporter {
+                Value::String(module) => (module, serde_json::json!({})),
+                Value::Array(values) => {
+                    let Some(Value::String(module)) = values.first() else {
+                        return Err(ConfigError::UnsupportedValue {
+                            field: "reporters".into(),
+                            value: format!(
+                                "reporter at index {index} must start with a string module path"
+                            ),
+                        });
+                    };
+                    let Some(options) = values.get(1) else {
+                        return Err(ConfigError::UnsupportedValue {
+                            field: "reporters".into(),
+                            value: format!(
+                                "reporter at index {index} must include an options object"
+                            ),
+                        });
+                    };
+                    if !options.is_object() && !options.is_null() {
+                        return Err(ConfigError::UnsupportedValue {
+                            field: "reporters".into(),
+                            value: format!(
+                                "reporter options at index {index} must be an object"
+                            ),
+                        });
+                    }
+                    (module.clone(), options.clone())
+                }
+                value => {
+                    return Err(ConfigError::UnsupportedValue {
+                        field: "reporters".into(),
+                        value: format!(
+                            "reporter at index {index} must be a string or [module, options], received {value}"
+                        ),
+                    });
+                }
+            };
+            let module = if matches!(
+                module.as_str(),
+                "agent" | "default" | "github-actions" | "summary"
+            ) {
+                module
+            } else {
+                normalize_module_reference(&module, root_dir)
+            };
+            Ok((module, options))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 fn normalize_bail(configured: Option<Value>, default: usize) -> Result<usize, ConfigError> {
@@ -2018,6 +2089,50 @@ mod tests {
         let package = load_inline_json(temp.path(), r#"{"testSequencer":"fixture"}"#)
             .expect("package test sequencer");
         assert_eq!(package.test_sequencer.as_deref(), Some("fixture"));
+    }
+
+    #[test]
+    fn normalizes_reporter_strings_tuples_and_root_tokens() {
+        let temp = tempdir().expect("temp dir");
+        let config = load_inline_json(
+            temp.path(),
+            r#"{
+                "reporters": [
+                    "default",
+                    "fixture-reporter",
+                    ["<rootDir>/tools/reporter.mjs", {"label":"configured"}]
+                ]
+            }"#,
+        )
+        .expect("reporters");
+        assert_eq!(
+            config.reporters,
+            Some(vec![
+                ("default".into(), serde_json::json!({})),
+                ("fixture-reporter".into(), serde_json::json!({})),
+                (
+                    temp.path()
+                        .join("tools/reporter.mjs")
+                        .to_string_lossy()
+                        .into_owned(),
+                    serde_json::json!({"label": "configured"}),
+                ),
+            ])
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_reporter_entries() {
+        let temp = tempdir().expect("temp dir");
+        for source in [
+            r#"{"reporters":[42]}"#,
+            r#"{"reporters":[[42,{}]]}"#,
+            r#"{"reporters":[["./reporter.cjs"]]}"#,
+            r#"{"reporters":[["./reporter.cjs",42]]}"#,
+        ] {
+            let error = load_inline_json(temp.path(), source).expect_err("invalid reporters");
+            assert!(error.to_string().contains("reporters"));
+        }
     }
 
     #[test]

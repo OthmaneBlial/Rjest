@@ -13,7 +13,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 22;
+const PROTOCOL_VERSION = 23;
 const supportsSyncEvaluate =
   typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
@@ -6746,6 +6746,17 @@ function fullName(node) {
   return names.join(' ');
 }
 
+function ancestorTitles(node) {
+  const names = [];
+  let suite = node.parent;
+  while (suite?.parent) {
+    names.push(suite.name);
+    suite = suite.parent;
+  }
+  names.reverse();
+  return names;
+}
+
 function hasOnly(node, inherited = false) {
   const focused = inherited || node.mode === 'only';
   if (node.type === 'test') return focused;
@@ -6867,12 +6878,14 @@ function hookChain(testNode, type) {
 function skippedResults(node, status = 'skipped') {
   if (node.type === 'test') {
     markSnapshotsChecked(fullName(node));
-    const result = {
+      const result = {
         name: node.name,
         fullName: fullName(node),
+        ancestorTitles: ancestorTitles(node),
         status: node.mode === 'todo' ? 'todo' : status,
         durationMs: 0,
         failureMessage: null,
+        numPassingAsserts: 0,
         invocations: 0,
         retryReasons: [],
       };
@@ -6892,9 +6905,11 @@ async function runTest(
   const result = {
     name: node.name,
     fullName: fullName(node),
+    ancestorTitles: ancestorTitles(node),
     status: 'passed',
     durationMs: 0,
     failureMessage: null,
+    numPassingAsserts: 0,
     invocations: node.invocations ?? 0,
     retryReasons: [...(node.retryReasons ?? [])],
   };
@@ -7032,6 +7047,7 @@ async function runTest(
     markSnapshotsChecked(result.fullName);
   }
   result.retryReasons = [...(node.retryReasons ?? [])];
+  result.numPassingAsserts = node.assertionCalls;
   await dispatchCustomEnvironmentEvent({name: 'test_done', test: node});
   activeTest = undefined;
   expectState.testFailing = false;

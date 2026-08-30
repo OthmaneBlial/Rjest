@@ -155,6 +155,36 @@ pub enum RunnerError {
     InvalidCoverage { path: String, message: String },
     #[error("worker for `{0}` was cancelled without an active bail threshold")]
     UnexpectedCancellation(PathBuf),
+    #[error("test run observer failed during {event} for `{path}`: {message}")]
+    Observer {
+        event: &'static str,
+        path: PathBuf,
+        message: String,
+    },
+}
+
+/// Receives file lifecycle events from the bounded execution pool.
+///
+/// Implementations must be thread-safe because multiple workers can begin and
+/// finish files concurrently. Returning an error aborts the run.
+pub trait RunObserver: Sync {
+    /// Called immediately before a worker starts a selected test file.
+    ///
+    /// # Errors
+    ///
+    /// Returning a message aborts the run and surfaces an observer error.
+    fn on_test_file_start(&self, _file: &TestFile) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Called after a worker produced a validated result for one test file.
+    ///
+    /// # Errors
+    ///
+    /// Returning a message aborts the run and surfaces an observer error.
+    fn on_test_file_result(&self, _result: &TestFileResult) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -183,6 +213,27 @@ struct BailState {
 /// Returns [`RunnerError`] when the pool cannot be created, Node cannot be
 /// invoked, IPC fails, or a worker sends an invalid protocol message.
 pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResult, RunnerError> {
+    run_internal(files, options, None)
+}
+
+/// Runs test files while forwarding live file lifecycle events to `observer`.
+///
+/// # Errors
+///
+/// Returns [`RunnerError`] for worker failures or observer callback errors.
+pub fn run_with_observer(
+    files: &[TestFile],
+    options: &RunnerOptions,
+    observer: &dyn RunObserver,
+) -> Result<AggregatedResult, RunnerError> {
+    run_internal(files, options, Some(observer))
+}
+
+fn run_internal(
+    files: &[TestFile],
+    options: &RunnerOptions,
+    observer: Option<&dyn RunObserver>,
+) -> Result<AggregatedResult, RunnerError> {
     if options.max_workers == 0 {
         return Err(RunnerError::ZeroWorkers);
     }
@@ -206,8 +257,12 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
                 .par_iter()
                 .enumerate()
                 .map(|(index, file)| {
+                    notify_file_start(observer, file)?;
                     match run_file(&file.path, options, worker_path, index == 0, None)? {
-                        FileRunOutcome::Completed(result) => Ok(*result),
+                        FileRunOutcome::Completed(result) => {
+                            notify_file_result(observer, &result)?;
+                            Ok(*result)
+                        }
                         FileRunOutcome::Cancelled => {
                             Err(RunnerError::UnexpectedCancellation(file.path.clone()))
                         }
@@ -216,7 +271,7 @@ pub fn run(files: &[TestFile], options: &RunnerOptions) -> Result<AggregatedResu
                 .collect::<Result<Vec<_>, _>>()
         })?
     } else {
-        run_files_with_bail(files, options, worker_path, &pool)?
+        run_files_with_bail(files, options, worker_path, &pool, observer)?
     };
     let mut test_results = results;
     test_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
@@ -233,6 +288,7 @@ fn run_files_with_bail(
     options: &RunnerOptions,
     worker_path: &Path,
     pool: &rayon::ThreadPool,
+    observer: Option<&dyn RunObserver>,
 ) -> Result<Vec<TestFileResult>, RunnerError> {
     let cancelled = AtomicBool::new(false);
     let state = Mutex::new(BailState::default());
@@ -244,6 +300,7 @@ fn run_files_with_bail(
                 if cancelled.load(Ordering::Acquire) {
                     return Ok(None);
                 }
+                notify_file_start(observer, file)?;
                 let result = match run_file(
                     &file.path,
                     options,
@@ -254,6 +311,7 @@ fn run_files_with_bail(
                     FileRunOutcome::Completed(result) => *result,
                     FileRunOutcome::Cancelled => return Ok(None),
                 };
+                notify_file_result(observer, &result)?;
                 let mut state = state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -272,6 +330,36 @@ fn run_files_with_bail(
             .collect::<Result<Vec<_>, RunnerError>>()
     })?;
     Ok(results.into_iter().flatten().collect())
+}
+
+fn notify_file_start(
+    observer: Option<&dyn RunObserver>,
+    file: &TestFile,
+) -> Result<(), RunnerError> {
+    observer.map_or(Ok(()), |observer| {
+        observer
+            .on_test_file_start(file)
+            .map_err(|message| RunnerError::Observer {
+                event: "onTestFileStart",
+                path: file.path.clone(),
+                message,
+            })
+    })
+}
+
+fn notify_file_result(
+    observer: Option<&dyn RunObserver>,
+    result: &TestFileResult,
+) -> Result<(), RunnerError> {
+    observer.map_or(Ok(()), |observer| {
+        observer
+            .on_test_file_result(result)
+            .map_err(|message| RunnerError::Observer {
+                event: "onTestFileResult",
+                path: result.test_path.clone(),
+                message,
+            })
+    })
 }
 
 fn failed_test_count(result: &TestFileResult) -> usize {

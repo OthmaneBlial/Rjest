@@ -183,6 +183,51 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'reporters-custom-lifecycle',
+    category: 'Reporters',
+    compareArtifacts: ['reporter-events.json'],
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'reporters-get-last-error',
+    category: 'Reporters',
+    compareArtifacts: ['reporter-error.json'],
+    expectedExit: 1,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'reporters-hook-error',
+    category: 'Reporters',
+    compareArtifacts: ['reporter-started.txt'],
+    expectedExit: 1,
+    skipResultComparison: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'reporters-custom-output',
+    category: 'Reporters',
+    compareOutput: true,
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'reporters-multi-project',
+    category: 'Reporters',
+    compareArtifacts: ['reporter-projects.json'],
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'reporters-parallel',
+    category: 'Reporters',
+    compareArtifacts: ['reporter-parallel.json'],
+    expectedExit: 0,
+    jestMaxWorkers: 2,
+    rjestMaxWorkers: 2,
+    useFixtureConfig: true,
+  },
+  {
     name: 'coverage-basic',
     category: 'Coverage',
     expectedExit: 0,
@@ -971,7 +1016,12 @@ function compareCase(testCase) {
     const rjestCwd = testCase.workingDirectory
       ? join(rjestFixture, testCase.workingDirectory)
       : rjestFixture;
-    const jestArguments = [testCase.jestExecutable ?? jest, '--runInBand'];
+    const jestArguments = [
+      testCase.jestExecutable ?? jest,
+      testCase.jestMaxWorkers
+        ? `--maxWorkers=${testCase.jestMaxWorkers}`
+        : '--runInBand',
+    ];
     if (testCase.projects) {
       jestArguments.push('--projects', ...testCase.projects);
     }
@@ -985,7 +1035,7 @@ function compareCase(testCase) {
       jestArguments.push(`--testSequencer=${testCase.testSequencer}`);
     }
     if (!testCase.useJestCache) jestArguments.push('--no-cache');
-    if (!testCase.compareExecutionMarkers) {
+    if (!testCase.compareExecutionMarkers && !testCase.compareOutput) {
       jestArguments.push('--json', `--outputFile=${jestOutput}`);
     }
     if (!testCase.useFixtureConfig) {
@@ -1104,7 +1154,9 @@ function compareCase(testCase) {
       rjestArguments.push(`--testSequencer=${testCase.testSequencer}`);
     }
     if (!testCase.useJestCache) rjestArguments.push('--no-cache');
-    if (!testCase.compareExecutionMarkers) rjestArguments.push('--json');
+    if (!testCase.compareExecutionMarkers && !testCase.compareOutput) {
+      rjestArguments.push('--json');
+    }
     if (!testCase.useFixtureConfig) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
     }
@@ -1219,7 +1271,16 @@ function compareCase(testCase) {
 
     let jestResult;
     let rjestResult;
-    if (testCase.compareExecutionMarkers) {
+    if (testCase.skipResultComparison) {
+      jestResult = {exit: jestRun.status};
+      rjestResult = {exit: rjestRun.status};
+    } else if (testCase.compareOutput) {
+      jestResult = normalizeProcessOutput(jestRun);
+      rjestResult = normalizeProcessOutput(rjestRun);
+      if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
+        differences.push('process output differs');
+      }
+    } else if (testCase.compareExecutionMarkers) {
       jestResult = {executionMarkers: readExecutionMarkers(jestFixture)};
       rjestResult = {executionMarkers: readExecutionMarkers(rjestFixture)};
       if (testCase.compareCacheDirectory) {
@@ -1549,6 +1610,13 @@ function normalizeRjest(result, testCase) {
 
 function normalizeStatus(status) {
   return status === 'pending' || status === 'disabled' ? 'skipped' : status;
+}
+
+function normalizeProcessOutput(run) {
+  return {
+    stderr: run.stderr.replaceAll('\r\n', '\n').trim(),
+    stdout: run.stdout.replaceAll('\r\n', '\n').trim(),
+  };
 }
 
 function basename(path) {

@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 152,
-    "total": 152,
+    "passing": 158,
+    "total": 158,
     "percentage": 100
   },
   "categories": {
@@ -51,6 +51,11 @@
     "Mocks": {
       "passing": 14,
       "total": 14,
+      "percentage": 100
+    },
+    "Reporters": {
+      "passing": 6,
+      "total": 6,
       "percentage": 100
     },
     "Resolution": {
@@ -229,6 +234,42 @@
     {
       "name": "config-fake-timers-advance",
       "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "reporters-custom-lifecycle",
+      "category": "Reporters",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "reporters-get-last-error",
+      "category": "Reporters",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "reporters-hook-error",
+      "category": "Reporters",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "reporters-custom-output",
+      "category": "Reporters",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "reporters-multi-project",
+      "category": "Reporters",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "reporters-parallel",
+      "category": "Reporters",
       "compatible": true,
       "differences": []
     },

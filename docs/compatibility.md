@@ -9,14 +9,22 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 152/152 (100.0%) across its explicitly listed
+The current generated matrix is 158/158 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 34/34 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 22/22 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 10/10 (100.0%), and coverage is 4/4 (100.0%). These
+(100.0%). Fake timers are 10/10 (100.0%), coverage is 4/4 (100.0%), and custom
+reporters are 6/6 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
+
+The reporter probes cover CommonJS and ESM class loading, constructor context
+and options, awaited run/file/case hooks, legacy file-hook fallbacks,
+`getLastError()` and thrown-hook exits, custom-only stdout, multi-project
+display identities, and two-worker dispatch. Case events currently carry the
+covered Jest payloads after a file finishes; reporters that require callbacks
+to run concurrently with the active test body remain outside this score.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous

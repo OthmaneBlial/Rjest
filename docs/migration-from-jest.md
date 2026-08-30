@@ -43,6 +43,15 @@ in the merged summary. Keep Jest as the gate for unmeasured cross-project bail,
 reporter/threshold combinations, or custom test sequencer sharding. Default
 multi-project sharding uses each test's own project root in the covered case.
 
+Configured custom reporters accept Jest's string and `[module, options]`
+forms. CommonJS and ESM classes keep one instance for the complete run and
+receive awaited `onRunStart`, file hooks (including legacy fallbacks), test-case
+hooks, `onRunComplete`, and `getLastError()`. Custom-only configurations suppress
+Rjest's native default summary, while `default` and `summary` retain native
+output. Multi-project contexts and parallel file dispatch are covered. Keep
+Jest as the gate for reporters that require case callbacks while the test body
+is still active, or that depend on specialized `github-actions`/agent built-ins.
+
 Configured CommonJS and native-ESM `testSequencer` classes can shard and sort
 the complete selected matrix, receive `cacheResults` on the same instance, and
 select failures through `allFailedTests`. The default native sequencer persists

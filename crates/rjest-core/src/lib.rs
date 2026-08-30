@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 22;
+pub const WORKER_PROTOCOL_VERSION: u32 = 23;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -170,9 +170,13 @@ pub enum TestStatus {
 pub struct TestCaseResult {
     pub name: String,
     pub full_name: String,
+    #[serde(default)]
+    pub ancestor_titles: Vec<String>,
     pub status: TestStatus,
     pub duration_ms: u64,
     pub failure_message: Option<String>,
+    #[serde(default)]
+    pub num_passing_asserts: usize,
     #[serde(default)]
     pub invocations: u32,
     #[serde(default)]

@@ -16,8 +16,8 @@ The architecture follows the boundary recorded in
 - `rjest-coverage`: Istanbul source discovery, deterministic worker-map merging,
   reports, and threshold evaluation.
 - `rjest-runner`: bounded parallel dispatch, Node process isolation, versioned
-  request/result validation, deterministic aggregation, and coverage-counter
-  merging.
+  request/result validation, thread-safe file lifecycle observation,
+  deterministic aggregation, and coverage-counter merging.
 - `rjest-snapshot`: safe Jest v1 snapshot parsing, natural key ordering,
   template-literal escaping, deterministic coordinator-side persistence, and
   obsolete-file cleanup.
@@ -25,6 +25,9 @@ The architecture follows the boundary recorded in
   snapshots, fake timers, configured sync/async transforms, JSDOM globals,
   custom-environment lifecycle bridging, async timeouts, and per-file execution
   inside Node.
+- `runtime/custom-reporters.mjs`: persistent CommonJS/ESM reporter loading,
+  serialized Jest lifecycle dispatch, result projection, and final reporter
+  error collection across the Rust-coordinated run.
 
 Workers currently receive one JSON request over stdin and return a prefixed,
 versioned JSON result. Snapshot content crosses that protocol as validated data:
@@ -73,9 +76,13 @@ Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.
 
-Worker protocol v20 carries the supported snapshot-format options. Project
-identity remains coordinator-owned because a worker executes one fully
-normalized project/file pair and should not need root-configuration context.
+Worker protocol v23 carries assertion ancestor titles/counts used by reporter
+payloads in addition to the supported snapshot-format options. Project identity
+remains coordinator-owned because a worker executes one fully normalized
+project/file pair and should not need root-configuration context. Custom
+reporters use a separate persistent line protocol: Rust observes live file
+starts/results while the Node bridge preserves plugin instances and dispatches
+awaited run, file, case, and completion callbacks.
 
 Module loading normally delegates to Node and the configured Jest-compatible
 resolver layers. Under a genuine Yarn Plug'n'Play preload, the worker also

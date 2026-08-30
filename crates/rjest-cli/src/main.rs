@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     str::FromStr,
+    sync::Mutex,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -21,6 +22,8 @@ use sha1::{Digest, Sha1};
 
 const TEST_SEQUENCER_BRIDGE: &str = include_str!("../runtime/test-sequencer.mjs");
 const TEST_SEQUENCER_PREFIX: &str = "__RJEST_SEQUENCER__";
+const CUSTOM_REPORTER_BRIDGE: &str = include_str!("../runtime/custom-reporters.mjs");
+const CUSTOM_REPORTER_PREFIX: &str = "__RJEST_REPORTER__";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Shard {
@@ -550,6 +553,292 @@ impl Drop for CustomTestSequencerSession {
     }
 }
 
+struct CustomReporterProcess {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stdout: BufReader<ChildStdout>,
+    finished: bool,
+}
+
+struct CustomReporterSession {
+    process: Mutex<CustomReporterProcess>,
+}
+
+impl CustomReporterSession {
+    fn start(
+        config: &ProjectConfig,
+        cli: &Cli,
+        project_runs: &[ProjectRun<'_>],
+        max_workers: usize,
+        seed: i32,
+    ) -> Result<Option<Self>> {
+        let Some(reporters) = config.reporters.as_ref() else {
+            return Ok(None);
+        };
+        if reporters.iter().all(|(reporter, _)| {
+            matches!(
+                reporter.as_str(),
+                "agent" | "default" | "github-actions" | "summary"
+            )
+        }) {
+            return Ok(None);
+        }
+
+        let request = custom_reporter_request(config, cli, project_runs, max_workers, seed)?;
+
+        let mut child = Command::new("node")
+            .arg("--input-type=module")
+            .arg("--eval")
+            .arg(CUSTOM_REPORTER_BRIDGE)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .context("cannot start the configured Jest reporters")?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("reporter stdin is unavailable")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("reporter stdout is unavailable")?;
+        writeln!(stdin, "{}", serde_json::to_string(&request)?)
+            .context("cannot initialize the configured Jest reporters")?;
+        stdin
+            .flush()
+            .context("cannot flush the configured Jest reporter initialization")?;
+        let mut process = CustomReporterProcess {
+            child,
+            stdin: Some(stdin),
+            stdout: BufReader::new(stdout),
+            finished: false,
+        };
+        process.read_response()?;
+        Ok(Some(Self {
+            process: Mutex::new(process),
+        }))
+    }
+
+    fn send(&self, request: &serde_json::Value) -> Result<serde_json::Value> {
+        let mut process = self
+            .process
+            .lock()
+            .map_err(|_| anyhow::anyhow!("configured Jest reporter session lock is poisoned"))?;
+        process.send(request)
+    }
+
+    fn finish(&self, result: &AggregatedResult) -> Result<bool> {
+        let mut process = self
+            .process
+            .lock()
+            .map_err(|_| anyhow::anyhow!("configured Jest reporter session lock is poisoned"))?;
+        let response = process.send(&serde_json::json!({
+            "action": "runComplete",
+            "success": result.is_success(),
+        }))?;
+        let errors = response
+            .get("errors")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        process.stdin.take();
+        let status = process
+            .child
+            .wait()
+            .context("cannot wait for the configured Jest reporters")?;
+        process.finished = true;
+        ensure!(
+            status.success(),
+            "configured Jest reporters exited with {status}"
+        );
+        for error in &errors {
+            eprintln!(
+                "{}",
+                error
+                    .as_str()
+                    .unwrap_or("configured Jest reporter returned an error")
+            );
+        }
+        Ok(errors.is_empty())
+    }
+}
+
+fn custom_reporter_request(
+    config: &ProjectConfig,
+    cli: &Cli,
+    project_runs: &[ProjectRun<'_>],
+    max_workers: usize,
+    seed: i32,
+) -> Result<serde_json::Value> {
+    let contexts = execution_projects(config);
+    let serialized_contexts = contexts
+        .iter()
+        .enumerate()
+        .map(|(id, project)| serde_json::json!({"id": id, "config": project}))
+        .collect::<Vec<_>>();
+    let tests = project_runs
+        .iter()
+        .flat_map(|run| {
+            let context_id = contexts
+                .iter()
+                .position(|config| std::ptr::eq(*config, run.config))
+                .expect("project run config belongs to the execution config");
+            run.tests.iter().map(move |test| {
+                serde_json::json!({
+                    "contextId": context_id,
+                    "path": test.path,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut global_config = serde_json::to_value(config)?;
+    let object = global_config
+        .as_object_mut()
+        .context("normalized Jest config is not an object")?;
+    object.insert("maxWorkers".into(), max_workers.into());
+    object.insert("runInBand".into(), (max_workers == 1).into());
+    object.insert("json".into(), cli.json.into());
+    object.insert("listTests".into(), cli.list_tests.into());
+    object.insert("logHeapUsage".into(), cli.log_heap_usage.into());
+    object.insert("seed".into(), seed.into());
+    object.insert(
+        "showSeed".into(),
+        (cli.show_seed || config.show_seed).into(),
+    );
+    object.remove("silent");
+    if cli.silent || config.silent {
+        object.insert("silent".into(), true.into());
+    }
+    object.remove("verbose");
+    if cli.verbose || (tests.len() == 1 && !(cli.silent || config.silent)) {
+        object.insert("verbose".into(), true.into());
+    }
+    object.insert(
+        "collectCoverage".into(),
+        (cli.coverage || config.collect_coverage).into(),
+    );
+    if let Some(pattern) = cli.test_name_pattern.as_ref() {
+        object.insert("testNamePattern".into(), pattern.clone().into());
+    }
+    if let Some(output_file) = cli.output_file.as_ref() {
+        object.insert("outputFile".into(), serde_json::to_value(output_file)?);
+    }
+    object.insert(
+        "updateSnapshot".into(),
+        serde_json::Value::String(if cli.update_snapshot { "all" } else { "new" }.into()),
+    );
+    Ok(serde_json::json!({
+        "contexts": serialized_contexts,
+        "estimatedTime": 0,
+        "globalConfig": global_config,
+        "reporters": config.reporters,
+        "resolver": config.resolver,
+        "rootDir": config.root_dir,
+        "tests": tests,
+    }))
+}
+
+impl CustomReporterProcess {
+    fn send(&mut self, request: &serde_json::Value) -> Result<serde_json::Value> {
+        let stdin = self
+            .stdin
+            .as_mut()
+            .context("configured Jest reporter session is already closed")?;
+        writeln!(stdin, "{}", serde_json::to_string(request)?)
+            .context("cannot send a configured Jest reporter event")?;
+        stdin
+            .flush()
+            .context("cannot flush a configured Jest reporter event")?;
+        self.read_response()
+    }
+
+    fn read_response(&mut self) -> Result<serde_json::Value> {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let read = self
+                .stdout
+                .read_line(&mut line)
+                .context("cannot read the configured Jest reporter response")?;
+            ensure!(
+                read != 0,
+                "configured Jest reporters exited without a response"
+            );
+            let Some(marker) = line.find(CUSTOM_REPORTER_PREFIX) else {
+                print!("{line}");
+                std::io::stdout()
+                    .flush()
+                    .context("cannot forward configured Jest reporter output")?;
+                continue;
+            };
+            if marker > 0 {
+                print!("{}", &line[..marker]);
+                std::io::stdout()
+                    .flush()
+                    .context("cannot forward configured Jest reporter output")?;
+            }
+            let payload = line[marker + CUSTOM_REPORTER_PREFIX.len()..].trim_end();
+            let response: serde_json::Value = serde_json::from_str(payload)
+                .context("configured Jest reporters returned invalid JSON")?;
+            if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                let message = response
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown custom reporter error");
+                bail!("configured Jest reporter failed: {message}");
+            }
+            return Ok(response);
+        }
+    }
+}
+
+impl Drop for CustomReporterSession {
+    fn drop(&mut self) {
+        let Ok(mut process) = self.process.lock() else {
+            return;
+        };
+        if process.finished {
+            return;
+        }
+        process.stdin.take();
+        let _ = process.child.kill();
+        let _ = process.child.wait();
+    }
+}
+
+struct ReporterRunObserver<'a> {
+    context_id: usize,
+    session: &'a CustomReporterSession,
+}
+
+impl rjest_runner::RunObserver for ReporterRunObserver<'_> {
+    fn on_test_file_start(&self, file: &TestFile) -> std::result::Result<(), String> {
+        self.session
+            .send(&serde_json::json!({
+                "action": "testFileStart",
+                "contextId": self.context_id,
+                "path": file.path,
+            }))
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"))
+    }
+
+    fn on_test_file_result(
+        &self,
+        result: &rjest_core::TestFileResult,
+    ) -> std::result::Result<(), String> {
+        self.session
+            .send(&serde_json::json!({
+                "action": "testFileResult",
+                "contextId": self.context_id,
+                "result": result,
+            }))
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"))
+    }
+}
+
 fn finish_test_sequencers(
     custom: &mut Option<CustomTestSequencerSession>,
     native: &mut Option<NativeSequencerCache>,
@@ -570,8 +859,16 @@ struct ReportSettings {
     silent: bool,
     verbose: bool,
     log_heap_usage: bool,
+    summary_only: bool,
     show_seed: bool,
     seed: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeReporterMode {
+    None,
+    Default,
+    Summary,
 }
 
 fn main() {
@@ -657,24 +954,17 @@ fn run() -> Result<bool> {
         return Ok(true);
     }
 
-    let max_workers = if cli.run_in_band || config.detect_open_handles {
-        1
-    } else {
-        parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
-    };
-    let (result, collect_coverage) = execute_project_runs(
-        &cli,
-        &config,
-        project_runs,
-        max_workers,
-        ExecutionOrderConfig { seed, randomize },
-    )?;
+    let (result, collect_coverage, reporter_session) =
+        execute_selected_runs(&cli, &config, project_runs, seed, randomize)?;
     let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
     finish_test_sequencers(
         &mut sequencer_session,
         &mut native_sequencer_cache,
         (!bail_reached).then_some(&result),
     )?;
+    let reporters_succeeded = reporter_session
+        .as_ref()
+        .map_or(Ok(true), |session| session.finish(&result))?;
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
     if !bail_reached || !cli.json {
         emit_results(
@@ -687,9 +977,35 @@ fn run() -> Result<bool> {
         )?;
     }
     Ok(result.is_success()
+        && reporters_succeeded
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn execute_selected_runs(
+    cli: &Cli,
+    config: &ProjectConfig,
+    project_runs: Vec<ProjectRun<'_>>,
+    seed: i32,
+    randomize: bool,
+) -> Result<(AggregatedResult, bool, Option<CustomReporterSession>)> {
+    let max_workers = if cli.run_in_band || config.detect_open_handles {
+        1
+    } else {
+        parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
+    };
+    let reporter_session =
+        CustomReporterSession::start(config, cli, &project_runs, max_workers, seed)?;
+    let (result, collect_coverage) = execute_project_runs(
+        cli,
+        config,
+        project_runs,
+        max_workers,
+        ExecutionOrderConfig { seed, randomize },
+        reporter_session.as_ref(),
+    )?;
+    Ok((result, collect_coverage, reporter_session))
 }
 
 fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
@@ -864,6 +1180,7 @@ fn execute_project_runs(
     project_runs: Vec<ProjectRun<'_>>,
     max_workers: usize,
     execution_order: ExecutionOrderConfig,
+    reporter_session: Option<&CustomReporterSession>,
 ) -> Result<(AggregatedResult, bool)> {
     let started = Instant::now();
     let mut result = AggregatedResult::default();
@@ -928,7 +1245,22 @@ fn execute_project_runs(
             snapshot_update: snapshot_update(cli),
             ..rjest_runner::RunnerOptions::default()
         };
-        let mut project_result = rjest_runner::run(&run.tests, &options)?;
+        let context_id = execution_projects(global_config)
+            .iter()
+            .position(|config| std::ptr::eq(*config, run.config))
+            .expect("project run config belongs to the execution config");
+        let mut project_result = if let Some(session) = reporter_session {
+            rjest_runner::run_with_observer(
+                &run.tests,
+                &options,
+                &ReporterRunObserver {
+                    context_id,
+                    session,
+                },
+            )?
+        } else {
+            rjest_runner::run(&run.tests, &options)?
+        };
         let display_name = run
             .config
             .display_name
@@ -1450,7 +1782,11 @@ fn emit_results(
     }
     if cli.json && cli.output_file.is_none() {
         println!("{serialized}");
-    } else {
+    } else if let Some(summary_only) = match native_reporter_mode(config) {
+        NativeReporterMode::None => None,
+        NativeReporterMode::Default => Some(false),
+        NativeReporterMode::Summary => Some(true),
+    } {
         report(
             result,
             &config.root_dir,
@@ -1458,12 +1794,29 @@ fn emit_results(
                 silent: cli.silent || config.silent,
                 verbose: cli.verbose,
                 log_heap_usage: cli.log_heap_usage,
+                summary_only,
                 show_seed,
                 seed,
             },
         );
     }
     Ok(())
+}
+
+fn native_reporter_mode(config: &ProjectConfig) -> NativeReporterMode {
+    let Some(reporters) = config.reporters.as_ref() else {
+        return NativeReporterMode::Default;
+    };
+    if reporters
+        .iter()
+        .any(|(reporter, _)| matches!(reporter.as_str(), "agent" | "default"))
+    {
+        NativeReporterMode::Default
+    } else if reporters.iter().any(|(reporter, _)| reporter == "summary") {
+        NativeReporterMode::Summary
+    } else {
+        NativeReporterMode::None
+    }
 }
 
 fn parse_max_workers(value: Option<&str>) -> Result<usize> {
@@ -1520,7 +1873,11 @@ fn internal_node_module_paths(packages: &[&str]) -> BTreeMap<String, PathBuf> {
 }
 
 fn report(result: &AggregatedResult, root_dir: &std::path::Path, settings: &ReportSettings) {
-    for file in &result.test_results {
+    for file in result
+        .test_results
+        .iter()
+        .filter(|_| !settings.summary_only)
+    {
         let display_path = file
             .test_path
             .strip_prefix(root_dir)
@@ -1646,9 +2003,10 @@ mod tests {
     };
 
     use super::{
-        Cli, NativeSequencerCache, ProjectRun, Shard, clear_configured_caches, filter_projects,
-        native_context_key, parse_max_workers, sequence_project_runs_with_native, shard_tests,
-        uses_modern_branches_true_summary, validate_seed,
+        Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard, clear_configured_caches,
+        filter_projects, native_context_key, native_reporter_mode, parse_max_workers,
+        sequence_project_runs_with_native, shard_tests, uses_modern_branches_true_summary,
+        validate_seed,
     };
 
     #[test]
@@ -1691,6 +2049,25 @@ mod tests {
 
         assert_eq!(cli.test_sequencer.as_deref(), Some("./tools/sequencer.cjs"));
         assert!(cli.run_in_band);
+    }
+
+    #[test]
+    fn selects_native_output_from_the_configured_builtin_reporters() {
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        assert_eq!(native_reporter_mode(&config), NativeReporterMode::Default);
+
+        config.reporters = Some(vec![("./custom.cjs".into(), serde_json::json!({}))]);
+        assert_eq!(native_reporter_mode(&config), NativeReporterMode::None);
+
+        config.reporters = Some(vec![("summary".into(), serde_json::json!({}))]);
+        assert_eq!(native_reporter_mode(&config), NativeReporterMode::Summary);
+
+        config.reporters = Some(vec![
+            ("summary".into(), serde_json::json!({})),
+            ("default".into(), serde_json::json!({})),
+        ]);
+        assert_eq!(native_reporter_mode(&config), NativeReporterMode::Default);
     }
 
     #[test]
@@ -2129,9 +2506,11 @@ mod tests {
             tests: vec![TestCaseResult {
                 name: "failing".into(),
                 full_name: "failing".into(),
+                ancestor_titles: Vec::new(),
                 status,
                 duration_ms: 0,
                 failure_message: None,
+                num_passing_asserts: 0,
                 invocations: 1,
                 retry_reasons: Vec::new(),
             }],
