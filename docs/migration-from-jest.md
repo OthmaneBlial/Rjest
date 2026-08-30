@@ -24,13 +24,26 @@ used directly, as can Jest's inline JSON form of `--config`. Rjest normalizes
 discovery, environment/options, transform,
 setup-after-env, serializer, module-path, timeout, worker, and common tooling
 fields, including project-level `silent`; unsupported options are migration
-work items and produce an explicit error. For implicit `jest.config.mts`
+work items and produce an explicit error. Project-level `verbose` also drives
+native output and the global config supplied to extension hooks. For implicit `jest.config.mts`
 discovery, Rjest follows an installed Jest version's boundary: Jest releases
 before 30.4 ignore that filename, while 30.4 and later treat it as a config.
 On Node versions with native TypeScript support, `.ts` configuration also keeps
 the package's CommonJS or ESM semantics, including `import.meta` in a
 `"type": "module"` project. Native syntax failures in `.ts`/`.cts` retain the
 ts-node fallback; `.mts` remains ESM-only.
+
+Configured `globalSetup` and `globalTeardown` modules run around the complete
+selected matrix, as do the `--globalSetup` and `--globalTeardown` CLI forms.
+CommonJS, native ESM, default exports, promises, and configured TypeScript
+transforms are covered. The same persistent Node process keeps setup globals
+available to teardown, while environment additions/removals are forwarded to
+Rjest's isolated test workers and custom reporters. Hook paths shared by
+several active projects run once, and projects with no selected tests do not
+run their hooks. Arbitrary non-environment objects on the hook process global
+are not copied into test workers, so keep Jest as the gate if a suite relies on
+that undocumented cross-realm identity rather than environment or external
+resources.
 
 Root `projects` arrays may contain inline objects, project directories,
 supported config-file paths, and standard path globs. The variadic

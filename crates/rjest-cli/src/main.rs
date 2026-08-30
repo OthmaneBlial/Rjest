@@ -24,6 +24,10 @@ const TEST_SEQUENCER_BRIDGE: &str = include_str!("../runtime/test-sequencer.mjs"
 const TEST_SEQUENCER_PREFIX: &str = "__RJEST_SEQUENCER__";
 const CUSTOM_REPORTER_BRIDGE: &str = include_str!("../runtime/custom-reporters.mjs");
 const CUSTOM_REPORTER_PREFIX: &str = "__RJEST_REPORTER__";
+const GLOBAL_HOOK_BRIDGE: &str = include_str!("../runtime/global-hooks.mjs");
+const GLOBAL_HOOK_PREFIX: &str = "__RJEST_GLOBAL_HOOK__";
+
+type EnvironmentDelta = BTreeMap<String, Option<String>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Shard {
@@ -110,6 +114,22 @@ struct Cli {
         value_name = "PATH"
     )]
     test_sequencer: Option<String>,
+
+    /// Module run once before executing the selected test suites.
+    #[arg(
+        long = "globalSetup",
+        visible_alias = "global-setup",
+        value_name = "PATH"
+    )]
+    global_setup: Option<String>,
+
+    /// Module run once after executing the selected test suites.
+    #[arg(
+        long = "globalTeardown",
+        visible_alias = "global-teardown",
+        value_name = "PATH"
+    )]
+    global_teardown: Option<String>,
 
     /// Run only test files that failed in the previous execution.
     #[arg(short = 'f', long = "onlyFailures", visible_alias = "only-failures", action = ArgAction::SetTrue)]
@@ -553,6 +573,238 @@ impl Drop for CustomTestSequencerSession {
     }
 }
 
+struct GlobalHookProcess {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stdout: BufReader<ChildStdout>,
+    finished: bool,
+}
+
+struct GlobalHookSession {
+    process: GlobalHookProcess,
+    environment: EnvironmentDelta,
+}
+
+impl GlobalHookSession {
+    fn start(
+        config: &ProjectConfig,
+        cli: &Cli,
+        project_runs: &[ProjectRun<'_>],
+        max_workers: usize,
+        seed: i32,
+    ) -> Result<Option<Self>> {
+        let request = global_hook_request(config, cli, project_runs, max_workers, seed)?;
+        let has_hooks = request["globalSetups"]
+            .as_array()
+            .is_some_and(|hooks| !hooks.is_empty())
+            || request["globalTeardowns"]
+                .as_array()
+                .is_some_and(|hooks| !hooks.is_empty());
+        if !has_hooks {
+            return Ok(None);
+        }
+
+        let mut child = Command::new("node")
+            .arg("--input-type=module")
+            .arg("--eval")
+            .arg(GLOBAL_HOOK_BRIDGE)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .context("cannot start the configured Jest global hooks")?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("global hook stdin is unavailable")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("global hook stdout is unavailable")?;
+        writeln!(stdin, "{}", serde_json::to_string(&request)?)
+            .context("cannot initialize the configured Jest global hooks")?;
+        stdin
+            .flush()
+            .context("cannot flush the configured Jest global hook initialization")?;
+        let mut process = GlobalHookProcess {
+            child,
+            stdin: Some(stdin),
+            stdout: BufReader::new(stdout),
+            finished: false,
+        };
+        let response = process.read_response()?;
+        let environment = response
+            .get("environment")
+            .cloned()
+            .map_or_else(|| Ok(BTreeMap::new()), serde_json::from_value)
+            .context("configured Jest globalSetup returned an invalid environment delta")?;
+        Ok(Some(Self {
+            process,
+            environment,
+        }))
+    }
+
+    fn environment(&self) -> &EnvironmentDelta {
+        &self.environment
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        let response = self
+            .process
+            .send(&serde_json::json!({"action": "globalTeardown"}))?;
+        if let Some(environment) = response.get("environment") {
+            self.environment = serde_json::from_value(environment.clone())
+                .context("configured Jest globalTeardown returned an invalid environment delta")?;
+        }
+        self.process.stdin.take();
+        let status = self
+            .process
+            .child
+            .wait()
+            .context("cannot wait for the configured Jest global hooks")?;
+        self.process.finished = true;
+        ensure!(
+            status.success(),
+            "configured Jest global hooks exited with {status}"
+        );
+        Ok(())
+    }
+}
+
+impl GlobalHookProcess {
+    fn send(&mut self, request: &serde_json::Value) -> Result<serde_json::Value> {
+        let stdin = self
+            .stdin
+            .as_mut()
+            .context("configured Jest global hook session is already closed")?;
+        writeln!(stdin, "{}", serde_json::to_string(request)?)
+            .context("cannot send a configured Jest global hook event")?;
+        stdin
+            .flush()
+            .context("cannot flush a configured Jest global hook event")?;
+        self.read_response()
+    }
+
+    fn read_response(&mut self) -> Result<serde_json::Value> {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let read = self
+                .stdout
+                .read_line(&mut line)
+                .context("cannot read the configured Jest global hook response")?;
+            ensure!(
+                read != 0,
+                "configured Jest global hooks exited without a response"
+            );
+            let Some(marker) = line.find(GLOBAL_HOOK_PREFIX) else {
+                print!("{line}");
+                std::io::stdout()
+                    .flush()
+                    .context("cannot forward configured Jest global hook output")?;
+                continue;
+            };
+            if marker > 0 {
+                print!("{}", &line[..marker]);
+                std::io::stdout()
+                    .flush()
+                    .context("cannot forward configured Jest global hook output")?;
+            }
+            let payload = line[marker + GLOBAL_HOOK_PREFIX.len()..].trim_end();
+            let response: serde_json::Value = serde_json::from_str(payload)
+                .context("configured Jest global hooks returned invalid JSON")?;
+            if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                let message = response
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown global hook error");
+                bail!("{message}");
+            }
+            return Ok(response);
+        }
+    }
+}
+
+impl Drop for GlobalHookSession {
+    fn drop(&mut self) {
+        if self.process.finished {
+            return;
+        }
+        self.process.stdin.take();
+        let _ = self.process.child.kill();
+        let _ = self.process.child.wait();
+    }
+}
+
+fn global_hook_request(
+    config: &ProjectConfig,
+    cli: &Cli,
+    project_runs: &[ProjectRun<'_>],
+    max_workers: usize,
+    seed: i32,
+) -> Result<serde_json::Value> {
+    let test_count = project_runs.iter().map(|run| run.tests.len()).sum();
+    Ok(serde_json::json!({
+        "globalConfig": jest_global_config(config, cli, max_workers, seed, test_count)?,
+        "globalSetups": global_hook_entries(config, project_runs, true),
+        "globalTeardowns": global_hook_entries(config, project_runs, false),
+        "runtimeToolPaths": internal_node_module_paths(&["babel-jest"]),
+    }))
+}
+
+fn global_hook_entries(
+    global_config: &ProjectConfig,
+    project_runs: &[ProjectRun<'_>],
+    setup: bool,
+) -> Vec<serde_json::Value> {
+    let mut seen = BTreeSet::new();
+    let mut entries = Vec::new();
+    for run in project_runs.iter().filter(|run| !run.tests.is_empty()) {
+        let Some(module_path) = global_hook_module(run.config, setup) else {
+            continue;
+        };
+        if seen.insert(module_path.to_owned()) {
+            entries.push(global_hook_entry(module_path, run.config));
+        }
+    }
+    if let Some(module_path) = global_hook_module(global_config, setup)
+        && seen.insert(module_path.to_owned())
+        && let Some(first_project) = project_runs
+            .iter()
+            .find(|run| !run.tests.is_empty())
+            .map(|run| run.config)
+    {
+        entries.push(global_hook_entry(module_path, first_project));
+    }
+    entries
+}
+
+fn global_hook_module(config: &ProjectConfig, setup: bool) -> Option<&str> {
+    if setup {
+        config.global_setup.as_deref()
+    } else {
+        config.global_teardown.as_deref()
+    }
+}
+
+fn global_hook_entry(module_path: &str, config: &ProjectConfig) -> serde_json::Value {
+    serde_json::json!({
+        "modulePath": module_path,
+        "projectConfig": config,
+        "transformConfigured": config.transform_configured,
+    })
+}
+
+fn apply_environment_delta(command: &mut Command, environment: &EnvironmentDelta) {
+    for (key, value) in environment {
+        if let Some(value) = value {
+            command.env(key, value);
+        } else {
+            command.env_remove(key);
+        }
+    }
+}
+
 struct CustomReporterProcess {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -571,6 +823,7 @@ impl CustomReporterSession {
         project_runs: &[ProjectRun<'_>],
         max_workers: usize,
         seed: i32,
+        environment: &EnvironmentDelta,
     ) -> Result<Option<Self>> {
         let Some(reporters) = config.reporters.as_ref() else {
             return Ok(None);
@@ -586,7 +839,9 @@ impl CustomReporterSession {
 
         let request = custom_reporter_request(config, cli, project_runs, max_workers, seed)?;
 
-        let mut child = Command::new("node")
+        let mut command = Command::new("node");
+        apply_environment_delta(&mut command, environment);
+        let mut child = command
             .arg("--input-type=module")
             .arg("--eval")
             .arg(CUSTOM_REPORTER_BRIDGE)
@@ -692,6 +947,25 @@ fn custom_reporter_request(
             })
         })
         .collect::<Vec<_>>();
+    let global_config = jest_global_config(config, cli, max_workers, seed, tests.len())?;
+    Ok(serde_json::json!({
+        "contexts": serialized_contexts,
+        "estimatedTime": 0,
+        "globalConfig": global_config,
+        "reporters": config.reporters,
+        "resolver": config.resolver,
+        "rootDir": config.root_dir,
+        "tests": tests,
+    }))
+}
+
+fn jest_global_config(
+    config: &ProjectConfig,
+    cli: &Cli,
+    max_workers: usize,
+    seed: i32,
+    test_count: usize,
+) -> Result<serde_json::Value> {
     let mut global_config = serde_json::to_value(config)?;
     let object = global_config
         .as_object_mut()
@@ -711,7 +985,7 @@ fn custom_reporter_request(
         object.insert("silent".into(), true.into());
     }
     object.remove("verbose");
-    if cli.verbose || (tests.len() == 1 && !(cli.silent || config.silent)) {
+    if cli.verbose || config.verbose || (test_count == 1 && !(cli.silent || config.silent)) {
         object.insert("verbose".into(), true.into());
     }
     object.insert(
@@ -728,15 +1002,7 @@ fn custom_reporter_request(
         "updateSnapshot".into(),
         serde_json::Value::String(if cli.update_snapshot { "all" } else { "new" }.into()),
     );
-    Ok(serde_json::json!({
-        "contexts": serialized_contexts,
-        "estimatedTime": 0,
-        "globalConfig": global_config,
-        "reporters": config.reporters,
-        "resolver": config.resolver,
-        "rootDir": config.root_dir,
-        "tests": tests,
-    }))
+    Ok(global_config)
 }
 
 impl CustomReporterProcess {
@@ -954,7 +1220,7 @@ fn run() -> Result<bool> {
         return Ok(true);
     }
 
-    let (result, collect_coverage, reporter_session) =
+    let (result, collect_coverage, reporter_session, mut global_hook_session) =
         execute_selected_runs(&cli, &config, project_runs, seed, randomize)?;
     let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
     finish_test_sequencers(
@@ -965,6 +1231,9 @@ fn run() -> Result<bool> {
     let reporters_succeeded = reporter_session
         .as_ref()
         .map_or(Ok(true), |session| session.finish(&result))?;
+    if let Some(session) = global_hook_session.as_mut() {
+        session.finish()?;
+    }
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
     if !bail_reached || !cli.json {
         emit_results(
@@ -989,14 +1258,25 @@ fn execute_selected_runs(
     project_runs: Vec<ProjectRun<'_>>,
     seed: i32,
     randomize: bool,
-) -> Result<(AggregatedResult, bool, Option<CustomReporterSession>)> {
+) -> Result<(
+    AggregatedResult,
+    bool,
+    Option<CustomReporterSession>,
+    Option<GlobalHookSession>,
+)> {
     let max_workers = if cli.run_in_band || config.detect_open_handles {
         1
     } else {
         parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
     };
+    let global_hook_session =
+        GlobalHookSession::start(config, cli, &project_runs, max_workers, seed)?;
+    let empty_environment = BTreeMap::new();
+    let environment = global_hook_session
+        .as_ref()
+        .map_or(&empty_environment, GlobalHookSession::environment);
     let reporter_session =
-        CustomReporterSession::start(config, cli, &project_runs, max_workers, seed)?;
+        CustomReporterSession::start(config, cli, &project_runs, max_workers, seed, environment)?;
     let (result, collect_coverage) = execute_project_runs(
         cli,
         config,
@@ -1004,8 +1284,14 @@ fn execute_selected_runs(
         max_workers,
         ExecutionOrderConfig { seed, randomize },
         reporter_session.as_ref(),
+        environment,
     )?;
-    Ok((result, collect_coverage, reporter_session))
+    Ok((
+        result,
+        collect_coverage,
+        reporter_session,
+        global_hook_session,
+    ))
 }
 
 fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
@@ -1017,6 +1303,18 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
     if let Some(test_sequencer) = cli.test_sequencer.as_deref() {
         config.test_sequencer = Some(rjest_config::normalize_module_reference(
             test_sequencer,
+            &config.root_dir,
+        ));
+    }
+    if let Some(global_setup) = cli.global_setup.as_deref() {
+        config.global_setup = Some(rjest_config::normalize_module_reference(
+            global_setup,
+            &config.root_dir,
+        ));
+    }
+    if let Some(global_teardown) = cli.global_teardown.as_deref() {
+        config.global_teardown = Some(rjest_config::normalize_module_reference(
+            global_teardown,
             &config.root_dir,
         ));
     }
@@ -1181,6 +1479,7 @@ fn execute_project_runs(
     max_workers: usize,
     execution_order: ExecutionOrderConfig,
     reporter_session: Option<&CustomReporterSession>,
+    environment: &EnvironmentDelta,
 ) -> Result<(AggregatedResult, bool)> {
     let started = Instant::now();
     let mut result = AggregatedResult::default();
@@ -1242,6 +1541,7 @@ fn execute_project_runs(
             collect_coverage: project_collect_coverage,
             coverage_path_ignore_patterns,
             coverage_filter,
+            environment: environment.clone(),
             snapshot_update: snapshot_update(cli),
             ..rjest_runner::RunnerOptions::default()
         };
@@ -1792,7 +2092,7 @@ fn emit_results(
             &config.root_dir,
             &ReportSettings {
                 silent: cli.silent || config.silent,
-                verbose: cli.verbose,
+                verbose: cli.verbose || config.verbose,
                 log_heap_usage: cli.log_heap_usage,
                 summary_only,
                 show_seed,
@@ -2049,6 +2349,19 @@ mod tests {
 
         assert_eq!(cli.test_sequencer.as_deref(), Some("./tools/sequencer.cjs"));
         assert!(cli.run_in_band);
+    }
+
+    #[test]
+    fn accepts_jest_global_hook_overrides() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--globalSetup=./tools/setup.cjs",
+            "--globalTeardown=fixture-teardown",
+        ])
+        .expect("Jest global hook overrides");
+
+        assert_eq!(cli.global_setup.as_deref(), Some("./tools/setup.cjs"));
+        assert_eq!(cli.global_teardown.as_deref(), Some("fixture-teardown"));
     }
 
     #[test]

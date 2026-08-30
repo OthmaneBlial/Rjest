@@ -63,6 +63,8 @@ pub struct RunnerOptions {
     pub collect_coverage: bool,
     pub coverage_path_ignore_patterns: Vec<String>,
     pub coverage_filter: Option<Vec<PathBuf>>,
+    /// Environment changes made by Jest `globalSetup`, applied to workers.
+    pub environment: BTreeMap<String, Option<String>>,
     pub file_timeout_ms: u64,
 }
 
@@ -105,6 +107,7 @@ impl Default for RunnerOptions {
             collect_coverage: false,
             coverage_path_ignore_patterns: vec!["/node_modules/".into()],
             coverage_filter: None,
+            environment: BTreeMap::new(),
             file_timeout_ms: 120_000,
         }
     }
@@ -626,6 +629,13 @@ fn execute_worker(
     }
     if let Some(node_path) = worker_node_path(options) {
         command.env("NODE_PATH", node_path);
+    }
+    for (key, value) in &options.environment {
+        if let Some(value) = value {
+            command.env(key, value);
+        } else {
+            command.env_remove(key);
+        }
     }
     let mut child = command
         .arg(worker_path)

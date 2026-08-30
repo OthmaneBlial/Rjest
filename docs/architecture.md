@@ -28,6 +28,9 @@ The architecture follows the boundary recorded in
 - `runtime/custom-reporters.mjs`: persistent CommonJS/ESM reporter loading,
   serialized Jest lifecycle dispatch, result projection, and final reporter
   error collection across the Rust-coordinated run.
+- `runtime/global-hooks.mjs`: persistent CommonJS/ESM global setup and teardown,
+  configured transformer execution, project-aware deduplication, and explicit
+  environment transfer to later reporter and test-worker processes.
 
 Workers currently receive one JSON request over stdin and return a prefixed,
 versioned JSON result. Snapshot content crosses that protocol as validated data:
@@ -83,6 +86,17 @@ project/file pair and should not need root-configuration context. Custom
 reporters use a separate persistent line protocol: Rust observes live file
 starts/results while the Node bridge preserves plugin instances and dispatches
 awaited run, file, case, and completion callbacks.
+
+Global setup and teardown use another persistent line protocol. Rust derives
+the active hook set only after project filtering, sharding, and sequencing, so
+an inactive project cannot run its hook and a shared resolved module path runs
+once. The Node process executes all setup modules before reporters or workers
+are created, stays alive through the test run, and then executes teardown after
+reporter completion. Environment differences produced by setup are attached to
+every later Node child with `Command::env`/`env_remove`; this avoids unsafe
+process-wide environment mutation inside the multithreaded Rust coordinator.
+The hook process itself retains ordinary module and global state for teardown.
+Arbitrary non-environment object identity cannot cross into isolated workers.
 
 Module loading normally delegates to Node and the configured Jest-compatible
 resolver layers. Under a genuine Yarn Plug'n'Play preload, the worker also

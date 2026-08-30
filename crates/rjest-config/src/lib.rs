@@ -111,6 +111,8 @@ pub struct ProjectConfig {
     pub module_directories: Vec<String>,
     pub module_paths: Vec<PathBuf>,
     pub resolver: Option<String>,
+    pub global_setup: Option<String>,
+    pub global_teardown: Option<String>,
     pub automock: bool,
     pub reset_modules: bool,
     #[serde(flatten)]
@@ -130,6 +132,9 @@ pub struct ProjectConfig {
     pub snapshot_format: SnapshotFormat,
     pub prettier_path: Option<String>,
     pub transform: BTreeMap<String, Value>,
+    /// Tracks an explicit `transform` key, including Jest's `{}` opt-out.
+    #[serde(skip)]
+    pub transform_configured: bool,
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
     pub test_sequencer: Option<String>,
@@ -138,6 +143,7 @@ pub struct ProjectConfig {
     pub randomize: bool,
     pub show_seed: bool,
     pub silent: bool,
+    pub verbose: bool,
     /// Normalized Jest reporter entries. `None` preserves Jest's implicit
     /// default reporter, while `Some` records the explicitly configured list.
     pub reporters: Option<Vec<(String, Value)>>,
@@ -182,6 +188,8 @@ struct RawProjectConfig {
     module_directories: Option<Vec<String>>,
     module_paths: Option<Vec<String>>,
     resolver: Option<String>,
+    global_setup: Option<String>,
+    global_teardown: Option<String>,
     automock: Option<bool>,
     reset_modules: Option<bool>,
     clear_mocks: Option<bool>,
@@ -211,6 +219,7 @@ struct RawProjectConfig {
     randomize: Option<bool>,
     show_seed: Option<bool>,
     silent: Option<bool>,
+    verbose: Option<bool>,
     reporters: Option<Vec<Value>>,
     max_workers: Option<NumberOrString>,
     worker_idle_memory_limit: Option<MemoryLimit>,
@@ -364,6 +373,8 @@ impl ProjectConfig {
             module_directories: vec!["node_modules".into()],
             module_paths: Vec::new(),
             resolver: None,
+            global_setup: None,
+            global_teardown: None,
             automock: false,
             reset_modules: false,
             mock_lifecycle: MockLifecycleConfig::default(),
@@ -382,6 +393,7 @@ impl ProjectConfig {
             snapshot_format: SnapshotFormat::default(),
             prettier_path: Some("prettier".into()),
             transform: BTreeMap::new(),
+            transform_configured: false,
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
             test_sequencer: None,
@@ -390,6 +402,7 @@ impl ProjectConfig {
             randomize: false,
             show_seed: false,
             silent: false,
+            verbose: false,
             reporters: None,
             max_workers: None,
             worker_idle_memory_limit: None,
@@ -681,6 +694,8 @@ fn merge_preset(
         module_directories,
         module_paths,
         resolver,
+        global_setup,
+        global_teardown,
         automock,
         reset_modules,
         clear_mocks,
@@ -704,6 +719,7 @@ fn merge_preset(
         randomize,
         show_seed,
         silent,
+        verbose,
         reporters,
         max_workers,
         worker_idle_memory_limit,
@@ -856,6 +872,12 @@ fn normalize(
     let resolver = raw
         .resolver
         .map(|value| normalize_module_reference(&value, &root_dir));
+    let global_setup = raw
+        .global_setup
+        .map(|value| normalize_module_reference(&value, &root_dir));
+    let global_teardown = raw
+        .global_teardown
+        .map(|value| normalize_module_reference(&value, &root_dir));
     let test_sequencer = raw
         .test_sequencer
         .map(|value| normalize_module_reference(&value, &root_dir));
@@ -892,6 +914,7 @@ fn normalize(
         defaults.coverage_directory,
         &root_dir,
     )?;
+    let transform_configured = raw.transform.is_some();
     let transform = normalize_transform(raw.transform, &root_dir, defaults.transform)?;
     let prettier_path = match raw.prettier_path {
         RawPrettierPath::Missing => defaults.prettier_path,
@@ -949,6 +972,8 @@ fn normalize(
         module_directories,
         module_paths,
         resolver,
+        global_setup,
+        global_teardown,
         automock: raw.automock.unwrap_or(defaults.automock),
         reset_modules: raw.reset_modules.unwrap_or(defaults.reset_modules),
         mock_lifecycle,
@@ -979,6 +1004,7 @@ fn normalize(
         snapshot_format,
         prettier_path,
         transform,
+        transform_configured,
         transform_ignore_patterns,
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
         test_sequencer,
@@ -987,6 +1013,7 @@ fn normalize(
         randomize: raw.randomize.unwrap_or(defaults.randomize),
         show_seed: raw.show_seed.unwrap_or(defaults.show_seed),
         silent: raw.silent.unwrap_or(defaults.silent),
+        verbose: raw.verbose.unwrap_or(defaults.verbose),
         reporters,
         max_workers: raw.max_workers.map(NumberOrString::into_string),
         worker_idle_memory_limit: normalize_worker_idle_memory_limit(raw.worker_idle_memory_limit),
@@ -2069,6 +2096,48 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_global_hooks_and_tracks_an_explicit_transform_opt_out() {
+        let temp = tempdir().expect("temp dir");
+        let configured = load_inline_json(
+            temp.path(),
+            r#"{
+              "globalSetup":"<rootDir>/tools/setup.cjs",
+              "globalTeardown":"fixture-teardown",
+              "transform":{}
+            }"#,
+        )
+        .expect("global hook config");
+
+        assert_eq!(
+            configured.global_setup.as_deref(),
+            Some(
+                temp.path()
+                    .join("tools/setup.cjs")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
+        assert_eq!(
+            configured.global_teardown.as_deref(),
+            Some("fixture-teardown")
+        );
+        assert!(configured.transform_configured);
+        let serialized = serde_json::to_value(&configured).expect("serialized config");
+        assert_eq!(
+            serialized["globalSetup"],
+            temp.path()
+                .join("tools/setup.cjs")
+                .to_string_lossy()
+                .as_ref()
+        );
+        assert_eq!(serialized["globalTeardown"], "fixture-teardown");
+        assert!(serialized.get("transformConfigured").is_none());
+
+        let defaults = load_inline_json(temp.path(), "{}").expect("default config");
+        assert!(!defaults.transform_configured);
+    }
+
+    #[test]
     fn normalizes_custom_test_sequencer_module_references() {
         let temp = tempdir().expect("temp dir");
         let rooted = load_inline_json(
@@ -2448,6 +2517,7 @@ mod tests {
               "coverageReporters":["json-summary","lcov"],
               "coverageThreshold":{"global":{"lines":90}},
               "silent":true,
+              "verbose":true,
               "workerIdleMemoryLimit":"45MiB",
               "watchPlugins":["jest-watch-typeahead/filename"]
             }"#,
@@ -2457,6 +2527,7 @@ mod tests {
         let config = load(temp.path(), None).expect("load runtime config");
         assert_eq!(config.module_paths, [temp.path().join("src")]);
         assert!(config.silent);
+        assert!(config.verbose);
         assert_eq!(config.module_name_mapper[0].pattern, r"^@first/(.*)$");
         assert_eq!(
             config.module_name_mapper[0].replacements,

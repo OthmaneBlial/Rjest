@@ -9,7 +9,7 @@ An independent Jest-compatible test runner with a Rust coordinator and isolated 
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 ![Status](https://img.shields.io/badge/status-alpha-f4b942?style=flat-square)
-![Differential scenarios](https://img.shields.io/badge/differential_scenarios-158%2F158-c8ff3d?style=flat-square)
+![Differential scenarios](https://img.shields.io/badge/differential_scenarios-166%2F166-c8ff3d?style=flat-square)
 ![Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=flat-square&logo=rust)
 ![Node](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=flat-square&logo=nodedotjs)
 ![License](https://img.shields.io/badge/license-MIT-111511?style=flat-square)
@@ -35,14 +35,14 @@ tied to an executable differential fixture or a pinned real-world corpus.
 
 | Proof | Official Jest | Rjest |
 | --- | ---: | ---: |
-| Versioned differential matrix | 158 / 158 scenarios | 158 / 158 scenarios |
+| Versioned differential matrix | 166 / 166 scenarios | 166 / 166 scenarios |
 | Downshift | 92 suites · 1,110 tests · 49 snapshots | exact parity |
 | styled-components web | 59 suites · 1,465 tests · 749 snapshots | exact parity |
 | React Navigation | 81 suites · 1,303 identities · 169 snapshots | exact parity, including the same 2 upstream failures |
 | AWS Amplify Auth | 101 suites · 1,150 tests | exact identity, status, and coverage parity |
 | Apollo Client | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
 
-The 158/158 result is **100% of the versioned scenarios currently in the
+The 166/166 result is **100% of the versioned scenarios currently in the
 matrix**, not 100% of the entire Jest API. The repository also contains 24
 documented corpus reports spanning React, React Native, TypeScript, JSDOM,
 CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play.
@@ -64,6 +64,9 @@ CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play.
 - Jest config discovery, executable JS/TS configs, presets, multi-project
   matrices, display-name filters, custom resolvers, custom sequencers, pnpm,
   and Yarn Plug'n'Play.
+- CommonJS, ESM, and transformed TypeScript `globalSetup`/`globalTeardown`,
+  including async hooks, CLI overrides, setup environment propagation,
+  multi-project selection/deduplication, and teardown after test failures.
 - Stateful CommonJS and ESM custom reporters with awaited run/file/case hooks,
   legacy hook fallbacks, multi-project contexts, and `getLastError()` exits.
 - Istanbul/Babel coverage with JSON, text, LCOV/HTML, Clover, source-map
@@ -107,6 +110,8 @@ rjest --selectProjects web --ignoreProjects legacy
 rjest --shard=1/3
 rjest --randomize --seed=1234
 rjest --testSequencer=./tools/sequencer.cjs
+rjest --globalSetup=./tools/setup.cjs
+rjest --globalTeardown=./tools/teardown.mjs
 rjest --onlyFailures
 rjest --no-cache
 rjest --clearCache
@@ -147,6 +152,9 @@ drop-in replacement.
 - Exact custom-environment VM-context identity, live reporter case-event timing,
   specialized reporter built-ins, path/glob coverage thresholds, and long-tail
   resolver/PnP combinations need broader proof.
+- Global setup and teardown share one persistent coordinator-side Node process,
+  and environment changes reach test workers. Arbitrary non-environment global
+  object identity is not copied into isolated workers.
 - Native TypeScript without a configured transformer is limited to Node's
   erasable syntax; TSX and syntax requiring code generation need a Jest
   transformer.
