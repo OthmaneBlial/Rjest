@@ -201,6 +201,12 @@ extensionless ESM imports, VS Code mocks, and filesystem-heavy tests. Official
 Jest and Rjest reproduce the same 8 suite paths and all 95 test statuses,
 including the same single upstream macOS path failure.
 
+The pinned [Granite corpus](docs/corpus/granite.md) adds a strict Yarn 4
+Plug'n'Play workspace with zip-backed dependencies, React Native's resolver and
+environment, Haste platform extensions, Babel TSX, React Native Testing Library,
+custom matchers, and inline snapshots. Official Jest 29 and Rjest agree exactly
+on 5/5 suites, 29/29 tests, and 3/3 snapshots without modifying the project.
+
 The pinned [Apollo Client corpus](docs/corpus/apollo-client.md) establishes a
 much larger Jest 30 baseline across six Core/React projects: 563 suites, 9,974
 tests, and 519 snapshots. Its second complete Rjest capture found the exact 563

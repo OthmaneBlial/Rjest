@@ -13,7 +13,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 20;
+const PROTOCOL_VERSION = 22;
 const supportsSyncEvaluate =
   typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
@@ -46,8 +46,12 @@ const usesCustomModuleDirectories = !(
   configuredModuleDirectories.length === 1 &&
   configuredModuleDirectories[0] === 'node_modules'
 );
-const RuntimeResolverFactory = usesCustomModuleDirectories || request.resolver
-  ? requireFromTest('unrs-resolver').ResolverFactory
+const usesHastePlatformResolution = Boolean(
+  request.haste?.defaultPlatform || request.haste?.platforms?.includes('native'),
+);
+const RuntimeResolverFactory =
+  usesCustomModuleDirectories || request.resolver || usesHastePlatformResolution
+  ? requireFromTest(request.resolverEnginePath ?? 'unrs-resolver').ResolverFactory
   : undefined;
 let installedJestMajorVersion;
 try {
@@ -60,6 +64,7 @@ try {
 }
 const originalModuleLoad = Module._load;
 const originalModuleResolveFilename = Module._resolveFilename;
+const scopedJestCache = new Map();
 const moduleMocks = new Map();
 const virtualModuleMocks = new Map();
 const esmModuleMocks = [];
@@ -78,6 +83,7 @@ const deeplyUnmockedModules = new Set();
 const transitivelyUnmockedModules = new Set();
 const originalModuleExtensions = new Map(Object.entries(Module._extensions));
 const runtimeTransformers = [];
+const transformerModuleCache = Object.create(null);
 const transformCacheFs = new Map();
 const transformedSourceCache = new Map();
 const runtimeSourceMaps = new Map();
@@ -956,14 +962,15 @@ function inlineSnapshotFrame(error) {
 let inlineSnapshotTools;
 
 function loadUnmockedRuntimeTool(specifier) {
-  const resolved = requireFromTest.resolve(specifier);
-  bypassModuleMocks.add(resolved);
+  let resolved;
   transformerDepth += 1;
   try {
+    resolved = requireFromTest.resolve(runtimeToolSpecifier(specifier));
+    bypassModuleMocks.add(resolved);
     return requireFromTest(resolved);
   } finally {
     transformerDepth -= 1;
-    bypassModuleMocks.delete(resolved);
+    if (resolved) bypassModuleMocks.delete(resolved);
   }
 }
 
@@ -2499,6 +2506,10 @@ function requireFrom(path = activeModulePath) {
   return createRequire(path);
 }
 
+function runtimeToolSpecifier(specifier) {
+  return request.runtimeToolPaths?.[specifier] ?? specifier;
+}
+
 let configuredCommonJsResolver;
 let configuredEsmResolver;
 let customResolverSync;
@@ -2544,6 +2555,24 @@ function resolverConditions(mode) {
       ];
 }
 
+function runtimeModuleExtensions() {
+  const configured = (request.moduleFileExtensions ?? []).map(extension =>
+    extension.startsWith('.') ? extension : `.${extension}`,
+  );
+  const extensions = [...configured];
+  if (request.haste?.platforms?.includes('native')) {
+    extensions.unshift(...configured.map(extension => `.native${extension}`));
+  }
+  if (request.haste?.defaultPlatform) {
+    extensions.unshift(
+      ...configured.map(
+        extension => `.${request.haste.defaultPlatform}${extension}`,
+      ),
+    );
+  }
+  return extensions;
+}
+
 function configuredResolver(mode) {
   const key = mode === 'import' ? 'esm' : 'commonjs';
   const existing = key === 'esm'
@@ -2552,9 +2581,7 @@ function configuredResolver(mode) {
   if (existing) return existing;
   const resolver = new RuntimeResolverFactory({
     conditionNames: resolverConditions(mode),
-    extensions: (request.moduleFileExtensions ?? []).map(extension =>
-      extension.startsWith('.') ? extension : `.${extension}`,
-    ),
+    extensions: runtimeModuleExtensions(),
     modules: configuredModuleDirectories,
     roots: [request.rootDir],
   });
@@ -2577,6 +2604,28 @@ function runtimeDefaultResolver(specifier, options) {
     rootDir,
     ...resolverOptions
   } = options;
+  if (pnpApi && pnpResolutionDepth === 0) {
+    pnpResolutionDepth += 1;
+    try {
+      const resolved = pnpApi.resolveRequest(
+        moduleName,
+        join(basedir, 'resolver.js'),
+        {
+          conditions: new Set(conditions ?? []),
+          extensions,
+        },
+      );
+      if (resolved) return resolved;
+    } catch (error) {
+      throw moduleResolutionError(
+        moduleName,
+        join(basedir, 'resolver.js'),
+        error?.message ?? String(error),
+      );
+    } finally {
+      pnpResolutionDepth -= 1;
+    }
+  }
   const resolveWithModules = modules => {
     const resolver = new RuntimeResolverFactory({
       ...resolverOptions,
@@ -2608,9 +2657,7 @@ function customResolverOptions(fromPath, mode) {
     conditions: resolverConditions(mode),
     defaultAsyncResolver: runtimeDefaultAsyncResolver,
     defaultResolver: runtimeDefaultResolver,
-    extensions: (request.moduleFileExtensions ?? []).map(extension =>
-      extension.startsWith('.') ? extension : `.${extension}`,
-    ),
+    extensions: runtimeModuleExtensions(),
     moduleDirectory: configuredModuleDirectories,
     paths: request.modulePaths?.length ? request.modulePaths : undefined,
     rootDir: request.rootDir,
@@ -2730,9 +2777,7 @@ function configuredModuleResolution(specifier, fromPath, mode) {
         handled: true,
         path: pnpApi.resolveRequest(String(specifier), fromPath, {
           conditions: new Set(resolverConditions(mode)),
-          extensions: (request.moduleFileExtensions ?? []).map(extension =>
-            extension.startsWith('.') ? extension : `.${extension}`,
-          ),
+          extensions: runtimeModuleExtensions(),
         }),
       };
     } catch (error) {
@@ -2744,7 +2789,11 @@ function configuredModuleResolution(specifier, fromPath, mode) {
       pnpResolutionDepth -= 1;
     }
   }
-  if (!usesCustomModuleDirectories || !isBareModuleSpecifier(specifier)) {
+  if (
+    Module.isBuiltin(String(specifier)) ||
+    (!usesHastePlatformResolution &&
+      (!usesCustomModuleDirectories || !isBareModuleSpecifier(specifier)))
+  ) {
     return {handled: false};
   }
   const result = configuredResolver(mode).sync(
@@ -3675,6 +3724,9 @@ function configureEsmRuntime() {
       if (transformerDepth > 0 || esmResolutionDepth > 0) {
         return nextResolve(specifier, context);
       }
+      if (String(specifier).startsWith('data:')) {
+        return nextResolve(specifier, context);
+      }
       if (request.resolver && String(specifier).startsWith('file:')) {
         return nextResolve(specifier, context);
       }
@@ -3821,8 +3873,8 @@ function unresolvedManualMockPath(specifier, fromPath) {
   while (directory === root || directory.startsWith(`${root}/`)) {
     const base = join(directory, '__mocks__', moduleName);
     const candidates = [base];
-    for (const extension of request.moduleFileExtensions ?? []) {
-      candidates.push(`${base}.${extension}`, join(base, `index.${extension}`));
+    for (const extension of runtimeModuleExtensions()) {
+      candidates.push(`${base}${extension}`, join(base, `index${extension}`));
     }
     const match = candidates.find(candidate => existsSync(candidate));
     if (match) return match;
@@ -4116,15 +4168,15 @@ function manualMockPath(resolvedModule, specifier, fromPath) {
   const candidates = [];
   if (Module.isBuiltin(resolved)) {
     const moduleName = resolved.replace(/^node:/, '');
-    for (const extension of request.moduleFileExtensions ?? []) {
-      candidates.push(join(request.rootDir, '__mocks__', `${moduleName}.${extension}`));
+    for (const extension of runtimeModuleExtensions()) {
+      candidates.push(join(request.rootDir, '__mocks__', `${moduleName}${extension}`));
     }
   } else if (resolvePath(resolved) === resolved) {
     const mockDirectory = join(dirname(resolved), '__mocks__');
     candidates.push(join(mockDirectory, basename(resolved)));
     const stem = basename(resolved, extname(resolved));
-    for (const extension of request.moduleFileExtensions ?? []) {
-      candidates.push(join(mockDirectory, `${stem}.${extension}`));
+    for (const extension of runtimeModuleExtensions()) {
+      candidates.push(join(mockDirectory, `${stem}${extension}`));
     }
   }
   return (
@@ -4400,6 +4452,9 @@ Module._load = function rjestModuleLoad(specifier, parent, isMain) {
 };
 
 function scopedJest(fromPath) {
+  const cacheKey = normalizedRuntimePath(fromPath);
+  const cached = scopedJestCache.get(cacheKey);
+  if (cached) return cached;
   const scoped = Object.create(jest);
   Object.assign(scoped, {
     mock(specifier, factory, options) {
@@ -4457,8 +4512,55 @@ function scopedJest(fromPath) {
     retryTimes(numTestRetries, options) {
       return setRetryTimes(numTestRetries, options, scoped);
     },
+    clearAllMocks() {
+      jest.clearAllMocks();
+      return scoped;
+    },
+    resetAllMocks() {
+      jest.resetAllMocks();
+      return scoped;
+    },
+    restoreAllMocks() {
+      jest.restoreAllMocks();
+      return scoped;
+    },
+    resetModules() {
+      jest.resetModules();
+      return scoped;
+    },
+    isolateModules(callback) {
+      jest.isolateModules(callback);
+      return scoped;
+    },
+    useFakeTimers(options) {
+      jest.useFakeTimers(options);
+      return scoped;
+    },
+    useRealTimers() {
+      jest.useRealTimers();
+      return scoped;
+    },
+    setSystemTime(value) {
+      jest.setSystemTime(value);
+      return scoped;
+    },
+    setTimeout(value) {
+      jest.setTimeout(value);
+      return scoped;
+    },
   });
+  scopedJestCache.set(cacheKey, scoped);
   return scoped;
+}
+
+function enterTransformerModuleRuntime() {
+  const previousCache = Module._cache;
+  Module._cache = transformerModuleCache;
+  transformerDepth += 1;
+  return () => {
+    transformerDepth -= 1;
+    Module._cache = previousCache;
+  };
 }
 
 async function transformerFromConfig(pattern, configured) {
@@ -4468,9 +4570,8 @@ async function transformerFromConfig(pattern, configured) {
   if (typeof moduleName !== 'string') {
     throw new TypeError(`Transformer for ${pattern} must name a module`);
   }
-  const cachedBefore = new Set(Object.keys(Module._cache));
   let transformer;
-  transformerDepth += 1;
+  const leaveTransformerRuntime = enterTransformerModuleRuntime();
   try {
     let loaded;
     try {
@@ -4491,10 +4592,7 @@ async function transformerFromConfig(pattern, configured) {
         ? await exported.createTransformer(transformerConfig ?? {})
         : exported;
   } finally {
-    transformerDepth -= 1;
-    for (const path of Object.keys(Module._cache)) {
-      if (!cachedBefore.has(path)) delete Module._cache[path];
-    }
+    leaveTransformerRuntime();
   }
   if (
     !transformer ||
@@ -4535,13 +4633,15 @@ async function configureTransforms() {
       if (error?.code !== 'MODULE_NOT_FOUND') throw error;
     }
   }
-  if (runtimeTransformers.length === 0) return;
   const extensions = new Set(
     (request.moduleFileExtensions ?? []).map(extension => `.${extension}`),
   );
   extensions.add('.js');
+  extensions.add('.cjs');
   for (const extension of extensions) {
-    if (extension === '.json' || extension === '.node') continue;
+    if (extension === '.json' || extension === '.node' || extension === '.mjs') {
+      continue;
+    }
     Module._extensions[extension] = compileRuntimeModule;
   }
 }
@@ -4563,7 +4663,7 @@ function configureSnapshotFormat() {
     runtimeSnapshotSerializers.push(serializer);
   }
   try {
-    const loaded = requireFromTest('pretty-format');
+    const loaded = loadUnmockedRuntimeTool('pretty-format');
     runtimePrettyFormatter =
       typeof loaded === 'function' ? loaded : loaded.format;
     try {
@@ -4618,6 +4718,47 @@ function normalizedRuntimePath(path) {
   return resolvePath(path).replaceAll('\\', '/');
 }
 
+function makeRuntimeRequire(module) {
+  function runtimeRequire(specifier) {
+    return module.require(specifier);
+  }
+  runtimeRequire.resolve = (specifier, options) =>
+    Module._resolveFilename(specifier, module, false, options);
+  runtimeRequire.resolve.paths = specifier =>
+    Module._resolveLookupPaths(specifier, module);
+  Object.defineProperty(runtimeRequire, 'main', {
+    value: process.mainModule,
+  });
+  runtimeRequire.extensions = Module._extensions;
+  runtimeRequire.cache = Module._cache;
+  return runtimeRequire;
+}
+
+function compileRuntimeCommonJs(module, source, filename) {
+  if (!/\bjest\b/.test(source)) {
+    return module._compile(source, filename);
+  }
+  const options = {filename};
+  if (vm.constants?.USE_MAIN_CONTEXT_DEFAULT_LOADER) {
+    options.importModuleDynamically =
+      vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER;
+  }
+  const compiled = vm.compileFunction(
+    source,
+    ['exports', 'require', 'module', '__filename', '__dirname', 'jest'],
+    options,
+  );
+  return compiled.call(
+    module.exports,
+    module.exports,
+    makeRuntimeRequire(module),
+    module,
+    filename,
+    dirname(filename),
+    scopedJest(filename),
+  );
+}
+
 function compileRuntimeModule(module, filename) {
   if (transformerDepth > 0) {
     const extension = filename.slice(filename.lastIndexOf('.'));
@@ -4629,12 +4770,12 @@ function compileRuntimeModule(module, filename) {
   const selected = runtimeTransformerFor(filename);
   if (!selected) {
     const extension = filename.slice(filename.lastIndexOf('.'));
-    if (extension === '.js') {
+    if (extension === '.js' || extension === '.cjs') {
       const source = readFileSync(filename, 'utf8');
       const previousModulePath = activeModulePath;
       activeModulePath = filename;
       try {
-        module._compile(source, filename);
+        compileRuntimeCommonJs(module, source, filename);
       } finally {
         activeModulePath = previousModulePath;
       }
@@ -4656,7 +4797,7 @@ function compileRuntimeModule(module, filename) {
   const previousModulePath = activeModulePath;
   activeModulePath = filename;
   try {
-    module._compile(transformed.code, filename);
+    compileRuntimeCommonJs(module, transformed.code, filename);
   } finally {
     activeModulePath = previousModulePath;
   }
@@ -4703,12 +4844,6 @@ function callTransformerProcess(
     : process.call(transformer, source, filename, transformOptions);
 }
 
-function cleanupTransformerModules(cachedBeforeTransform) {
-  for (const path of Object.keys(Module._cache)) {
-    if (!cachedBeforeTransform.has(path)) delete Module._cache[path];
-  }
-}
-
 function invokeTransformerSync(selected, source, filename, context) {
   const process = selected.transformer.process;
   if (typeof process !== 'function') {
@@ -4716,8 +4851,7 @@ function invokeTransformerSync(selected, source, filename, context) {
       `Transformer ${selected.moduleName} cannot synchronously transform ${filename} without process()`,
     );
   }
-  const cachedBeforeTransform = new Set(Object.keys(Module._cache));
-  transformerDepth += 1;
+  const leaveTransformerRuntime = enterTransformerModuleRuntime();
   try {
     return callTransformerProcess(
       selected.transformer,
@@ -4728,16 +4862,14 @@ function invokeTransformerSync(selected, source, filename, context) {
       context.transformOptions,
     );
   } finally {
-    transformerDepth -= 1;
-    cleanupTransformerModules(cachedBeforeTransform);
+    leaveTransformerRuntime();
   }
 }
 
 async function invokeTransformerAsync(selected, source, filename, context) {
   const process =
     selected.transformer.processAsync ?? selected.transformer.process;
-  const cachedBeforeTransform = new Set(Object.keys(Module._cache));
-  transformerDepth += 1;
+  const leaveTransformerRuntime = enterTransformerModuleRuntime();
   try {
     return await callTransformerProcess(
       selected.transformer,
@@ -4748,8 +4880,7 @@ async function invokeTransformerAsync(selected, source, filename, context) {
       context.transformOptions,
     );
   } finally {
-    transformerDepth -= 1;
-    cleanupTransformerModules(cachedBeforeTransform);
+    leaveTransformerRuntime();
   }
 }
 
@@ -4770,21 +4901,25 @@ function finalizeRuntimeTransform(
   }
   let sourceMap = typeof transformed === 'string' ? undefined : transformed?.map;
   if (!sourceMap) {
-    transformerDepth += 1;
+    const leaveTransformerRuntime = enterTransformerModuleRuntime();
     try {
-      const convertSourceMap = requireFromTest('convert-source-map');
+      const convertSourceMap = requireFromTest(
+        runtimeToolSpecifier('convert-source-map'),
+      );
       sourceMap = convertSourceMap.fromSource(code)?.toObject();
     } catch {
       sourceMap = undefined;
     } finally {
-      transformerDepth -= 1;
+      leaveTransformerRuntime();
     }
   }
   if (instrument && selected.transformer.canInstrument !== true) {
-    transformerDepth += 1;
+    const leaveTransformerRuntime = enterTransformerModuleRuntime();
     try {
-      const babel = requireFromTest('@babel/core');
-      const loadedPlugin = requireFromTest('babel-plugin-istanbul');
+      const babel = requireFromTest(runtimeToolSpecifier('@babel/core'));
+      const loadedPlugin = requireFromTest(
+        runtimeToolSpecifier('babel-plugin-istanbul'),
+      );
       const plugin = loadedPlugin?.default ?? loadedPlugin;
       const instrumented = babel.transformSync(code, {
         auxiliaryCommentBefore: ' istanbul ignore next ',
@@ -4818,7 +4953,7 @@ function finalizeRuntimeTransform(
         sourceMap = instrumented.map ?? sourceMap;
       }
     } finally {
-      transformerDepth -= 1;
+      leaveTransformerRuntime();
     }
   }
   if (instrument) {
@@ -5014,7 +5149,8 @@ function customEnvironmentProjectConfig() {
     clearMocks: Boolean(request.clearMocks),
     extensionsToTreatAsEsm: request.extensionsToTreatAsEsm ?? [],
     fakeTimers: request.fakeTimers ?? {},
-    globals: {},
+    globals: request.globals ?? {},
+    haste: request.haste ?? {},
     moduleDirectories: configuredModuleDirectories,
     moduleFileExtensions: request.moduleFileExtensions ?? [],
     moduleNameMapper: request.moduleNameMapper ?? [],
@@ -5040,7 +5176,11 @@ function customEnvironmentGlobalConfig() {
   return {
     bail: 0,
     collectCoverage: Boolean(request.collectCoverage),
+    detectOpenHandles: Boolean(request.detectOpenHandles),
+    forceExit: Boolean(request.forceExit),
+    maxConcurrency: request.maxConcurrency ?? 5,
     maxWorkers: 1,
+    passWithNoTests: Boolean(request.passWithNoTests),
     rootDir: request.rootDir,
     seed: request.seed,
     testNamePattern: request.testNamePattern,
@@ -5524,6 +5664,15 @@ function installJsdomEnvironment() {
     requestAnimationFrame: window.requestAnimationFrame,
     cancelAnimationFrame: window.cancelAnimationFrame,
   };
+}
+
+function installConfiguredGlobals() {
+  if (customTestEnvironment) return;
+  const configured = structuredClone(request.globals ?? {});
+  Object.assign(globalThis, configured);
+  if (jsdomEnvironment?.window && jsdomEnvironment.window !== globalThis) {
+    Object.assign(jsdomEnvironment.window, structuredClone(request.globals ?? {}));
+  }
 }
 
 async function loadRuntimeModule(path) {
@@ -7046,6 +7195,7 @@ try {
   await configureCustomResolver();
   await configureTransforms();
   installJsdomEnvironment();
+  installConfiguredGlobals();
   if (jsdomEnvironment) {
     // Let JSDOM finish its initial ready-state and load events before user code
     // can mock shared Node globals such as Date. Jest runs JSDOM in a separate

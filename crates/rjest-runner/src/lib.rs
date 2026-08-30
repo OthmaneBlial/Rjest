@@ -16,9 +16,10 @@ use std::{
 
 use rayon::prelude::*;
 use rjest_core::{
-    AggregatedResult, CoverageMap, ExecutionOrderConfig, FakeTimersConfig, MockLifecycleConfig,
-    ModuleNameMapper, SnapshotFormat, SnapshotRequest, SnapshotResult, SnapshotUpdate, TestFile,
-    TestFileResult, WORKER_PROTOCOL_VERSION, WorkerRequest,
+    AggregatedResult, CoverageMap, ExecutionOrderConfig, FakeTimersConfig, GlobalExecutionConfig,
+    HasteConfig, MockLifecycleConfig, ModuleNameMapper, SnapshotFormat, SnapshotRequest,
+    SnapshotResult, SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION,
+    WorkerRequest,
 };
 use thiserror::Error;
 
@@ -41,10 +42,15 @@ pub struct RunnerOptions {
     pub module_directories: Vec<String>,
     pub module_paths: Vec<PathBuf>,
     pub resolver: Option<String>,
+    pub resolver_engine_path: Option<PathBuf>,
+    pub runtime_tool_paths: BTreeMap<String, PathBuf>,
     pub automock: bool,
     pub reset_modules: bool,
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
+    pub globals: serde_json::Value,
+    pub haste: HasteConfig,
+    pub global_execution: GlobalExecutionConfig,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub setup_files: Vec<PathBuf>,
@@ -78,10 +84,15 @@ impl Default for RunnerOptions {
             module_directories: vec!["node_modules".into()],
             module_paths: Vec::new(),
             resolver: None,
+            resolver_engine_path: None,
+            runtime_tool_paths: BTreeMap::new(),
             automock: false,
             reset_modules: false,
             mock_lifecycle: MockLifecycleConfig::default(),
             fake_timers: FakeTimersConfig::default(),
+            globals: serde_json::json!({}),
+            haste: HasteConfig::default(),
+            global_execution: GlobalExecutionConfig::default(),
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files: Vec::new(),
@@ -421,10 +432,15 @@ fn run_file(
         module_directories: options.module_directories.clone(),
         module_paths: options.module_paths.clone(),
         resolver: options.resolver.clone(),
+        resolver_engine_path: options.resolver_engine_path.clone(),
+        runtime_tool_paths: options.runtime_tool_paths.clone(),
         automock: options.automock,
         reset_modules: options.reset_modules,
         mock_lifecycle: options.mock_lifecycle.clone(),
         fake_timers: options.fake_timers.clone(),
+        globals: options.globals.clone(),
+        haste: options.haste.clone(),
+        global_execution: options.global_execution,
         test_environment: options.test_environment.clone(),
         test_environment_options: options.test_environment_options.clone(),
         setup_files: options.setup_files.clone(),
@@ -458,21 +474,10 @@ fn run_file(
         return Ok(FileRunOutcome::Cancelled);
     }
     if termination == WorkerTermination::TimedOut {
-        return Ok(FileRunOutcome::Completed(Box::new(TestFileResult {
-            protocol_version: WORKER_PROTOCOL_VERSION,
-            test_path: path.to_path_buf(),
-            project_display_name: None,
-            tests: Vec::new(),
-            errors: vec![format!(
-                "Exceeded Rjest's {} ms wall-clock limit for this test file",
-                options.file_timeout_ms
-            )],
-            console: Vec::new(),
-            duration_ms: options.file_timeout_ms,
-            heap_used_bytes: None,
-            snapshot: SnapshotResult::default(),
-            coverage: CoverageMap::new(),
-        })));
+        return Ok(FileRunOutcome::Completed(Box::new(timed_out_result(
+            path,
+            options.file_timeout_ms,
+        ))));
     }
     let stdout = String::from_utf8_lossy(&stdout);
     let payload = stdout
@@ -502,6 +507,23 @@ fn run_file(
     }
     rjest_snapshot::persist(&snapshot.path, &result.snapshot.data, result.snapshot.dirty)?;
     Ok(FileRunOutcome::Completed(Box::new(result)))
+}
+
+fn timed_out_result(path: &Path, file_timeout_ms: u64) -> TestFileResult {
+    TestFileResult {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        test_path: path.to_path_buf(),
+        project_display_name: None,
+        tests: Vec::new(),
+        errors: vec![format!(
+            "Exceeded Rjest's {file_timeout_ms} ms wall-clock limit for this test file"
+        )],
+        console: Vec::new(),
+        duration_ms: file_timeout_ms,
+        heap_used_bytes: None,
+        snapshot: SnapshotResult::default(),
+        coverage: CoverageMap::new(),
+    }
 }
 
 fn execute_worker(

@@ -12,7 +12,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use rjest_core::{FakeTimersConfig, MockLifecycleConfig, ModuleNameMapper, SnapshotFormat};
+use rjest_core::{
+    FakeTimersConfig, HasteConfig, MockLifecycleConfig, ModuleNameMapper, SnapshotFormat,
+};
 
 const CONFIG_FILENAMES: &[&str] = &[
     "jest.config.js",
@@ -110,6 +112,12 @@ pub struct ProjectConfig {
     #[serde(flatten)]
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
+    pub globals: Value,
+    pub haste: HasteConfig,
+    pub detect_open_handles: bool,
+    pub force_exit: bool,
+    pub max_concurrency: usize,
+    pub pass_with_no_tests: bool,
     pub test_environment: String,
     pub test_environment_options: Value,
     pub setup_files: Vec<PathBuf>,
@@ -169,6 +177,12 @@ struct RawProjectConfig {
     reset_mocks: Option<bool>,
     restore_mocks: Option<bool>,
     fake_timers: Option<RawFakeTimersConfig>,
+    globals: Option<Value>,
+    haste: Option<RawHasteConfig>,
+    detect_open_handles: Option<bool>,
+    force_exit: Option<bool>,
+    max_concurrency: Option<usize>,
+    pass_with_no_tests: Option<bool>,
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
     setup_files: Option<Vec<String>>,
@@ -230,6 +244,15 @@ struct RawFakeTimersConfig {
     do_not_fake: Option<Vec<String>>,
     now: Option<u64>,
     timer_limit: Option<serde_json::Number>,
+    #[serde(flatten)]
+    unsupported: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawHasteConfig {
+    default_platform: Option<String>,
+    platforms: Option<Vec<String>>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
 }
@@ -329,6 +352,12 @@ impl ProjectConfig {
             reset_modules: false,
             mock_lifecycle: MockLifecycleConfig::default(),
             fake_timers: FakeTimersConfig::default(),
+            globals: serde_json::json!({}),
+            haste: HasteConfig::default(),
+            detect_open_handles: false,
+            force_exit: false,
+            max_concurrency: 5,
+            pass_with_no_tests: false,
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             setup_files: Vec::new(),
@@ -565,6 +594,11 @@ fn merge_preset(
         reset_mocks,
         restore_mocks,
         fake_timers,
+        haste,
+        detect_open_handles,
+        force_exit,
+        max_concurrency,
+        pass_with_no_tests,
         test_environment,
         test_environment_options,
         snapshot_serializers,
@@ -586,6 +620,7 @@ fn merge_preset(
         coverage_threshold,
         watch_plugins,
     );
+    configured.globals = merge_preset_json(preset.globals.take(), configured.globals.take());
     prepend_preset_values(&mut configured.setup_files, preset.setup_files.take());
     prepend_preset_values(
         &mut configured.setup_files_after_env,
@@ -646,6 +681,32 @@ fn merge_preset_btree_map(
             Some(preset)
         }
     }
+}
+
+fn merge_preset_json(preset: Option<Value>, configured: Option<Value>) -> Option<Value> {
+    match (preset, configured) {
+        (None, configured) => configured,
+        (preset, None) => preset,
+        (Some(preset), Some(configured)) => Some(merge_json_value(preset, configured)),
+    }
+}
+
+fn merge_json_value(mut base: Value, configured: Value) -> Value {
+    let Value::Object(base_object) = &mut base else {
+        return configured;
+    };
+    let configured = match configured {
+        Value::Object(configured) => configured,
+        configured => return configured,
+    };
+    for (key, value) in configured {
+        let merged = match base_object.remove(&key) {
+            Some(previous) => merge_json_value(previous, value),
+            None => value,
+        };
+        base_object.insert(key, merged);
+    }
+    base
 }
 
 #[allow(clippy::too_many_lines)]
@@ -709,6 +770,8 @@ fn normalize(
     let setup_files = resolve_paths(raw.setup_files)?;
     let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
     let fake_timers = normalize_fake_timers(raw.fake_timers, defaults.fake_timers)?;
+    let globals = normalize_globals(raw.globals, defaults.globals)?;
+    let haste = normalize_haste(raw.haste, defaults.haste)?;
     let snapshot_format = normalize_snapshot_format(raw.snapshot_format, defaults.snapshot_format)?;
     let (test_match, test_regex) = normalize_test_patterns(
         raw.test_match,
@@ -768,6 +831,20 @@ fn normalize(
         reset_modules: raw.reset_modules.unwrap_or(defaults.reset_modules),
         mock_lifecycle,
         fake_timers,
+        globals,
+        haste,
+        detect_open_handles: raw
+            .detect_open_handles
+            .unwrap_or(defaults.detect_open_handles),
+        force_exit: raw.force_exit.unwrap_or(defaults.force_exit),
+        max_concurrency: normalize_positive_usize(
+            "maxConcurrency",
+            raw.max_concurrency,
+            defaults.max_concurrency,
+        )?,
+        pass_with_no_tests: raw
+            .pass_with_no_tests
+            .unwrap_or(defaults.pass_with_no_tests),
         test_environment,
         test_environment_options: raw
             .test_environment_options
@@ -918,6 +995,66 @@ fn reject_unsupported_fields(unsupported: &BTreeMap<String, Value>) -> Result<()
     Err(ConfigError::UnsupportedFields(
         unsupported.keys().cloned().collect::<Vec<_>>().join(", "),
     ))
+}
+
+fn normalize_globals(configured: Option<Value>, default: Value) -> Result<Value, ConfigError> {
+    match configured {
+        None => Ok(default),
+        Some(Value::Object(values)) => Ok(Value::Object(values)),
+        Some(value) => Err(ConfigError::UnsupportedValue {
+            field: "globals".into(),
+            value: value.to_string(),
+        }),
+    }
+}
+
+fn normalize_haste(
+    configured: Option<RawHasteConfig>,
+    default: HasteConfig,
+) -> Result<HasteConfig, ConfigError> {
+    let Some(configured) = configured else {
+        return Ok(default);
+    };
+    if !configured.unsupported.is_empty() {
+        return Err(ConfigError::UnsupportedFields(
+            configured
+                .unsupported
+                .keys()
+                .map(|field| format!("haste.{field}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+    }
+    if configured.default_platform.as_deref() == Some("")
+        || configured
+            .platforms
+            .as_ref()
+            .is_some_and(|platforms| platforms.iter().any(String::is_empty))
+    {
+        return Err(ConfigError::UnsupportedValue {
+            field: "haste".into(),
+            value: "platform names must be non-empty strings".into(),
+        });
+    }
+    Ok(HasteConfig {
+        default_platform: configured.default_platform.or(default.default_platform),
+        platforms: configured.platforms.unwrap_or(default.platforms),
+    })
+}
+
+fn normalize_positive_usize(
+    field: &str,
+    configured: Option<usize>,
+    default: usize,
+) -> Result<usize, ConfigError> {
+    let value = configured.unwrap_or(default);
+    if value == 0 {
+        return Err(ConfigError::UnsupportedValue {
+            field: field.into(),
+            value: value.to_string(),
+        });
+    }
+    Ok(value)
 }
 
 fn normalize_fake_timers(
@@ -1362,6 +1499,49 @@ mod tests {
         assert_eq!(config.module_directories, ["node_modules"]);
         assert_eq!(config.roots, vec![temp.path().to_path_buf()]);
         assert_eq!(config.bail, 0);
+        assert_eq!(config.max_concurrency, 5);
+        assert!(!config.pass_with_no_tests);
+    }
+
+    #[test]
+    fn normalizes_runtime_globals_haste_and_global_execution_options() {
+        let temp = tempdir().expect("temp dir");
+        let config = load_inline_json(
+            temp.path(),
+            r#"{
+              "globals":{"__DEV__":true,"nested":{"value":42}},
+              "haste":{"defaultPlatform":"ios","platforms":["android","ios","native"]},
+              "detectOpenHandles":true,
+              "forceExit":true,
+              "maxConcurrency":1,
+              "passWithNoTests":true
+            }"#,
+        )
+        .expect("Granite-style runtime config");
+
+        assert_eq!(config.globals["__DEV__"], true);
+        assert_eq!(config.globals["nested"]["value"], 42);
+        assert_eq!(config.haste.default_platform.as_deref(), Some("ios"));
+        assert_eq!(config.haste.platforms, ["android", "ios", "native"]);
+        assert!(config.detect_open_handles);
+        assert!(config.force_exit);
+        assert_eq!(config.max_concurrency, 1);
+        assert!(config.pass_with_no_tests);
+
+        let serialized = serde_json::to_value(config).expect("serialized config");
+        assert_eq!(serialized["maxConcurrency"], 1);
+        assert_eq!(serialized["haste"]["defaultPlatform"], "ios");
+
+        for invalid in [
+            r#"{"globals":[]}"#,
+            r#"{"haste":{"computeSha1":true}}"#,
+            r#"{"maxConcurrency":0}"#,
+        ] {
+            assert!(
+                load_inline_json(temp.path(), invalid).is_err(),
+                "invalid config should fail: {invalid}"
+            );
+        }
     }
 
     #[test]

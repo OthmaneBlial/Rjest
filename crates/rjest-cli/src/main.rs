@@ -1,6 +1,6 @@
 use std::{
-    collections::BTreeSet,
-    path::PathBuf,
+    collections::{BTreeMap, BTreeSet},
+    path::{Path, PathBuf},
     str::FromStr,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
@@ -8,7 +8,10 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use clap::{ArgAction, Parser};
 use rjest_config::ProjectConfig;
-use rjest_core::{AggregatedResult, ExecutionOrderConfig, SnapshotUpdate, TestFile, TestStatus};
+use rjest_core::{
+    AggregatedResult, ExecutionOrderConfig, GlobalExecutionConfig, SnapshotUpdate, TestFile,
+    TestStatus,
+};
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
 use sha1::{Digest, Sha1};
 
@@ -274,18 +277,7 @@ fn run() -> Result<bool> {
         return Ok(true);
     }
 
-    let test_path_patterns = cli
-        .test_path_patterns
-        .iter()
-        .map(|pattern| {
-            let from_cwd = project_dir.join(pattern);
-            if pattern.is_absolute() || !from_cwd.exists() {
-                pattern.clone()
-            } else {
-                from_cwd
-            }
-        })
-        .collect::<Vec<_>>();
+    let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, &project_dir);
     let mut project_runs = execution_projects(&config)
         .into_iter()
         .map(|project_config| {
@@ -302,6 +294,7 @@ fn run() -> Result<bool> {
         .iter()
         .map(|run| run.tests.len())
         .sum::<usize>();
+    let pass_with_no_tests = cli.pass_with_no_tests || config.pass_with_no_tests;
     if cli.list_tests {
         let unique_tests = project_runs
             .iter()
@@ -311,31 +304,38 @@ fn run() -> Result<bool> {
         for path in &unique_tests {
             println!("{}", path.display());
         }
-        return if unique_tests.is_empty() && cli.shard.is_none() && !cli.pass_with_no_tests {
+        return if unique_tests.is_empty() && cli.shard.is_none() && !pass_with_no_tests {
             bail!("No tests found");
         } else {
             Ok(true)
         };
     }
 
-    if test_count == 0 {
-        return if cli.pass_with_no_tests {
-            Ok(true)
-        } else {
-            bail!("No tests found")
-        };
-    }
-
-    let max_workers = if cli.run_in_band {
-        1
-    } else {
-        parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
-    };
     let seed = cli
         .seed
         .map_or_else(|| Ok(generated_seed()), validate_seed)?;
     let randomize = cli.randomize || config.randomize;
     let show_seed = randomize || cli.show_seed || config.show_seed;
+    if test_count == 0 {
+        if !pass_with_no_tests {
+            bail!("No tests found");
+        }
+        emit_results(
+            &cli,
+            &config,
+            &AggregatedResult::default(),
+            None,
+            seed,
+            show_seed,
+        )?;
+        return Ok(true);
+    }
+
+    let max_workers = if cli.run_in_band || config.detect_open_handles {
+        1
+    } else {
+        parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
+    };
     let (result, collect_coverage) = execute_project_runs(
         &cli,
         &config,
@@ -359,6 +359,20 @@ fn run() -> Result<bool> {
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn normalize_test_path_patterns(patterns: &[PathBuf], project_dir: &Path) -> Vec<PathBuf> {
+    patterns
+        .iter()
+        .map(|pattern| {
+            let from_cwd = project_dir.join(pattern);
+            if pattern.is_absolute() || !from_cwd.exists() {
+                pattern.clone()
+            } else {
+                from_cwd
+            }
+        })
+        .collect()
 }
 
 fn execute_project_runs(
@@ -395,10 +409,27 @@ fn execute_project_runs(
             module_directories: run.config.module_directories.clone(),
             module_paths: run.config.module_paths.clone(),
             resolver: run.config.resolver.clone(),
+            resolver_engine_path: internal_node_module_path("unrs-resolver"),
+            runtime_tool_paths: internal_node_module_paths(&[
+                "@babel/core",
+                "@babel/generator",
+                "@jridgewell/trace-mapping",
+                "babel-plugin-istanbul",
+                "convert-source-map",
+                "pretty-format",
+            ]),
             automock: run.config.automock,
             reset_modules: run.config.reset_modules,
             mock_lifecycle: run.config.mock_lifecycle.clone(),
             fake_timers: run.config.fake_timers.clone(),
+            globals: run.config.globals.clone(),
+            haste: run.config.haste.clone(),
+            global_execution: GlobalExecutionConfig {
+                detect_open_handles: run.config.detect_open_handles,
+                force_exit: run.config.force_exit,
+                max_concurrency: run.config.max_concurrency,
+                pass_with_no_tests: run.config.pass_with_no_tests,
+            },
             test_environment: run.config.test_environment.clone(),
             test_environment_options: run.config.test_environment_options.clone(),
             setup_files: run.config.setup_files.clone(),
@@ -696,6 +727,37 @@ fn parse_max_workers(value: Option<&str>) -> Result<usize> {
         .with_context(|| format!("invalid maxWorkers value `{value}`"))?;
     ensure!(workers > 0, "maxWorkers must be at least one");
     Ok(workers)
+}
+
+fn internal_node_module_path(package: &str) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(node_modules) = std::env::var_os("RJEST_INTERNAL_NODE_MODULES") {
+        candidates.push(PathBuf::from(node_modules).join(package));
+    }
+    if let Ok(executable) = std::env::current_exe() {
+        for ancestor in executable.ancestors() {
+            candidates.push(ancestor.join("node_modules").join(package));
+        }
+    }
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("node_modules")
+            .join(package),
+    );
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.join("package.json").is_file())
+        .and_then(|candidate| candidate.canonicalize().ok())
+}
+
+fn internal_node_module_paths(packages: &[&str]) -> BTreeMap<String, PathBuf> {
+    packages
+        .iter()
+        .filter_map(|package| {
+            internal_node_module_path(package).map(|path| ((*package).to_owned(), path))
+        })
+        .collect()
 }
 
 fn report(result: &AggregatedResult, root_dir: &std::path::Path, settings: &ReportSettings) {

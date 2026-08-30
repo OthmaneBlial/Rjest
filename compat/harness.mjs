@@ -115,6 +115,18 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-runtime-options',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-pass-with-no-tests',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-fake-timers-legacy',
     category: 'Configuration',
     expectedExit: 0,
@@ -223,6 +235,7 @@ const cases = [
   {name: 'gap-process-stdout', category: 'Core API', expectedExit: 0},
   {name: 'module-mock-cjs', category: 'Mocks', expectedExit: 0},
   {name: 'mock-reference-semantics', category: 'Mocks', expectedExit: 0},
+  {name: 'mock-module-scoped-jest', category: 'Mocks', expectedExit: 0},
   {name: 'gap-automock-prototype', category: 'Mocks', expectedExit: 0},
   {name: 'gap-isolate-modules', category: 'Mocks', expectedExit: 0},
   {

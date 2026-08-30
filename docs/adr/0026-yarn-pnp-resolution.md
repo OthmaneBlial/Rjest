@@ -43,6 +43,10 @@ deterministic and does not require registry or network access.
   Rjest's installation tree.
 - The harness validates official Jest and Rjest from separate generated PnP
   installations on every compatibility run.
-- Portal packages prove the API and condition boundary, but zip-backed cache
-  entries, PnP monorepo workspaces, pnpm layouts, and configured-resolver/PnP
+- The pinned Granite corpus additionally proves zip-backed packages, a Yarn 4
+  workspace, Haste platform extensions, and a configured React Native resolver
+  that delegates back to the default resolver.
+- Rjest-owned resolver and snapshot tools use canonical runner paths rather than
+  escaping or weakening the project's declared-dependency boundary.
+- Other PnP fallback modes, pnpm layouts, and broader configured-resolver option
   combinations still need independent corpus evidence.

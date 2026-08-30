@@ -7,10 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 123/123 (100.0%) across its explicitly listed
+The current generated matrix is 126/126 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
-transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-26/26 (100.0%). Resolution is 12/12 (100.0%), snapshots are 13/13 (100.0%),
+transforms are 5/5 (100.0%), mocks are 14/14 (100.0%), and configuration is
+28/28 (100.0%). Resolution is 12/12 (100.0%), snapshots are 13/13 (100.0%),
 Expect is 7/7 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -347,6 +347,15 @@ and VS Code mocks. Both runners discover the same eight suites and reproduce
 all 95 statuses exactly: 94 pass and the same one fails on macOS because of an
 upstream `/var` versus `/private/var` assertion. The comparator reports exact
 paths/statuses and zero Rjest file errors.
+
+The pinned [Granite corpus](corpus/granite.md) adds a strict Yarn 4 PnP
+workspace with zip-backed dependencies and no fallback, React Native's custom
+resolver/environment, Haste platform selection, Babel TSX, React Native Testing
+Library, custom matchers, and inline snapshots. Both runners pass the same 5/5
+suites and 29/29 tests and match all 3 snapshots. The automated comparator
+reports exact paths, identities, statuses, and snapshot counts. This is focused
+evidence for Granite's Jest-based `style-utils` workspace, not its separate
+Vitest packages or every PnP topology.
 
 The pinned [Apollo Client corpus](corpus/apollo-client.md) records a separate
 official Jest 30 baseline across six Core/React project configs: 563 suites,

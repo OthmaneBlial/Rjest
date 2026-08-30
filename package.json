@@ -8,17 +8,22 @@
     "compat": "node compat/harness.mjs",
     "compare:corpus": "node compat/compare-corpus-results.mjs"
   },
-  "devDependencies": {
+  "dependencies": {
     "@babel/core": "7.29.7",
     "@babel/generator": "7.29.8",
-    "@babel/preset-typescript": "7.29.7",
     "@jridgewell/trace-mapping": "0.3.31",
+    "babel-plugin-istanbul": "8.0.0",
+    "convert-source-map": "2.0.0",
+    "pretty-format": "30.5.0",
+    "unrs-resolver": "1.12.2"
+  },
+  "devDependencies": {
+    "@babel/preset-typescript": "7.29.7",
     "@yarnpkg/cli-dist": "4.18.0",
     "jest": "30.5.0",
     "jest-environment-jsdom": "30.5.0",
     "prettier": "3.9.6",
     "prettier-v2": "npm:prettier@2.8.8",
-    "unrs-resolver": "1.12.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },

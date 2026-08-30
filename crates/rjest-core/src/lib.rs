@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 20;
+pub const WORKER_PROTOCOL_VERSION: u32 = 22;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -46,6 +46,37 @@ pub struct MockLifecycleConfig {
     pub clear_mocks: bool,
     pub reset_mocks: bool,
     pub restore_mocks: bool,
+}
+
+/// Jest Haste platform settings that influence extension resolution.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HasteConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub platforms: Vec<String>,
+}
+
+/// Jest global execution options shared with each JavaScript worker.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalExecutionConfig {
+    pub detect_open_handles: bool,
+    pub force_exit: bool,
+    pub max_concurrency: usize,
+    pub pass_with_no_tests: bool,
+}
+
+impl Default for GlobalExecutionConfig {
+    fn default() -> Self {
+        Self {
+            detect_open_handles: false,
+            force_exit: false,
+            max_concurrency: 5,
+            pass_with_no_tests: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -86,11 +117,17 @@ pub struct WorkerRequest {
     pub module_directories: Vec<String>,
     pub module_paths: Vec<PathBuf>,
     pub resolver: Option<String>,
+    pub resolver_engine_path: Option<PathBuf>,
+    pub runtime_tool_paths: BTreeMap<String, PathBuf>,
     pub automock: bool,
     pub reset_modules: bool,
     #[serde(flatten)]
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
+    pub globals: serde_json::Value,
+    pub haste: HasteConfig,
+    #[serde(flatten)]
+    pub global_execution: GlobalExecutionConfig,
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub setup_files: Vec<PathBuf>,

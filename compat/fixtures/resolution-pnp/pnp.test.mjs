@@ -26,3 +26,19 @@ test('surfaces undeclared PnP dependency errors', () => {
     /isn't declared in its dependencies/,
   );
 });
+
+test('uses the runner snapshot formatter without a project declaration', () => {
+  expect({
+    display: 'flex',
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  }).toMatchInlineSnapshot(`
+    {
+      "alignItems": "flex-start",
+      "display": "flex",
+      "flexDirection": "row",
+      "justifyContent": "center",
+    }
+  `);
+});

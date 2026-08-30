@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 123,
-    "total": 123,
+    "passing": 126,
+    "total": 126,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 26,
-      "total": 26,
+      "passing": 28,
+      "total": 28,
       "percentage": 100
     },
     "Core API": {
@@ -49,8 +49,8 @@
       "percentage": 100
     },
     "Mocks": {
-      "passing": 13,
-      "total": 13,
+      "passing": 14,
+      "total": 14,
       "percentage": 100
     },
     "Resolution": {
@@ -168,6 +168,18 @@
     },
     {
       "name": "config-setup-files",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-runtime-options",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-pass-with-no-tests",
       "category": "Configuration",
       "compatible": true,
       "differences": []
@@ -336,6 +348,12 @@
     },
     {
       "name": "mock-reference-semantics",
+      "category": "Mocks",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "mock-module-scoped-jest",
       "category": "Mocks",
       "compatible": true,
       "differences": []
