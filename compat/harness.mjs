@@ -63,6 +63,25 @@ const cases = [
     compareExecutionMarkers: true,
   },
   {
+    name: 'config-projects-inline',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-projects-rootdir-cli-path',
+    category: 'Configuration',
+    expectedExit: 0,
+    testPathPatterns: ['src/nested.test.cjs'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-preset',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-rootdir-test-match',
     category: 'Configuration',
     expectedExit: 0,
@@ -207,6 +226,19 @@ const cases = [
   },
   {name: 'gap-virtual-mock', category: 'Mocks', expectedExit: 0},
   {name: 'resolution-cjs', category: 'Resolution', expectedExit: 0},
+  {
+    name: 'resolution-module-sync-condition',
+    category: 'Resolution',
+    expectedExit: 0,
+    prepareNodeModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'resolution-mapped-cjs-js-in-module',
+    category: 'Resolution',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {
     name: 'resolution-module-directories',
     category: 'Resolution',
@@ -472,6 +504,13 @@ const cases = [
     compareSnapshots: true,
     useFixtureConfig: true,
   },
+  {
+    name: 'snapshot-format-config',
+    category: 'Snapshots',
+    compareSnapshots: true,
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'snapshot-new', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
   {
     name: 'snapshot-update',
@@ -489,6 +528,18 @@ const cases = [
     updateSnapshots: true,
   },
   {name: 'gap-custom-matcher', category: 'Expect', expectedExit: 0},
+  {
+    name: 'expect-custom-equality-testers',
+    category: 'Expect',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'expect-package-shared-state',
+    category: 'Expect',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'gap-promise-to-throw', category: 'Expect', expectedExit: 0},
   {name: 'gap-expect-assertions', category: 'Expect', expectedExit: 1},
   {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0},
@@ -631,6 +682,7 @@ function compareCase(testCase) {
     if (!testCase.useFixtureConfig) {
       jestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(jestFixture))}`);
     }
+    jestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
     if (testCase.seed !== undefined) jestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) jestArguments.push('--randomize');
@@ -677,6 +729,7 @@ function compareCase(testCase) {
     if (!testCase.useFixtureConfig) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
     }
+    rjestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');
     if (testCase.seed !== undefined) rjestArguments.push(`--seed=${testCase.seed}`);
     if (testCase.randomize) rjestArguments.push('--randomize');

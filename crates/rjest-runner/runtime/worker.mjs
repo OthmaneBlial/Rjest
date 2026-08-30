@@ -1,5 +1,6 @@
 import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import Module, {createRequire, registerHooks} from 'node:module';
+import * as vm from 'node:vm';
 import {isDeepStrictEqual, format, inspect, promisify} from 'node:util';
 import {
   basename,
@@ -12,7 +13,9 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 19;
+const PROTOCOL_VERSION = 20;
+const supportsSyncEvaluate =
+  typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const RESULT_TEST_NODE = Symbol('rjest.testNode');
@@ -115,6 +118,7 @@ const mockRegistry = new Set();
 const restoreRegistry = new Set();
 const replacedPropertyRegistry = new WeakMap();
 const customMatchers = new Map();
+const customEqualityTesters = [];
 let invocationOrder = 0;
 let defaultTimeout = request.defaultTimeoutMs;
 let configuredRetryTimes;
@@ -473,9 +477,35 @@ function enumerableKeys(value, strict) {
   });
 }
 
-function deepEqual(received, expected, strict = false, receivedStack = [], expectedStack = []) {
+function jestEquals(
+  received,
+  expected,
+  customTesters = customEqualityTesters,
+  strict = false,
+) {
+  return deepEqual(received, expected, strict, [], [], customTesters);
+}
+
+function deepEqual(
+  received,
+  expected,
+  strict = false,
+  receivedStack = [],
+  expectedStack = [],
+  customTesters = customEqualityTesters,
+) {
   if (isAsymmetric(expected)) return expected.asymmetricMatch(received);
   if (isAsymmetric(received)) return received.asymmetricMatch(expected);
+  const testerContext = {equals: jestEquals};
+  for (const tester of customTesters) {
+    const outcome = tester.call(
+      testerContext,
+      received,
+      expected,
+      customTesters,
+    );
+    if (outcome !== undefined) return Boolean(outcome);
+  }
   if (Object.is(received, expected)) return true;
   if (received instanceof Error && expected instanceof Error) {
     return received.message === expected.message;
@@ -551,6 +581,7 @@ function deepEqual(received, expected, strict = false, receivedStack = [], expec
               strict,
               receivedStack,
               expectedStack,
+              customTesters,
             ) &&
             deepEqual(
               value,
@@ -558,6 +589,7 @@ function deepEqual(received, expected, strict = false, receivedStack = [], expec
               strict,
               receivedStack,
               expectedStack,
+              customTesters,
             ),
         );
         if (index < 0) return false;
@@ -575,7 +607,14 @@ function deepEqual(received, expected, strict = false, receivedStack = [], expec
       const remaining = [...expected.values()];
       result = [...received.values()].every(value => {
         const index = remaining.findIndex(other =>
-          deepEqual(value, other, strict, receivedStack, expectedStack),
+          deepEqual(
+            value,
+            other,
+            strict,
+            receivedStack,
+            expectedStack,
+            customTesters,
+          ),
         );
         if (index < 0) return false;
         remaining.splice(index, 1);
@@ -607,6 +646,7 @@ function deepEqual(received, expected, strict = false, receivedStack = [], expec
             strict,
             receivedStack,
             expectedStack,
+            customTesters,
           ),
       );
   }
@@ -741,7 +781,10 @@ function prettyFormat(value, indentation = '', stack = []) {
   return `${prefix}{\n${properties}\n${indentation}}`;
 }
 
-function formatSnapshot(value, escapeString = false) {
+function formatSnapshot(
+  value,
+  escapeString = request.snapshotFormat?.escapeString ?? false,
+) {
   const formatterOptions = {
     escapeRegex: true,
     escapeString,
@@ -749,7 +792,8 @@ function formatSnapshot(value, escapeString = false) {
     printFunctionName: false,
   };
   if (runtimePrettyFormatSupportsBasicPrototype) {
-    formatterOptions.printBasicPrototype = false;
+    formatterOptions.printBasicPrototype =
+      request.snapshotFormat?.printBasicPrototype ?? false;
   }
   const serialized = runtimePrettyFormatter
     ? runtimePrettyFormatter(value, formatterOptions)
@@ -1575,7 +1619,8 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
           {
             isNot,
             promise: promiseMode ?? '',
-            equals: deepEqual,
+            equals: jestEquals,
+            customTesters: customEqualityTesters,
             utils: {
               printExpected: printable,
               printReceived: printable,
@@ -1869,6 +1914,17 @@ expect.extend = extensions => {
       throw new TypeError(`Custom matcher ${name} must be a function`);
     }
     customMatchers.set(name, matcher);
+  }
+};
+expect.addEqualityTesters = testers => {
+  if (!Array.isArray(testers)) {
+    throw new TypeError('expect.addEqualityTesters expects an array of tester functions');
+  }
+  for (const tester of testers) {
+    if (typeof tester !== 'function') {
+      throw new TypeError('expect.addEqualityTesters expects an array of tester functions');
+    }
+    customEqualityTesters.push(tester);
   }
 };
 expect.not = {
@@ -2267,7 +2323,15 @@ function resolverConditions(mode) {
   const environmentConditions = environmentExportConditions();
   return mode === 'import'
     ? [...new Set(['import', 'module-sync', 'default', ...environmentConditions])]
-    : [...new Set(['require', 'module-sync', 'node', 'default', ...environmentConditions])];
+    : [
+        ...new Set([
+          'require',
+          ...(supportsSyncEvaluate ? ['module-sync'] : []),
+          'node',
+          'default',
+          ...environmentConditions,
+        ]),
+      ];
 }
 
 function configuredResolver(mode) {
@@ -3999,6 +4063,19 @@ function setAutomock(enabled, returnValue) {
 }
 
 Module._load = function rjestModuleLoad(specifier, parent, isMain) {
+  if (specifier === 'expect') {
+    const loaded = Reflect.apply(originalModuleLoad, Module, [
+      specifier,
+      parent,
+      isMain,
+    ]);
+    return {
+      ...loaded,
+      default: expect,
+      expect,
+      JestAssertionError: RjestAssertionError,
+    };
+  }
   if (specifier === '@jest/globals') {
     const moduleJest = scopedJest(parent?.filename ?? request.testPath);
     return {
@@ -4341,6 +4418,17 @@ function compileRuntimeModule(module, filename) {
   const selected = runtimeTransformerFor(filename);
   if (!selected) {
     const extension = filename.slice(filename.lastIndexOf('.'));
+    if (extension === '.js') {
+      const source = readFileSync(filename, 'utf8');
+      const previousModulePath = activeModulePath;
+      activeModulePath = filename;
+      try {
+        module._compile(source, filename);
+      } finally {
+        activeModulePath = previousModulePath;
+      }
+      return;
+    }
     const original =
       originalModuleExtensions.get(extension) ??
       (extension === '.cjs' ? originalModuleExtensions.get('.js') : undefined);
@@ -4799,6 +4887,9 @@ const customEnvironmentRealmIntrinsics = new Set([
   'BigInt64Array',
   'BigUint64Array',
   'Boolean',
+  'clearImmediate',
+  'clearInterval',
+  'clearTimeout',
   'DataView',
   'Date',
   'Error',
@@ -4818,11 +4909,16 @@ const customEnvironmentRealmIntrinsics = new Set([
   'Object',
   'Promise',
   'Proxy',
+  'performance',
+  'queueMicrotask',
   'RangeError',
   'ReferenceError',
   'Reflect',
   'RegExp',
   'Set',
+  'setImmediate',
+  'setInterval',
+  'setTimeout',
   'SharedArrayBuffer',
   'String',
   'Symbol',

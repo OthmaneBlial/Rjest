@@ -1,7 +1,8 @@
 use std::{
+    collections::BTreeSet,
     path::PathBuf,
     str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail, ensure};
@@ -233,6 +234,11 @@ struct CoverageRunnerSettings {
     filter: Option<Vec<PathBuf>>,
 }
 
+struct ProjectRun<'a> {
+    config: &'a ProjectConfig,
+    tests: Vec<TestFile>,
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct ReportSettings {
     silent: bool,
@@ -268,23 +274,51 @@ fn run() -> Result<bool> {
         return Ok(true);
     }
 
-    let discovered_tests = rjest_discovery::discover(&config, &cli.test_path_patterns)?;
-    let tests = match cli.shard {
-        Some(shard) => shard_tests(discovered_tests, &config.root_dir, shard),
-        None => discovered_tests,
-    };
+    let test_path_patterns = cli
+        .test_path_patterns
+        .iter()
+        .map(|pattern| {
+            let from_cwd = project_dir.join(pattern);
+            if pattern.is_absolute() || !from_cwd.exists() {
+                pattern.clone()
+            } else {
+                from_cwd
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut project_runs = execution_projects(&config)
+        .into_iter()
+        .map(|project_config| {
+            Ok(ProjectRun {
+                config: project_config,
+                tests: rjest_discovery::discover(project_config, &test_path_patterns)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(shard) = cli.shard {
+        shard_project_runs(&mut project_runs, &config.root_dir, shard);
+    }
+    let test_count = project_runs
+        .iter()
+        .map(|run| run.tests.len())
+        .sum::<usize>();
     if cli.list_tests {
-        for test in &tests {
-            println!("{}", test.path.display());
+        let unique_tests = project_runs
+            .iter()
+            .flat_map(|run| &run.tests)
+            .map(|test| test.path.clone())
+            .collect::<BTreeSet<_>>();
+        for path in &unique_tests {
+            println!("{}", path.display());
         }
-        return if tests.is_empty() && cli.shard.is_none() && !cli.pass_with_no_tests {
+        return if unique_tests.is_empty() && cli.shard.is_none() && !cli.pass_with_no_tests {
             bail!("No tests found");
         } else {
             Ok(true)
         };
     }
 
-    if tests.is_empty() {
+    if test_count == 0 {
         return if cli.pass_with_no_tests {
             Ok(true)
         } else {
@@ -302,43 +336,13 @@ fn run() -> Result<bool> {
         .map_or_else(|| Ok(generated_seed()), validate_seed)?;
     let randomize = cli.randomize || config.randomize;
     let show_seed = randomize || cli.show_seed || config.show_seed;
-    let CoverageRunnerSettings {
-        enabled: collect_coverage,
-        path_ignore_patterns: coverage_path_ignore_patterns,
-        filter: coverage_filter,
-    } = coverage_runner_settings(&cli, &config)?;
-    let options = rjest_runner::RunnerOptions {
+    let (result, collect_coverage) = execute_project_runs(
+        &cli,
+        &config,
+        project_runs,
         max_workers,
-        bail: config.bail,
-        execution_order: ExecutionOrderConfig { seed, randomize },
-        test_name_pattern: cli.test_name_pattern.clone(),
-        default_timeout_ms: config.test_timeout,
-        root_dir: config.root_dir.clone(),
-        module_file_extensions: config.module_file_extensions.clone(),
-        extensions_to_treat_as_esm: config.extensions_to_treat_as_esm.clone(),
-        module_name_mapper: config.module_name_mapper.clone(),
-        module_directories: config.module_directories.clone(),
-        module_paths: config.module_paths.clone(),
-        resolver: config.resolver.clone(),
-        automock: config.automock,
-        reset_modules: config.reset_modules,
-        mock_lifecycle: config.mock_lifecycle.clone(),
-        fake_timers: config.fake_timers.clone(),
-        test_environment: config.test_environment.clone(),
-        test_environment_options: config.test_environment_options.clone(),
-        setup_files: config.setup_files.clone(),
-        setup_files_after_env: config.setup_files_after_env.clone(),
-        snapshot_serializers: config.snapshot_serializers.clone(),
-        prettier_path: config.prettier_path.clone(),
-        transform: config.transform.clone(),
-        transform_ignore_patterns: config.transform_ignore_patterns.clone(),
-        collect_coverage,
-        coverage_path_ignore_patterns,
-        coverage_filter,
-        snapshot_update: snapshot_update(&cli),
-        ..rjest_runner::RunnerOptions::default()
-    };
-    let result = rjest_runner::run(&tests, &options)?;
+        ExecutionOrderConfig { seed, randomize },
+    )?;
     let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
     if !bail_reached || !cli.json {
@@ -355,6 +359,88 @@ fn run() -> Result<bool> {
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn execute_project_runs(
+    cli: &Cli,
+    global_config: &ProjectConfig,
+    project_runs: Vec<ProjectRun<'_>>,
+    max_workers: usize,
+    execution_order: ExecutionOrderConfig,
+) -> Result<(AggregatedResult, bool)> {
+    let started = Instant::now();
+    let mut result = AggregatedResult::default();
+    let mut collect_coverage = false;
+    for run in project_runs.into_iter().filter(|run| !run.tests.is_empty()) {
+        let failed = result.count(TestStatus::Failed);
+        if global_config.bail != 0 && failed >= global_config.bail {
+            break;
+        }
+        let CoverageRunnerSettings {
+            enabled: project_collect_coverage,
+            path_ignore_patterns: coverage_path_ignore_patterns,
+            filter: coverage_filter,
+        } = coverage_runner_settings(cli, run.config)?;
+        collect_coverage |= project_collect_coverage;
+        let options = rjest_runner::RunnerOptions {
+            max_workers,
+            bail: global_config.bail.saturating_sub(failed),
+            execution_order,
+            test_name_pattern: cli.test_name_pattern.clone(),
+            default_timeout_ms: run.config.test_timeout,
+            root_dir: run.config.root_dir.clone(),
+            module_file_extensions: run.config.module_file_extensions.clone(),
+            extensions_to_treat_as_esm: run.config.extensions_to_treat_as_esm.clone(),
+            module_name_mapper: run.config.module_name_mapper.clone(),
+            module_directories: run.config.module_directories.clone(),
+            module_paths: run.config.module_paths.clone(),
+            resolver: run.config.resolver.clone(),
+            automock: run.config.automock,
+            reset_modules: run.config.reset_modules,
+            mock_lifecycle: run.config.mock_lifecycle.clone(),
+            fake_timers: run.config.fake_timers.clone(),
+            test_environment: run.config.test_environment.clone(),
+            test_environment_options: run.config.test_environment_options.clone(),
+            setup_files: run.config.setup_files.clone(),
+            setup_files_after_env: run.config.setup_files_after_env.clone(),
+            snapshot_serializers: run.config.snapshot_serializers.clone(),
+            snapshot_format: run.config.snapshot_format,
+            prettier_path: run.config.prettier_path.clone(),
+            transform: run.config.transform.clone(),
+            transform_ignore_patterns: run.config.transform_ignore_patterns.clone(),
+            collect_coverage: project_collect_coverage,
+            coverage_path_ignore_patterns,
+            coverage_filter,
+            snapshot_update: snapshot_update(cli),
+            ..rjest_runner::RunnerOptions::default()
+        };
+        let mut project_result = rjest_runner::run(&run.tests, &options)?;
+        let display_name = run
+            .config
+            .display_name
+            .as_ref()
+            .map(|display_name| display_name.name.clone());
+        for file in &mut project_result.test_results {
+            file.project_display_name.clone_from(&display_name);
+        }
+        result.test_results.append(&mut project_result.test_results);
+    }
+    result.test_results.sort_by(|left, right| {
+        left.test_path
+            .cmp(&right.test_path)
+            .then_with(|| left.project_display_name.cmp(&right.project_display_name))
+    });
+    result.duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    result.coverage_map = rjest_runner::merge_coverage_maps(&result.test_results)?;
+    Ok((result, collect_coverage))
+}
+
+fn execution_projects(config: &ProjectConfig) -> Vec<&ProjectConfig> {
+    if config.projects.is_empty() {
+        vec![config]
+    } else {
+        config.projects.iter().collect()
+    }
 }
 
 fn snapshot_update(cli: &Cli) -> SnapshotUpdate {
@@ -381,6 +467,34 @@ fn shard_tests(
     let start = preceding * base_size + preceding.min(larger_shards);
     let size = base_size + usize::from(shard.index <= larger_shards);
     tests.into_iter().skip(start).take(size).collect()
+}
+
+fn shard_project_runs(
+    project_runs: &mut [ProjectRun<'_>],
+    root_dir: &std::path::Path,
+    shard: Shard,
+) {
+    let flattened = project_runs
+        .iter_mut()
+        .enumerate()
+        .flat_map(|(project_index, run)| {
+            std::mem::take(&mut run.tests)
+                .into_iter()
+                .map(move |test| (project_index, test))
+        })
+        .collect::<Vec<_>>();
+    let tests = shard_tests(
+        flattened.iter().map(|(_, test)| test.clone()).collect(),
+        root_dir,
+        shard,
+    );
+    let mut selected = tests.into_iter().map(|test| test.path).collect::<Vec<_>>();
+    for (project_index, test) in flattened {
+        if let Some(index) = selected.iter().position(|path| path == &test.path) {
+            selected.remove(index);
+            project_runs[project_index].tests.push(test);
+        }
+    }
 }
 
 fn validate_seed(value: i64) -> Result<i32> {
@@ -591,6 +705,10 @@ fn report(result: &AggregatedResult, root_dir: &std::path::Path, settings: &Repo
             .strip_prefix(root_dir)
             .unwrap_or(&file.test_path);
         let label = if file.is_success() { "PASS" } else { "FAIL" };
+        let project_label = file
+            .project_display_name
+            .as_deref()
+            .map_or_else(String::new, |name| format!("{name} "));
         let heap_usage = if settings.log_heap_usage {
             file.heap_used_bytes
                 .map(|bytes| format!(" ({} MB heap size)", bytes / (1024 * 1024)))
@@ -599,7 +717,7 @@ fn report(result: &AggregatedResult, root_dir: &std::path::Path, settings: &Repo
             String::new()
         };
         println!(
-            "{label} {} ({} ms){heap_usage}",
+            "{label} {project_label}{} ({} ms){heap_usage}",
             display_path.display(),
             file.duration_ms
         );

@@ -1,13 +1,16 @@
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
-import {extname, resolve} from 'node:path';
+import {extname, isAbsolute, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const PREFIX = '__RJEST_CONFIG__';
 const request = JSON.parse(readFileSync(0, 'utf8'));
 
 try {
-  const loaded = await loadConfigModule(request.path);
+  const loaded =
+    request.kind === 'preset'
+      ? await loadPresetModule(request.preset, request.rootDir)
+      : await loadConfigModule(request.path);
   let config = loaded.default ?? loaded;
   if (typeof config === 'function') config = await config();
   if (config && typeof config.then === 'function') config = await config;
@@ -21,6 +24,22 @@ try {
     ok: false,
     error: error instanceof Error ? error.stack || error.message : String(error),
   });
+}
+
+async function loadPresetModule(specifier, rootDir) {
+  const rootRequire = createRequire(resolve(rootDir, 'package.json'));
+  const candidate =
+    specifier.startsWith('.') || isAbsolute(specifier)
+      ? resolve(rootDir, specifier)
+      : `${specifier}/jest-preset`;
+  const resolved = rootRequire.resolve(candidate);
+  delete rootRequire.cache?.[resolved];
+  try {
+    return rootRequire(resolved);
+  } catch (error) {
+    if (error?.code !== 'ERR_REQUIRE_ESM') throw error;
+    return import(`${pathToFileURL(resolved).href}?rjest=${Date.now()}`);
+  }
 }
 
 async function loadConfigModule(path) {

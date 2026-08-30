@@ -67,7 +67,9 @@ pub fn discover(
                 config.root_dir.join(input)
             };
             if path.is_file() {
-                insert_canonical(&path, &mut discovered)?;
+                if !matcher.is_ignored(&path) && matcher.is_test(&path) {
+                    insert_canonical(&path, &mut discovered)?;
+                }
             } else if path.is_dir() {
                 walk(&path, &matcher, false, &mut discovered)?;
             } else {
@@ -318,14 +320,18 @@ mod tests {
     }
 
     #[test]
-    fn exact_explicit_file_does_not_require_test_suffix() {
+    fn exact_explicit_file_still_respects_project_test_patterns() {
         let temp = tempdir().expect("temp dir");
         touch(&temp.path().join("checks/custom.js"));
+        touch(&temp.path().join("checks/custom.test.js"));
         let config = ProjectConfig::defaults(temp.path()).expect("config");
 
-        let files = discover(&config, &[PathBuf::from("checks/custom.js")]).expect("discover");
+        let files = discover(&config, &[PathBuf::from("checks/custom.js")]).expect("filtered");
+        assert!(files.is_empty());
+
+        let files = discover(&config, &[PathBuf::from("checks/custom.test.js")]).expect("discover");
         assert_eq!(files.len(), 1);
-        assert!(files[0].path.ends_with("checks/custom.js"));
+        assert!(files[0].path.ends_with("checks/custom.test.js"));
     }
 
     #[test]

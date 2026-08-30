@@ -1,0 +1,10 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`uses configured pretty-format snapshot options 1`] = `
+Object {
+  "message": "quoted \\"value\\"",
+  "nested": Object {
+    "answer": 42,
+  },
+}
+`;

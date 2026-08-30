@@ -1,0 +1,12 @@
+{
+  "name": "@rjest-fixture/math",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "module-sync": "./module-sync.mjs",
+      "require": "./require.cjs",
+      "default": "./default.mjs"
+    }
+  }
+}

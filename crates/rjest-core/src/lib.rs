@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 19;
+pub const WORKER_PROTOCOL_VERSION: u32 = 20;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -64,6 +64,14 @@ pub enum SnapshotUpdate {
     All,
 }
 
+/// Jest pretty-format options that affect persisted and inline snapshots.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotFormat {
+    pub escape_string: bool,
+    pub print_basic_prototype: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerRequest {
@@ -88,6 +96,7 @@ pub struct WorkerRequest {
     pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
+    pub snapshot_format: SnapshotFormat,
     pub prettier_path: Option<String>,
     pub transform: BTreeMap<String, serde_json::Value>,
     pub transform_ignore_patterns: Vec<String>,
@@ -145,6 +154,10 @@ pub struct ConsoleEntry {
 pub struct TestFileResult {
     pub protocol_version: u32,
     pub test_path: PathBuf,
+    /// The Jest `displayName` of the project that executed this file.
+    /// Workers omit it; the coordinator attaches it while aggregating projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_display_name: Option<String>,
     pub tests: Vec<TestCaseResult>,
     pub errors: Vec<String>,
     pub console: Vec<ConsoleEntry>,

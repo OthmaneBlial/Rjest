@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 109,
-    "total": 109,
+    "passing": 117,
+    "total": 117,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 23,
-      "total": 23,
+      "passing": 26,
+      "total": 26,
       "percentage": 100
     },
     "Core API": {
@@ -39,8 +39,8 @@
       "percentage": 100
     },
     "Expect": {
-      "passing": 4,
-      "total": 4,
+      "passing": 6,
+      "total": 6,
       "percentage": 100
     },
     "Fake timers": {
@@ -54,13 +54,13 @@
       "percentage": 100
     },
     "Resolution": {
-      "passing": 10,
-      "total": 10,
+      "passing": 12,
+      "total": 12,
       "percentage": 100
     },
     "Snapshots": {
-      "passing": 10,
-      "total": 10,
+      "passing": 11,
+      "total": 11,
       "percentage": 100
     },
     "Transforms": {
@@ -120,6 +120,24 @@
     },
     {
       "name": "config-bail-threshold",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-projects-inline",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-projects-rootdir-cli-path",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-preset",
       "category": "Configuration",
       "compatible": true,
       "differences": []
@@ -330,6 +348,18 @@
     },
     {
       "name": "resolution-cjs",
+      "category": "Resolution",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "resolution-module-sync-condition",
+      "category": "Resolution",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "resolution-mapped-cjs-js-in-module",
       "category": "Resolution",
       "compatible": true,
       "differences": []
@@ -581,6 +611,12 @@
       "differences": []
     },
     {
+      "name": "snapshot-format-config",
+      "category": "Snapshots",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "snapshot-new",
       "category": "Snapshots",
       "compatible": true,
@@ -600,6 +636,18 @@
     },
     {
       "name": "gap-custom-matcher",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "expect-custom-equality-testers",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "expect-package-shared-state",
       "category": "Expect",
       "compatible": true,
       "differences": []

@@ -29,8 +29,12 @@ Project environment globals into the isolated worker through live accessors at
 constructor, setup, and event boundaries. Keep the worker realm's ECMAScript
 intrinsics so literals and matcher constructors do not acquire mixed-realm
 `instanceof` failures. Preserve environment-owned browser globals and values
-added during setup or event handling. Use a Jest-compatible internal root
-`beforeEach` hook so custom handlers observe mock-lifecycle ordering.
+added during setup or event handling. Because the current bridge shares the
+host process realm, retain the host's performance, timer, immediate, and
+microtask functions instead of projecting JSDOM wrappers that call those same
+host names and recurse. The environment's `window` retains its browser-facing
+versions. Use a Jest-compatible internal root `beforeEach` hook so custom
+handlers observe mock-lifecycle ordering.
 
 Dispatch definition, run, describe, hook, test, skip/todo, success/failure, and
 teardown events. Await asynchronous circus events and always invoke environment

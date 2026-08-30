@@ -58,7 +58,7 @@ callbacks. The machine-readable baseline preserves every failing identity so a
 later Rjest comparison must reproduce or improve on evidence, not assume the
 upstream command is green.
 
-## First Rjest compatibility loop
+## Rjest compatibility loop
 
 The first Rjest attempt failed while evaluating `config/jest.config.ts`. Apollo
 is a `"type": "module"` package and its `.ts` config uses
@@ -72,16 +72,26 @@ ts-node path only after a native `SyntaxError`; `.mts` is never reinterpreted as
 CommonJS. A permanent official-Jest differential fixture executes type syntax
 and both `import.meta` APIs from an ESM `.ts` config.
 
-After that fix, Apollo advances to the next explicit error:
+After that fix, Apollo exposed the unsupported six-entry `projects` field. Rjest
+now normalizes each inline project independently and executes it with its own
+root, test patterns, display name, mappings, transformer, environment, setup,
+snapshots, and resolver. This work also added the generic `ts-jest` preset path,
+configured snapshot formatting, custom equality testers, shared installed
+`expect` matcher state, Jest's conditional resolver boundary, mapped CommonJS
+`.js` behavior in type-module packages, and safe host APIs for the custom JSDOM
+environment. Each repair has a permanent official-Jest differential fixture.
 
-```text
-unsupported configuration fields: projects; Rjest does not silently ignore Jest options
-```
+Discovery is now exact: official Jest and Rjest each report the same 196 unique
+paths with `--listTests`. Two unchanged cross-project probes also match:
 
-Rjest therefore still executes zero Apollo tests. The current corpus result is
-not a compatibility success and no Jest/Rjest performance ratio is reported.
-The next implementation slice is the six-project configuration and aggregation
-path, followed by an exact rerun of the unchanged command.
+| Probe | Projects | Official Jest | Rjest |
+| --- | ---: | ---: | ---: |
+| `maskFragment.test.ts` | Core / min-RxJS / GraphQL 16 | 78 / 78 passed | 78 / 78 passed |
+| `useMutation.test.tsx` | React 17 / 18 / 19 | 123 / 123 passed | 123 / 123 passed |
+
+These are targeted compatibility results, not a claim for the complete corpus.
+The full 563-suite Rjest JSON capture and strict comparison remain in progress;
+no Jest/Rjest performance ratio is reported before that evidence exists.
 
 ## Compatibility pressure
 
@@ -96,5 +106,6 @@ The pinned suite combines:
 - nearly ten thousand registered tests under repeated dependency variants;
 - forced garbage collection and a roughly 3 GB official-Jest peak RSS.
 
-This report records an authoritative baseline plus one repaired blocker. It
-does not claim Apollo Client can switch to Rjest yet.
+This report records an authoritative baseline, exact discovery, and two repaired
+multi-project execution slices. It does not yet claim Apollo Client can switch
+to Rjest.

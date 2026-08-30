@@ -17,8 +17,8 @@ use std::{
 use rayon::prelude::*;
 use rjest_core::{
     AggregatedResult, CoverageMap, ExecutionOrderConfig, FakeTimersConfig, MockLifecycleConfig,
-    ModuleNameMapper, SnapshotRequest, SnapshotResult, SnapshotUpdate, TestFile, TestFileResult,
-    WORKER_PROTOCOL_VERSION, WorkerRequest,
+    ModuleNameMapper, SnapshotFormat, SnapshotRequest, SnapshotResult, SnapshotUpdate, TestFile,
+    TestFileResult, WORKER_PROTOCOL_VERSION, WorkerRequest,
 };
 use thiserror::Error;
 
@@ -50,6 +50,7 @@ pub struct RunnerOptions {
     pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
+    pub snapshot_format: SnapshotFormat,
     pub prettier_path: Option<String>,
     pub transform: BTreeMap<String, serde_json::Value>,
     pub transform_ignore_patterns: Vec<String>,
@@ -86,6 +87,7 @@ impl Default for RunnerOptions {
             setup_files: Vec::new(),
             setup_files_after_env: Vec::new(),
             snapshot_serializers: Vec::new(),
+            snapshot_format: SnapshotFormat::default(),
             prettier_path: None,
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
@@ -269,7 +271,16 @@ fn failed_test_count(result: &TestFileResult) -> usize {
         .count()
 }
 
-fn merge_coverage_maps(results: &[TestFileResult]) -> Result<CoverageMap, RunnerError> {
+/// Merges Istanbul coverage emitted by one or more runner invocations.
+///
+/// Multi-project orchestration uses this after preserving each project's test
+/// results in a single aggregate.
+///
+/// # Errors
+///
+/// Returns [`RunnerError::InvalidCoverage`] if projects produced incompatible
+/// instrumentation maps for the same source file.
+pub fn merge_coverage_maps(results: &[TestFileResult]) -> Result<CoverageMap, RunnerError> {
     let mut merged = CoverageMap::new();
     for result in results {
         for (path, incoming) in &result.coverage {
@@ -419,6 +430,7 @@ fn run_file(
         setup_files: options.setup_files.clone(),
         setup_files_after_env: options.setup_files_after_env.clone(),
         snapshot_serializers: options.snapshot_serializers.clone(),
+        snapshot_format: options.snapshot_format,
         prettier_path: options.prettier_path.clone(),
         transform: options.transform.clone(),
         transform_ignore_patterns: options.transform_ignore_patterns.clone(),
@@ -449,6 +461,7 @@ fn run_file(
         return Ok(FileRunOutcome::Completed(Box::new(TestFileResult {
             protocol_version: WORKER_PROTOCOL_VERSION,
             test_path: path.to_path_buf(),
+            project_display_name: None,
             tests: Vec::new(),
             errors: vec![format!(
                 "Exceeded Rjest's {} ms wall-clock limit for this test file",
@@ -983,6 +996,7 @@ mod tests {
         let result = |statement, first_branch, second_branch| TestFileResult {
             protocol_version: WORKER_PROTOCOL_VERSION,
             test_path: PathBuf::from(format!("test-{statement}.js")),
+            project_display_name: None,
             tests: Vec::new(),
             errors: Vec::new(),
             console: Vec::new(),

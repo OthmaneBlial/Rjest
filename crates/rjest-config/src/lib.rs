@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use rjest_core::{FakeTimersConfig, MockLifecycleConfig, ModuleNameMapper};
+use rjest_core::{FakeTimersConfig, MockLifecycleConfig, ModuleNameMapper, SnapshotFormat};
 
 const CONFIG_FILENAMES: &[&str] = &[
     "jest.config.js",
@@ -91,6 +91,8 @@ pub enum ConfigError {
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_excessive_bools)]
 pub struct ProjectConfig {
+    pub display_name: Option<ProjectDisplayName>,
+    pub projects: Vec<ProjectConfig>,
     pub root_dir: PathBuf,
     pub roots: Vec<PathBuf>,
     pub test_match: Vec<String>,
@@ -113,6 +115,7 @@ pub struct ProjectConfig {
     pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
+    pub snapshot_format: SnapshotFormat,
     pub prettier_path: Option<String>,
     pub transform: BTreeMap<String, Value>,
     pub transform_ignore_patterns: Vec<String>,
@@ -133,9 +136,21 @@ pub struct ProjectConfig {
     pub watch_plugins: Value,
 }
 
+/// A normalized Jest project label. Jest accepts either a name string or a
+/// `{name, color}` object and assigns a default color to the string form.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDisplayName {
+    pub name: String,
+    pub color: String,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawProjectConfig {
+    display_name: Option<Value>,
+    projects: Option<Vec<RawProjectEntry>>,
+    preset: Option<String>,
     root_dir: Option<String>,
     roots: Option<Vec<String>>,
     test_match: Option<Vec<String>>,
@@ -159,6 +174,7 @@ struct RawProjectConfig {
     setup_files: Option<Vec<String>>,
     setup_files_after_env: Option<Vec<String>>,
     snapshot_serializers: Option<Vec<String>>,
+    snapshot_format: Option<RawSnapshotFormat>,
     #[serde(default)]
     prettier_path: RawPrettierPath,
     transform: Option<BTreeMap<String, Value>>,
@@ -180,6 +196,13 @@ struct RawProjectConfig {
     watch_plugins: Option<Value>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawProjectEntry {
+    Path(String),
+    Inline(Box<RawProjectConfig>),
 }
 
 #[derive(Debug, Default)]
@@ -207,6 +230,15 @@ struct RawFakeTimersConfig {
     do_not_fake: Option<Vec<String>>,
     now: Option<u64>,
     timer_limit: Option<serde_json::Number>,
+    #[serde(flatten)]
+    unsupported: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawSnapshotFormat {
+    escape_string: Option<bool>,
+    print_basic_prototype: Option<bool>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
 }
@@ -271,6 +303,8 @@ impl ProjectConfig {
         ensure_directory(&root_dir)?;
         let coverage_directory = root_dir.join("coverage");
         Ok(Self {
+            display_name: None,
+            projects: Vec::new(),
             roots: vec![root_dir.clone()],
             root_dir,
             test_match: vec![
@@ -300,6 +334,7 @@ impl ProjectConfig {
             setup_files: Vec::new(),
             setup_files_after_env: Vec::new(),
             snapshot_serializers: Vec::new(),
+            snapshot_format: SnapshotFormat::default(),
             prettier_path: Some("prettier".into()),
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
@@ -371,7 +406,8 @@ pub fn load(project_dir: &Path, explicit: Option<&Path>) -> Result<ProjectConfig
             path: config_path.clone(),
             source,
         })?;
-    normalize(raw, config_path.parent().unwrap_or(&project_dir))
+    let config_dir = config_path.parent().unwrap_or(&project_dir);
+    normalize(raw, config_dir, config_dir, &project_dir)
 }
 
 /// Loads a Jest project configuration supplied as an inline JSON object.
@@ -390,7 +426,7 @@ pub fn load_inline_json(project_dir: &Path, source: &str) -> Result<ProjectConfi
         source,
     })?;
     let raw = serde_json::from_value(value).map_err(|source| ConfigError::Json { path, source })?;
-    normalize(raw, &project_dir)
+    normalize(raw, &project_dir, &project_dir, &project_dir)
 }
 
 fn read_json(path: &Path) -> Result<Value, ConfigError> {
@@ -405,8 +441,19 @@ fn read_json(path: &Path) -> Result<Value, ConfigError> {
 }
 
 fn evaluate_config(path: &Path) -> Result<Value, ConfigError> {
-    let request =
-        serde_json::to_vec(&serde_json::json!({"path": path})).expect("path is serializable");
+    evaluate_node_loader(&serde_json::json!({"kind": "config", "path": path}), path)
+}
+
+fn evaluate_preset(name: &str, root_dir: &Path) -> Result<Value, ConfigError> {
+    let label = root_dir.join(name);
+    evaluate_node_loader(
+        &serde_json::json!({"kind": "preset", "preset": name, "rootDir": root_dir}),
+        &label,
+    )
+}
+
+fn evaluate_node_loader(request: &Value, label: &Path) -> Result<Value, ConfigError> {
+    let request = serde_json::to_vec(request).expect("config loader request is serializable");
     let mut child = Command::new("node")
         .arg("--input-type=module")
         .arg("--eval")
@@ -429,16 +476,16 @@ fn evaluate_config(path: &Path) -> Result<Value, ConfigError> {
         .rev()
         .find_map(|line| line.strip_prefix(CONFIG_RESULT_PREFIX))
         .ok_or_else(|| ConfigError::MissingNodeResult {
-            path: path.to_path_buf(),
+            path: label.to_path_buf(),
             details: process_details(&stdout, &String::from_utf8_lossy(&output.stderr)),
         })?;
     let response: Value = serde_json::from_str(payload).map_err(|source| ConfigError::Json {
-        path: path.to_path_buf(),
+        path: label.to_path_buf(),
         source,
     })?;
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(ConfigError::NodeEvaluation {
-            path: path.to_path_buf(),
+            path: label.to_path_buf(),
             message: response
                 .get("error")
                 .and_then(Value::as_str)
@@ -450,7 +497,7 @@ fn evaluate_config(path: &Path) -> Result<Value, ConfigError> {
         .get("config")
         .cloned()
         .ok_or_else(|| ConfigError::NodeEvaluation {
-            path: path.to_path_buf(),
+            path: label.to_path_buf(),
             message: "loader response did not contain a config object".into(),
         })
 }
@@ -486,18 +533,151 @@ fn normalize_mock_lifecycle(
     }
 }
 
+fn merge_preset(
+    mut preset: RawProjectConfig,
+    mut configured: RawProjectConfig,
+) -> RawProjectConfig {
+    macro_rules! inherit {
+        ($($field:ident),+ $(,)?) => {
+            $(
+                if configured.$field.is_none() {
+                    configured.$field = preset.$field;
+                }
+            )+
+        };
+    }
+
+    inherit!(
+        display_name,
+        projects,
+        roots,
+        test_match,
+        test_regex,
+        test_path_ignore_patterns,
+        module_file_extensions,
+        extensions_to_treat_as_esm,
+        module_directories,
+        module_paths,
+        resolver,
+        automock,
+        reset_modules,
+        clear_mocks,
+        reset_mocks,
+        restore_mocks,
+        fake_timers,
+        test_environment,
+        test_environment_options,
+        snapshot_serializers,
+        snapshot_format,
+        transform_ignore_patterns,
+        test_timeout,
+        bail,
+        randomize,
+        show_seed,
+        silent,
+        max_workers,
+        worker_idle_memory_limit,
+        collect_coverage,
+        collect_coverage_from,
+        coverage_directory,
+        coverage_path_ignore_patterns,
+        coverage_provider,
+        coverage_reporters,
+        coverage_threshold,
+        watch_plugins,
+    );
+    prepend_preset_values(&mut configured.setup_files, preset.setup_files.take());
+    prepend_preset_values(
+        &mut configured.setup_files_after_env,
+        preset.setup_files_after_env.take(),
+    );
+    prepend_preset_values(
+        &mut configured.module_path_ignore_patterns,
+        preset.module_path_ignore_patterns.take(),
+    );
+    configured.module_name_mapper = merge_preset_map(
+        preset.module_name_mapper.take(),
+        configured.module_name_mapper.take(),
+    );
+    configured.transform =
+        merge_preset_btree_map(preset.transform.take(), configured.transform.take());
+    if matches!(&configured.prettier_path, RawPrettierPath::Missing) {
+        configured.prettier_path = preset.prettier_path;
+    }
+    for (field, value) in preset.unsupported {
+        configured.unsupported.entry(field).or_insert(value);
+    }
+    configured
+}
+
+fn prepend_preset_values<T>(configured: &mut Option<Vec<T>>, preset: Option<Vec<T>>) {
+    let Some(mut preset) = preset else {
+        return;
+    };
+    if let Some(values) = configured {
+        preset.append(values);
+    }
+    *configured = Some(preset);
+}
+
+fn merge_preset_map(
+    preset: Option<serde_json::Map<String, Value>>,
+    configured: Option<serde_json::Map<String, Value>>,
+) -> Option<serde_json::Map<String, Value>> {
+    match (preset, configured) {
+        (None, configured) => configured,
+        (preset, None) => preset,
+        (Some(mut preset), Some(configured)) => {
+            preset.extend(configured);
+            Some(preset)
+        }
+    }
+}
+
+fn merge_preset_btree_map(
+    preset: Option<BTreeMap<String, Value>>,
+    configured: Option<BTreeMap<String, Value>>,
+) -> Option<BTreeMap<String, Value>> {
+    match (preset, configured) {
+        (None, configured) => configured,
+        (preset, None) => preset,
+        (Some(mut preset), Some(configured)) => {
+            preset.extend(configured);
+            Some(preset)
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines)]
-fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, ConfigError> {
+fn normalize(
+    mut raw: RawProjectConfig,
+    default_root_dir: &Path,
+    relative_root_dir: &Path,
+    project_dir: &Path,
+) -> Result<ProjectConfig, ConfigError> {
+    let root_dir = match raw.root_dir.as_deref() {
+        None => absolute(default_root_dir)?,
+        Some(value) if value == "<rootDir>" || value.starts_with("<rootDir>/") => {
+            absolute(&resolve_root_token(default_root_dir, value))?
+        }
+        Some(value) => absolute(&resolve_from(relative_root_dir, Path::new(&value)))?,
+    };
+    ensure_directory(&root_dir)?;
+    if let Some(preset) = raw.preset.take() {
+        let preset = normalize_module_reference(&preset, &root_dir);
+        let value = evaluate_preset(&preset, &root_dir)?;
+        let preset_raw = serde_json::from_value(value).map_err(|source| ConfigError::Json {
+            path: root_dir.join(&preset),
+            source,
+        })?;
+        raw = merge_preset(preset_raw, raw);
+    }
     reject_unsupported_fields(&raw.unsupported)?;
     let mock_lifecycle_options = (raw.clear_mocks, raw.reset_mocks, raw.restore_mocks);
 
-    let root_dir = raw.root_dir.map_or_else(
-        || absolute(config_dir),
-        |value| absolute(&resolve_root_token(config_dir, &value)),
-    )?;
-    ensure_directory(&root_dir)?;
-
     let defaults = ProjectConfig::defaults(&root_dir)?;
+    let display_name = normalize_display_name(raw.display_name)?;
+    let projects = normalize_projects(raw.projects, default_root_dir, project_dir, &root_dir)?;
     let mock_lifecycle = normalize_mock_lifecycle(mock_lifecycle_options, &defaults);
     let roots = normalize_roots(raw.roots, &root_dir, &defaults.roots)?;
 
@@ -529,6 +709,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     let setup_files = resolve_paths(raw.setup_files)?;
     let setup_files_after_env = resolve_paths(raw.setup_files_after_env)?;
     let fake_timers = normalize_fake_timers(raw.fake_timers, defaults.fake_timers)?;
+    let snapshot_format = normalize_snapshot_format(raw.snapshot_format, defaults.snapshot_format)?;
     let (test_match, test_regex) = normalize_test_patterns(
         raw.test_match,
         raw.test_regex,
@@ -560,6 +741,8 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     };
 
     Ok(ProjectConfig {
+        display_name,
+        projects,
         root_dir,
         roots,
         test_match,
@@ -594,6 +777,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         snapshot_serializers: raw
             .snapshot_serializers
             .unwrap_or(defaults.snapshot_serializers),
+        snapshot_format,
         prettier_path,
         transform,
         transform_ignore_patterns: raw
@@ -623,6 +807,72 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
             .unwrap_or(defaults.coverage_threshold),
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
     })
+}
+
+fn normalize_display_name(
+    configured: Option<Value>,
+) -> Result<Option<ProjectDisplayName>, ConfigError> {
+    let Some(configured) = configured else {
+        return Ok(None);
+    };
+    let (name, color) = match configured {
+        Value::String(name) if !name.is_empty() => (name, "white".to_owned()),
+        Value::Object(mut object) => {
+            let name = object
+                .remove("name")
+                .and_then(|value| value.as_str().map(str::to_owned));
+            let color = object
+                .remove("color")
+                .and_then(|value| value.as_str().map(str::to_owned));
+            if !object.is_empty() {
+                return Err(ConfigError::UnsupportedValue {
+                    field: "displayName".into(),
+                    value: Value::Object(object).to_string(),
+                });
+            }
+            match (name, color) {
+                (Some(name), Some(color)) if !name.is_empty() && !color.is_empty() => (name, color),
+                _ => {
+                    return Err(ConfigError::UnsupportedValue {
+                        field: "displayName".into(),
+                        value: "expected a non-empty string or an object with non-empty `name` and `color` strings".into(),
+                    });
+                }
+            }
+        }
+        value => {
+            return Err(ConfigError::UnsupportedValue {
+                field: "displayName".into(),
+                value: value.to_string(),
+            });
+        }
+    };
+    Ok(Some(ProjectDisplayName { name, color }))
+}
+
+fn normalize_projects(
+    configured: Option<Vec<RawProjectEntry>>,
+    parent_config_dir: &Path,
+    project_dir: &Path,
+    parent_root_dir: &Path,
+) -> Result<Vec<ProjectConfig>, ConfigError> {
+    configured
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .map(|(index, project)| match project {
+            RawProjectEntry::Inline(raw) => {
+                normalize(*raw, parent_config_dir, project_dir, project_dir)
+            }
+            RawProjectEntry::Path(path) => Err(ConfigError::UnsupportedValue {
+                field: format!("projects[{index}]"),
+                value: format!(
+                    "string project `{}` is not supported yet; use an inline project object",
+                    resolve_root_token(parent_root_dir, &path).display()
+                ),
+            }),
+        })
+        .collect()
 }
 
 fn normalize_module_reference(value: &str, root_dir: &Path) -> String {
@@ -748,6 +998,31 @@ fn normalize_fake_timers(
         do_not_fake,
         now: configured.now,
         timer_limit: configured.timer_limit,
+    })
+}
+
+fn normalize_snapshot_format(
+    configured: Option<RawSnapshotFormat>,
+    defaults: SnapshotFormat,
+) -> Result<SnapshotFormat, ConfigError> {
+    let Some(configured) = configured else {
+        return Ok(defaults);
+    };
+    if !configured.unsupported.is_empty() {
+        return Err(ConfigError::UnsupportedFields(
+            configured
+                .unsupported
+                .keys()
+                .map(|field| format!("snapshotFormat.{field}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+    }
+    Ok(SnapshotFormat {
+        escape_string: configured.escape_string.unwrap_or(defaults.escape_string),
+        print_basic_prototype: configured
+            .print_basic_prototype
+            .unwrap_or(defaults.print_basic_prototype),
     })
 }
 
@@ -1138,6 +1413,25 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_snapshot_format_options() {
+        let temp = tempdir().expect("temp dir");
+        let configured = load_inline_json(
+            temp.path(),
+            r#"{"snapshotFormat":{"escapeString":true,"printBasicPrototype":true}}"#,
+        )
+        .expect("snapshot format");
+        assert!(configured.snapshot_format.escape_string);
+        assert!(configured.snapshot_format.print_basic_prototype);
+
+        let defaults = load_inline_json(temp.path(), r"{}").expect("defaults");
+        assert_eq!(defaults.snapshot_format, SnapshotFormat::default());
+
+        let error = load_inline_json(temp.path(), r#"{"snapshotFormat":{"unknownOption":true}}"#)
+            .expect_err("unknown snapshot format option");
+        assert!(error.to_string().contains("snapshotFormat.unknownOption"));
+    }
+
+    #[test]
     fn normalizes_module_directories_without_rooting_relative_names() {
         let temp = tempdir().expect("temp dir");
         let config = load_inline_json(
@@ -1218,6 +1512,52 @@ mod tests {
         assert_eq!(config.roots, [temp.path().join("src")]);
         assert_eq!(config.test_regex, [r"\.check\.ts$"]);
         assert!(config.transform.contains_key(r"^.+\.ts$"));
+    }
+
+    #[test]
+    fn normalizes_inline_projects_independently() {
+        let temp = tempdir().expect("temp dir");
+        fs::create_dir(temp.path().join("alpha")).expect("alpha directory");
+        fs::create_dir(temp.path().join("beta")).expect("beta directory");
+
+        let config = load_inline_json(
+            temp.path(),
+            r#"{
+              "projects":[
+                {
+                  "displayName":"alpha",
+                  "rootDir":"alpha",
+                  "testMatch":["<rootDir>/**/*.alpha.js"]
+                },
+                {
+                  "displayName":{"name":"beta","color":"blue"},
+                  "rootDir":"beta",
+                  "testEnvironment":"jsdom"
+                }
+              ]
+            }"#,
+        )
+        .expect("inline projects");
+
+        assert_eq!(config.projects.len(), 2);
+        assert_eq!(config.projects[0].root_dir, temp.path().join("alpha"));
+        assert_eq!(
+            config.projects[0]
+                .display_name
+                .as_ref()
+                .map(|display_name| display_name.name.as_str()),
+            Some("alpha")
+        );
+        assert_eq!(config.projects[0].test_match.len(), 1);
+        assert_eq!(config.projects[1].root_dir, temp.path().join("beta"));
+        assert_eq!(
+            config.projects[1]
+                .display_name
+                .as_ref()
+                .map(|display_name| display_name.color.as_str()),
+            Some("blue")
+        );
+        assert_eq!(config.projects[1].test_environment, "jsdom");
     }
 
     #[test]

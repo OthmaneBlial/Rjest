@@ -1,0 +1,5 @@
+{
+  "name": "mapped-cjs-fixture",
+  "private": true,
+  "type": "module"
+}

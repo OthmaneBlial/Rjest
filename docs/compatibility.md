@@ -7,11 +7,12 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 109/109 (100.0%) across its explicitly listed
+The current generated matrix is 117/117 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-23/23 (100.0%). Resolution is 10/10 (100.0%), CLI is 6/6 (100.0%), and
-environments are 7/7 (100.0%). These
+26/26 (100.0%). Resolution is 12/12 (100.0%), snapshots are 11/11 (100.0%),
+Expect is 6/6 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
+(100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
 
@@ -44,6 +45,15 @@ TypeScript config evaluation is native-first on supported Node versions, so a
 `.ts` file inside a type-module package retains ESM and `import.meta` semantics.
 CommonJS `.ts`/`.cts` configs still fall back to ts-node when native loading
 fails with a syntax error; `.mts` remains strictly ESM.
+Inline object entries in `projects` are normalized as independent project
+configs and executed with their own discovery, environment, resolver,
+transform, setup, snapshot, and display-name state. The same physical test can
+therefore execute under multiple dependency mappings, while `--listTests`
+deduplicates paths like Jest. CLI paths are resolved from the invocation
+directory before each project's patterns are applied. String project paths and
+globs remain unsupported. Jest presets can be loaded from explicit paths or the
+conventional `<package>/jest-preset` entry and merge inherited setup arrays,
+module mappings, transforms, and ordinary options before project overrides.
 CommonJS `deepUnmock` propagates actual-module decisions through dependencies
 and cycles while retaining explicit-factory priority and ordinary-parent mocks.
 `jest.replaceProperty` covers prototype lookup, repeated handles, descriptor
@@ -86,6 +96,9 @@ default `prettier` module lookup, explicit `prettierPath`, and `null` opt-out
 are normalized. Configured Prettier 2 and 3 format the complete source file and
 then preserve Jest's special multiline snapshot indentation; both branches are
 byte-compared with official Jest.
+External snapshot serialization also honors the supported
+`snapshotFormat.escapeString` and `printBasicPrototype` options. The fixture
+consumes the snapshot produced by official Jest byte-for-byte.
 Configured `moduleDirectories` preserve Jest's ordered absolute roots and
 ancestor-relative directory names. The Rust-backed resolver applies CommonJS
 and native-ESM export conditions, configured extensions, `require.resolve`,
@@ -107,6 +120,10 @@ proves portal dependency lookup, conditional exports, static and dynamic ESM,
 CommonJS `createRequire`, ESM module mocking, and undeclared-dependency errors.
 This fixture does not yet establish compatibility for zip-backed cache entries,
 PnP monorepo workspaces, or combinations with custom resolvers.
+CommonJS resolution adds Node's `module-sync` condition only when the running
+Jest-compatible VM can synchronously evaluate an ESM graph. A separate fixture
+proves that a mapped `.js` module executes as CommonJS in a CommonJS Jest
+runtime even when its containing package declares `"type": "module"`.
 Custom test environment references accept explicit paths and Jest's package
 prefix lookup. CommonJS and top-level-await ESM environment classes receive
 merged project/docblock options, constructor context, async setup/teardown,
@@ -114,8 +131,15 @@ projected globals, custom export conditions, and awaited circus lifecycle
 events. Differential fixtures cover a Node subclass with exact setup, hook,
 test, run, and teardown events plus an ESM JSDOM subclass with browser globals
 and configured URL. Rjest currently bridges environment globals into its Node
-worker realm; exact custom VM-context identity and every mutable circus state
-field remain outside this bounded claim.
+worker realm. Host performance and scheduling functions stay native because
+projecting JSDOM's same-named functions into that shared realm makes JSDOM call
+itself recursively; the environment's `window` functions remain available.
+Exact custom VM-context identity and every mutable circus state field remain
+outside this bounded claim.
+Bespoke equality functions registered through `expect.addEqualityTesters`
+participate recursively in equality-based matchers and receive Jest's matcher
+context. Setup modules that extend the installed `expect` package share the
+same matcher registry as the injected global `expect`.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -290,10 +314,11 @@ paths/statuses and zero Rjest file errors.
 
 The pinned [Apollo Client corpus](corpus/apollo-client.md) records a separate
 official Jest 30 baseline across six Core/React project configs: 563 suites,
-9,974 tests, and 519 snapshots. The first Rjest config failure produced the
-native ESM TypeScript config repair above. Rjest now explicitly stops at the
-unsupported `projects` option, so this corpus is active backlog evidence and
-not a compatibility result.
+9,974 tests, and 519 snapshots. Rjest now discovers the exact same 196 unique
+paths from those project configs. Targeted unchanged probes pass 78/78 Core
+assertions across three dependency variants and 123/123 React assertions across
+React 17, 18, and 19. The full result is still being captured, so these probes
+are progress evidence rather than a corpus-wide parity claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

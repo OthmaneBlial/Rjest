@@ -54,6 +54,20 @@ configuration first uses Node's package-aware module semantics. `.ts` and
 type-module projects such as Apollo Client without breaking older CommonJS
 TypeScript configs.
 
+Inline Jest project entries are normalized recursively into independent typed
+configs. The Rust coordinator discovers and executes every project separately,
+attaches its display name to results, and then merges deterministic test,
+snapshot, duration, and coverage state. This deliberately allows the same file
+path to run more than once under different dependency mappings. List mode
+deduplicates those paths to match Jest. String project paths and globs are not
+yet accepted. Preset evaluation happens before normalization and uses the same
+trusted Node config boundary, with explicit merge rules for setup arrays,
+module mappings, and transforms.
+
+Worker protocol v20 carries the supported snapshot-format options. Project
+identity remains coordinator-owned because a worker executes one fully
+normalized project/file pair and should not need root-configuration context.
+
 Module loading normally delegates to Node and the configured Jest-compatible
 resolver layers. Under a genuine Yarn Plug'n'Play preload, the worker also
 loads Yarn's special `pnpapi` module and supplies Jest's mode-specific
