@@ -64,7 +64,11 @@ for CommonJS, transformed modules, and native ESM. Configured synchronous
 custom resolver functions and `{sync}` exports can delegate through Jest-shaped
 default resolver callbacks, including preloaded top-level-await ESM resolver
 modules. Async-only exports are awaited during static and dynamic native-ESM
-graph preparation. Nonstandard package-manager layouts are not yet covered.
+graph preparation. When Yarn Plug'n'Play is active, Rjest resolves through its
+`pnpapi` contract with Jest's import/require conditions; a deterministic portal
+fixture covers CommonJS, native ESM, ESM mocks, conditional exports, and
+undeclared-dependency errors. Zip-backed PnP archives and pnpm-specific layouts
+remain outside that bounded proof.
 Configured and docblock-selected custom test environments load from explicit
 paths or Jest-prefixed packages. CommonJS and top-level-await ESM classes
 receive Jest-shaped constructor config/context, async setup/teardown, projected

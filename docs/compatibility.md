@@ -7,10 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 107/107 (100.0%) across its explicitly listed
+The current generated matrix is 108/108 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-22/22 (100.0%). Resolution is 9/9 (100.0%), CLI is 6/6 (100.0%), and
+22/22 (100.0%). Resolution is 10/10 (100.0%), CLI is 6/6 (100.0%), and
 environments are 7/7 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -96,6 +96,13 @@ mock/actual identities, static/dynamic imports, and synchronous object exports.
 Async-only resolver exports retain Jest's default synchronous CommonJS path,
 while native-ESM graph preparation awaits their static and dynamic resolutions
 and caches the canonical result for Node's later synchronous hook.
+When Yarn Plug'n'Play is active, Rjest obtains the special `pnpapi` module from
+the preloaded runtime and resolves source requests with the applicable Jest
+`import` or `require` condition set. A pinned, network-free Yarn 4 fixture
+proves portal dependency lookup, conditional exports, static and dynamic ESM,
+CommonJS `createRequire`, ESM module mocking, and undeclared-dependency errors.
+This fixture does not yet establish compatibility for zip-backed cache entries,
+PnP monorepo workspaces, or combinations with custom resolvers.
 Custom test environment references accept explicit paths and Jest's package
 prefix lookup. CommonJS and top-level-await ESM environment classes receive
 merged project/docblock options, constructor context, async setup/teardown,
@@ -144,9 +151,9 @@ graphs, transformer-injected dependencies, and post-transform Istanbul
 instrumentation. Custom resolvers are also checked with disagreeing sync/async
 hooks and with `mainFields`, `alias`, and `extensionAlias` overrides forwarded
 through both default-resolver callbacks. The broader current Jest resolver
-option surface and pnpm/Yarn PnP layouts remain open work; Jest 30's
-`unrs-resolver` bridge no longer exposes the older function-based
-`packageFilter` option.
+option surface, pnpm-specific layouts, and zip-backed or workspace-heavy Yarn
+PnP projects remain open work; Jest 30's `unrs-resolver` bridge no longer
+exposes the older function-based `packageFilter` option.
 
 Run the oracle locally with `npm run compat`; `make check` includes it.
 

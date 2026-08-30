@@ -47,3 +47,12 @@ Jest versions before 30.4 did not consider `jest.config.mts`, while newer Jest
 versions do. Rjest reads the local `jest-config` or `jest` package version when
 available so an existing project's discovery behavior remains stable during
 migration; explicit config paths remain directly loadable.
+
+Module loading normally delegates to Node and the configured Jest-compatible
+resolver layers. Under a genuine Yarn Plug'n'Play preload, the worker also
+loads Yarn's special `pnpapi` module and supplies Jest's mode-specific
+conditions and configured extensions. Node 25 routes both ESM and CommonJS
+requests through the synchronous customization hook, so Rjest detects the
+request mode and preserves `require` versus `import` export selection. The
+recursion and internal-URL boundaries are recorded in
+[ADR 0026](adr/0026-yarn-pnp-resolution.md).

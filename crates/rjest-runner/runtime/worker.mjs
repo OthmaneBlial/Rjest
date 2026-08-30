@@ -96,6 +96,7 @@ let esmAutomockBypassDepth = 0;
 let esmHooksInstalled = false;
 let esmModuleGeneration = 0;
 let esmResolutionDepth = 0;
+let pnpResolutionDepth = 0;
 let nextEsmModuleGeneration = 1;
 let nextEsmMockId = 1;
 let nextEsmMockValueId = 1;
@@ -2236,6 +2237,15 @@ let configuredCommonJsResolver;
 let configuredEsmResolver;
 let customResolverSync;
 let customResolverAsync;
+let pnpApi;
+if (process.versions.pnp) {
+  try {
+    pnpApi = requireFromTest('pnpapi');
+  } catch {
+    // A genuine Yarn PnP preload exposes this special module. Leave ordinary
+    // resolution in control when another preload only sets the version flag.
+  }
+}
 
 function environmentExportConditions() {
   if (typeof customTestEnvironment?.exportConditions === 'function') {
@@ -2432,6 +2442,33 @@ function configuredModuleResolution(specifier, fromPath, mode) {
       error: `Async custom resolution for ${String(specifier)} was not prepared`,
       handled: true,
     };
+  }
+  if (
+    pnpApi &&
+    pnpResolutionDepth === 0 &&
+    !Module.isBuiltin(String(specifier)) &&
+    (isAbsolute(String(specifier)) ||
+      !/^[A-Za-z][A-Za-z\d+.-]*:/.test(String(specifier)))
+  ) {
+    pnpResolutionDepth += 1;
+    try {
+      return {
+        handled: true,
+        path: pnpApi.resolveRequest(String(specifier), fromPath, {
+          conditions: new Set(resolverConditions(mode)),
+          extensions: (request.moduleFileExtensions ?? []).map(extension =>
+            extension.startsWith('.') ? extension : `.${extension}`,
+          ),
+        }),
+      };
+    } catch (error) {
+      return {
+        error: error?.message ?? String(error),
+        handled: true,
+      };
+    } finally {
+      pnpResolutionDepth -= 1;
+    }
   }
   if (!usesCustomModuleDirectories || !isBareModuleSpecifier(specifier)) {
     return {handled: false};
@@ -3357,6 +3394,10 @@ function configureEsmRuntime() {
   };
   registerHooks({
     resolve(specifier, context, nextResolve) {
+      const commonJsRequest =
+        context.conditions?.includes('require') &&
+        !context.conditions?.includes('import');
+      const mode = commonJsRequest ? 'require' : 'import';
       if (transformerDepth > 0 || esmResolutionDepth > 0) {
         return nextResolve(specifier, context);
       }
@@ -3366,21 +3407,23 @@ function configureEsmRuntime() {
       if (!context.parentURL && request.resolver) {
         return nextResolve(specifier, context);
       }
-      if (specifier === '@jest/globals') {
+      if (!commonJsRequest && specifier === '@jest/globals') {
         return {shortCircuit: true, url: esmDataUrl(jestGlobalsSource())};
       }
-      const mock = registeredEsmMock(specifier, context.parentURL);
-      if (mock) {
-        return {shortCircuit: true, url: initializeEsmMock(mock)};
-      }
-      const mapped = mappedEsmResolution(specifier, context.parentURL);
-      if (mapped) {
-        return {shortCircuit: true, url: versionedEsmUrl(mapped)};
+      if (!commonJsRequest) {
+        const mock = registeredEsmMock(specifier, context.parentURL);
+        if (mock) {
+          return {shortCircuit: true, url: initializeEsmMock(mock)};
+        }
+        const mapped = mappedEsmResolution(specifier, context.parentURL);
+        if (mapped) {
+          return {shortCircuit: true, url: versionedEsmUrl(mapped)};
+        }
       }
       const configured = configuredModuleResolution(
         specifier,
         esmParentPath(context.parentURL),
-        'import',
+        mode,
       );
       if (configured.handled) {
         if (!configured.path) {
@@ -3393,14 +3436,18 @@ function configureEsmRuntime() {
         const url = esmUrlForResolvedPath(configured.path);
         return {
           shortCircuit: true,
-          url: versionedEsmUrl(url),
+          url: commonJsRequest ? url : versionedEsmUrl(url),
         };
       }
       try {
-        return versionedEsmResolution(nextResolve(specifier, context));
+        const resolved = nextResolve(specifier, context);
+        return commonJsRequest ? resolved : versionedEsmResolution(resolved);
       } catch (error) {
         const moduleName = String(specifier);
-        if (moduleName.startsWith('.') || isAbsolute(moduleName)) {
+        if (
+          !commonJsRequest &&
+          (moduleName.startsWith('.') || isAbsolute(moduleName))
+        ) {
           const resolved = resolveEsmCandidate(moduleName, context.parentURL);
           if (resolved) {
             return {

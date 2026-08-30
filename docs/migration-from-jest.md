@@ -81,8 +81,13 @@ Transformed native ESM also falls back to Jest's configured extension order
 when Node rejects a relative import, including extensionless `.ts` imports.
 `moduleNameMapper` supports ordered rules, capture substitution, and fallback
 targets for CommonJS, transformed CommonJS, and the covered native-ESM paths.
-Keep Jest for suites relying on custom resolvers, pnpm/Yarn PnP edge cases, or
-transform-time path rewriting outside configured Jest transforms.
+When launched under a preloaded Yarn Plug'n'Play runtime, Rjest uses `pnpapi`
+for CommonJS and native-ESM package resolution. The differential suite covers
+local portal dependencies, import/require conditional exports, dynamic imports,
+ESM mocks, and undeclared-dependency errors. Keep Jest as the gate for
+zip-backed PnP packages, PnP monorepo workspaces, pnpm-specific layouts,
+unmeasured custom-resolver combinations, or transform-time path rewriting
+outside configured Jest transforms.
 
 Native ESM transformation awaits `processAsync` when a transformer provides it
 and otherwise falls back to `process`. Rjest also awaits asynchronous

@@ -1,1 +1,1 @@
-module.exports = {setupValue: 73};
+module.exports = {condition: 'require', setupValue: 73};

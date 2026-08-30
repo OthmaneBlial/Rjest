@@ -23,6 +23,7 @@ const require = createRequire(import.meta.url);
 const typescriptPreset = require.resolve('@babel/preset-typescript');
 const prettierPath = require.resolve('prettier');
 const prettierV2Path = require.resolve('prettier-v2');
+const yarnPath = require.resolve('@yarnpkg/cli-dist/bin/yarn.js');
 const reportPath = join(repository, 'compat', 'jest-compatibility.json');
 
 const cases = [
@@ -213,6 +214,14 @@ const cases = [
     category: 'Resolution',
     expectedExit: 0,
     experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'resolution-pnp',
+    category: 'Resolution',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    preparePnp: true,
     useFixtureConfig: true,
   },
   {
@@ -600,6 +609,10 @@ function compareCase(testCase) {
       prepareNodeModule(jestFixture);
       prepareNodeModule(rjestFixture);
     }
+    if (testCase.preparePnp) {
+      preparePnpFixture(jestFixture);
+      preparePnpFixture(rjestFixture);
+    }
     const jestCwd = testCase.workingDirectory
       ? join(jestFixture, testCase.workingDirectory)
       : jestFixture;
@@ -635,9 +648,7 @@ function compareCase(testCase) {
       RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
       RJEST_COMPAT_PRETTIER_PATH:
         testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
-      NODE_OPTIONS: testCase.experimentalVmModules
-        ? `${process.env.NODE_OPTIONS ?? ''} --experimental-vm-modules`.trim()
-        : process.env.NODE_OPTIONS,
+      NODE_OPTIONS: fixtureNodeOptions(testCase, jestFixture),
     };
     if (testCase.unsetNodeEnv) delete jestEnvironment.NODE_ENV;
     const jestRun = spawnSync(
@@ -679,6 +690,7 @@ function compareCase(testCase) {
     const rjestEnvironment = {
       ...process.env,
       NODE_PATH: join(repository, 'node_modules'),
+      NODE_OPTIONS: fixtureNodeOptions(testCase, rjestFixture),
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
       RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
       RJEST_COMPAT_PRETTIER_PATH:
@@ -807,6 +819,36 @@ function prepareNodeModule(fixture) {
     join(fixture, 'node_modules', '@rjest-fixture', 'math'),
     {recursive: true},
   );
+}
+
+function preparePnpFixture(fixture) {
+  const installation = spawnSync(
+    process.execPath,
+    [yarnPath, 'install', '--immutable'],
+    {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        YARN_ENABLE_GLOBAL_CACHE: 'false',
+        YARN_NODE_LINKER: 'pnp',
+      },
+    },
+  );
+  assertSpawned(installation, 'Yarn PnP fixture install');
+  if (installation.status !== 0) {
+    fail(`Yarn PnP fixture install exited ${installation.status}`, installation);
+  }
+}
+
+function fixtureNodeOptions(testCase, fixture) {
+  return [
+    process.env.NODE_OPTIONS,
+    testCase.experimentalVmModules ? '--experimental-vm-modules' : undefined,
+    testCase.preparePnp ? `--require=${join(fixture, '.pnp.cjs')}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function snapshotTreesEqual(jestFixture, rjestFixture) {

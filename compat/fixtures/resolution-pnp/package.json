@@ -1,0 +1,8 @@
+{
+  "name": "rjest-pnp-fixture",
+  "private": true,
+  "dependencies": {
+    "pnp-conditional": "portal:./pnp-conditional",
+    "pnp-mock-target": "portal:./pnp-mock-target"
+  }
+}

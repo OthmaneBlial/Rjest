@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 107,
-    "total": 107,
+    "passing": 108,
+    "total": 108,
     "percentage": 100
   },
   "categories": {
@@ -54,8 +54,8 @@
       "percentage": 100
     },
     "Resolution": {
-      "passing": 9,
-      "total": 9,
+      "passing": 10,
+      "total": 10,
       "percentage": 100
     },
     "Snapshots": {
@@ -336,6 +336,12 @@
     },
     {
       "name": "resolution-esm-extensionless",
+      "category": "Resolution",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "resolution-pnp",
       "category": "Resolution",
       "compatible": true,
       "differences": []

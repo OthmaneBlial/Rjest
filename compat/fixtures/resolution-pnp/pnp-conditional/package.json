@@ -1,0 +1,13 @@
+{
+  "name": "pnp-conditional",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./import.mjs",
+      "require": "./require.cjs",
+      "default": "./default.mjs"
+    },
+    "./undeclared": "./undeclared.cjs"
+  }
+}
