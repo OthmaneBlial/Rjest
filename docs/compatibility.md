@@ -7,10 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 108/108 (100.0%) across its explicitly listed
+The current generated matrix is 109/109 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-22/22 (100.0%). Resolution is 10/10 (100.0%), CLI is 6/6 (100.0%), and
+23/23 (100.0%). Resolution is 10/10 (100.0%), CLI is 6/6 (100.0%), and
 environments are 7/7 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -40,6 +40,10 @@ Rjest follows the locally installed `jest-config`/`jest` version when one is
 present. This preserves older Jest 30 `.mjs` wrapper projects while retaining
 current multiple-config errors for Jest 30.4 and later. Project-level `silent`
 configuration is normalized alongside the CLI flag.
+TypeScript config evaluation is native-first on supported Node versions, so a
+`.ts` file inside a type-module package retains ESM and `import.meta` semantics.
+CommonJS `.ts`/`.cts` configs still fall back to ts-node when native loading
+fails with a syntax error; `.mts` remains strictly ESM.
 CommonJS `deepUnmock` propagates actual-module decisions through dependencies
 and cycles while retaining explicit-factory priority and ordinary-parent mocks.
 `jest.replaceProperty` covers prototype lookup, repeated handles, descriptor
@@ -283,6 +287,13 @@ and VS Code mocks. Both runners discover the same eight suites and reproduce
 all 95 statuses exactly: 94 pass and the same one fails on macOS because of an
 upstream `/var` versus `/private/var` assertion. The comparator reports exact
 paths/statuses and zero Rjest file errors.
+
+The pinned [Apollo Client corpus](corpus/apollo-client.md) records a separate
+official Jest 30 baseline across six Core/React project configs: 563 suites,
+9,974 tests, and 519 snapshots. The first Rjest config failure produced the
+native ESM TypeScript config repair above. Rjest now explicitly stops at the
+unsupported `projects` option, so this corpus is active backlog evidence and
+not a compatibility result.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

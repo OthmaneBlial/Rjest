@@ -201,6 +201,13 @@ extensionless ESM imports, VS Code mocks, and filesystem-heavy tests. Official
 Jest and Rjest reproduce the same 8 suite paths and all 95 test statuses,
 including the same single upstream macOS path failure.
 
+The pinned [Apollo Client corpus](docs/corpus/apollo-client.md) establishes a
+much larger Jest 30 baseline across six Core/React projects: 563 suites, 9,974
+tests, and 519 snapshots. Its first Rjest attempt exposed and repaired native
+ESM semantics for `jest.config.ts` inside a type-module package. Full execution
+is still blocked by the unsupported `projects` configuration, so this is an
+active compatibility target rather than a parity claim.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

@@ -1504,6 +1504,21 @@ mod tests {
     }
 
     #[test]
+    fn loads_esm_typescript_config_with_native_node_semantics() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(temp.path().join("package.json"), r#"{"type":"module"}"#)
+            .expect("write package type");
+        fs::write(
+            temp.path().join("jest.config.ts"),
+            "type Config = {testTimeout: number}; if (!import.meta.dirname) throw new Error('missing dirname'); const config: Config = {testTimeout: 4321}; export default config;",
+        )
+        .expect("write ESM TypeScript config");
+
+        let config = load(temp.path(), None).expect("load native ESM TypeScript config");
+        assert_eq!(config.test_timeout, 4_321);
+    }
+
+    #[test]
     fn rejects_multiple_config_sources() {
         let temp = tempdir().expect("temp dir");
         fs::write(temp.path().join("jest.config.mjs"), "export default {};")

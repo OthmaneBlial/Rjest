@@ -37,6 +37,12 @@ const cases = [
   {name: 'config-cjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {name: 'config-ts', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {
+    name: 'config-ts-esm-native',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-ts-import',
     category: 'Configuration',
     expectedExit: 0,

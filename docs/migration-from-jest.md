@@ -25,6 +25,10 @@ fields, including project-level `silent`; unsupported options are migration
 work items and produce an explicit error. For implicit `jest.config.mts`
 discovery, Rjest follows an installed Jest version's boundary: Jest releases
 before 30.4 ignore that filename, while 30.4 and later treat it as a config.
+On Node versions with native TypeScript support, `.ts` configuration also keeps
+the package's CommonJS or ESM semantics, including `import.meta` in a
+`"type": "module"` project. Native syntax failures in `.ts`/`.cts` retain the
+ts-node fallback; `.mts` remains ESM-only.
 
 The `fakeTimers` configuration supports global modern or legacy activation,
 `advanceTimers`, `doNotFake`, `now`, and `timerLimit`. Explicit

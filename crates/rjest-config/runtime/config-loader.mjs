@@ -24,8 +24,21 @@ try {
 }
 
 async function loadConfigModule(path) {
-  if (!['.ts', '.cts'].includes(extname(path))) {
+  const extension = extname(path);
+  if (!['.ts', '.cts', '.mts'].includes(extension)) {
     return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
+  }
+  if (process.features.typescript) {
+    try {
+      return await import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
+    } catch (error) {
+      if (extension === '.mts' || !(error instanceof SyntaxError)) throw error;
+    }
+  }
+  if (extension === '.mts') {
+    throw new Error(
+      `TypeScript Jest config ${path} requires native TypeScript support`,
+    );
   }
   const require = createRequire(path);
   let compiler;

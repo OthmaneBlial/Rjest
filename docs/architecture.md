@@ -47,6 +47,12 @@ Jest versions before 30.4 did not consider `jest.config.mts`, while newer Jest
 versions do. Rjest reads the local `jest-config` or `jest` package version when
 available so an existing project's discovery behavior remains stable during
 migration; explicit config paths remain directly loadable.
+On Node versions with native TypeScript support, `.ts`, `.cts`, and `.mts`
+configuration first uses Node's package-aware module semantics. `.ts` and
+`.cts` fall back to the CommonJS ts-node bridge only for native syntax errors;
+`.mts` is never reinterpreted as CommonJS. This preserves `import.meta` in
+type-module projects such as Apollo Client without breaking older CommonJS
+TypeScript configs.
 
 Module loading normally delegates to Node and the configured Jest-compatible
 resolver layers. Under a genuine Yarn Plug'n'Play preload, the worker also
