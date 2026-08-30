@@ -157,6 +157,8 @@ const cases = [
     useFixtureConfig: true,
   },
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
+  {name: 'core-test-failing-pass', category: 'Core API', expectedExit: 0},
+  {name: 'core-test-failing-failure', category: 'Core API', expectedExit: 1},
   {name: 'core-each-name', category: 'Core API', expectedExit: 0},
   {name: 'equality-edge', category: 'Expect', expectedExit: 0},
   {
@@ -510,6 +512,14 @@ const cases = [
     compareSnapshots: true,
     expectedExit: 0,
     useFixtureConfig: true,
+  },
+  {
+    name: 'snapshot-test-failing',
+    category: 'Snapshots',
+    compareSnapshots: true,
+    compareTestSources: true,
+    expectedExit: 0,
+    updateSnapshots: true,
   },
   {name: 'snapshot-new', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
   {

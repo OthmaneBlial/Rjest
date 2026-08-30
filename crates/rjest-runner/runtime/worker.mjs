@@ -267,7 +267,14 @@ function defineSuite(name, callback, mode) {
   }
 }
 
-function defineTest(name, callback, mode, timeout, concurrent = false) {
+function defineTest(
+  name,
+  callback,
+  mode,
+  timeout,
+  concurrent = false,
+  failing = false,
+) {
   assertCanDefine('test');
   if (mode !== 'todo' && typeof callback !== 'function') {
     throw new TypeError('test expects a callback function');
@@ -279,6 +286,7 @@ function defineTest(name, callback, mode, timeout, concurrent = false) {
     mode,
     timeout,
     concurrent,
+    failing,
     parent: currentSuite,
     invocations: 0,
     retryReasons: [],
@@ -287,7 +295,7 @@ function defineTest(name, callback, mode, timeout, concurrent = false) {
   dispatchCustomEnvironmentSyncEvent({
     asyncError: new Error(),
     concurrent,
-    failing: false,
+    failing,
     fn: callback,
     mode,
     name: 'add_test',
@@ -344,18 +352,37 @@ test.concurrent = (name, callback, timeout) =>
   defineTest(name, callback, undefined, timeout, true);
 test.concurrent.only = (name, callback, timeout) =>
   defineTest(name, callback, 'only', timeout, true);
-test.concurrent.skip = (name, callback, timeout) =>
-  defineTest(name, callback, 'skip', timeout, true);
-test.each = table => (name, callback, timeout) =>
-  table.forEach((row, index) => {
-    const values = Array.isArray(row) ? row : [row];
-    defineTest(
-      interpolateName(name, values, index),
-      () => callback(...values),
-      undefined,
-      timeout,
-    );
-  });
+test.concurrent.skip = test.skip;
+
+function bindEach(declaration) {
+  return table => (name, callback, timeout) =>
+    table.forEach((row, index) => {
+      const values = Array.isArray(row) ? row : [row];
+      declaration(
+        interpolateName(name, values, index),
+        () => callback(...values),
+        timeout,
+      );
+    });
+}
+
+function bindFailing(mode, concurrent = false) {
+  const failing = (name, callback, timeout) =>
+    defineTest(name, callback, mode, timeout, concurrent, true);
+  failing.each = bindEach(failing);
+  return failing;
+}
+
+test.each = bindEach(test);
+test.only.each = bindEach(test.only);
+test.skip.each = bindEach(test.skip);
+test.failing = bindFailing(undefined);
+test.only.failing = bindFailing('only');
+test.skip.failing = bindFailing('skip');
+test.concurrent.each = bindEach(test.concurrent);
+test.concurrent.failing = bindFailing(undefined, true);
+test.concurrent.only.each = bindEach(test.concurrent.only);
+test.concurrent.only.failing = bindFailing('only', true);
 const it = test;
 
 function interpolateName(name, values, index) {
@@ -1345,10 +1372,21 @@ function matchSnapshot(received, hint) {
   const legacySerialized = hasSnapshot
     ? formatSnapshot(received, true)
     : undefined;
-  if (
+  const pass =
     hasSnapshot &&
-    (expected === receivedSerialized || expected === legacySerialized)
-  ) {
+    (expected === receivedSerialized || expected === legacySerialized);
+  if (activeTest.failing) {
+    return {
+      pass,
+      key,
+      message: pass
+        ? undefined
+        : `Snapshot name: ${key}\n` +
+          `Expected: ${expected === undefined ? 'snapshot is missing' : expected}\n` +
+          `Received: ${receivedSerialized}`,
+    };
+  }
+  if (pass) {
     incrementSnapshotCount('matched');
     recordSnapshotData(key);
     snapshotState.data[key] = receivedSerialized;
@@ -1538,6 +1576,21 @@ function recordAssertion() {
   }
 }
 
+function customMatcherContext(isNot = false, promiseMode = undefined) {
+  return {
+    isNot,
+    promise: promiseMode ?? '',
+    equals: jestEquals,
+    customTesters: customEqualityTesters,
+    testFailing: Boolean(activeTest?.failing),
+    utils: {
+      printExpected: printable,
+      printReceived: printable,
+      matcherHint: matcherName => `expect(received).${matcherName}`,
+    },
+  };
+}
+
 function makeExpectation(actual, isNot = false, promiseMode = undefined) {
   const expectation = {};
   Object.defineProperty(expectation, 'not', {
@@ -1616,17 +1669,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
       recordAssertion();
       const evaluate = received => {
         const outcome = matcher.call(
-          {
-            isNot,
-            promise: promiseMode ?? '',
-            equals: jestEquals,
-            customTesters: customEqualityTesters,
-            utils: {
-              printExpected: printable,
-              printReceived: printable,
-              matcherHint: matcherName => `expect(received).${matcherName}`,
-            },
-          },
+          customMatcherContext(isNot, promiseMode),
           received,
           ...expected,
         );
@@ -1754,10 +1797,11 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
         ? applySnapshotProperties(received, properties)
         : received;
       const serialized = formatSnapshot(snapshotReceived);
+      const testFailing = Boolean(activeTest?.failing);
       if (inlineSnapshot === undefined) {
         if (
-          snapshotState.update === 'new' ||
-          snapshotState.update === 'all'
+          !testFailing &&
+          (snapshotState.update === 'new' || snapshotState.update === 'all')
         ) {
           incrementSnapshotCount('added');
           recordInlineSnapshotUpdate(
@@ -1766,13 +1810,13 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
           );
           return;
         }
-        incrementSnapshotCount('unmatched');
+        if (!testFailing) incrementSnapshotCount('unmatched');
         throw new RjestAssertionError(
           `Inline snapshot is missing\nReceived: ${serialized}`,
         );
       }
       if (serialized !== inlineSnapshot) {
-        if (snapshotState.update === 'all') {
+        if (!testFailing && snapshotState.update === 'all') {
           incrementSnapshotCount('updated');
           recordInlineSnapshotUpdate(
             inlineSnapshotFrame(callsiteError),
@@ -1780,12 +1824,12 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
           );
           return;
         }
-        incrementSnapshotCount('unmatched');
+        if (!testFailing) incrementSnapshotCount('unmatched');
         throw new RjestAssertionError(
           `Inline snapshot mismatch\nExpected: ${inlineSnapshot}\nReceived: ${serialized}`,
         );
       }
-      incrementSnapshotCount('matched');
+      if (!testFailing) incrementSnapshotCount('matched');
     };
     if (!promiseMode) return evaluate(actual);
     return Promise.resolve(actual).then(evaluate);
@@ -1914,6 +1958,31 @@ expect.extend = extensions => {
       throw new TypeError(`Custom matcher ${name} must be a function`);
     }
     customMatchers.set(name, matcher);
+    const customAsymmetric = inverse => (...sample) =>
+      asymmetric(
+        received => {
+          const outcome = matcher.call(
+            customMatcherContext(inverse),
+            received,
+            ...sample,
+          );
+          if (
+            !outcome ||
+            typeof outcome !== 'object' ||
+            typeof outcome.pass !== 'boolean'
+          ) {
+            throw new TypeError(
+              `Unexpected return from a matcher function: ${name} must return an object with a boolean pass property`,
+            );
+          }
+          return inverse ? !outcome.pass : outcome.pass;
+        },
+        `${inverse ? 'not.' : ''}${name}`,
+        sample,
+        inverse,
+      );
+    expect[name] = customAsymmetric(false);
+    expect.not[name] = customAsymmetric(true);
   }
 };
 expect.addEqualityTesters = testers => {
@@ -6422,6 +6491,7 @@ async function runTest(
   expectState.isExpectingAssertions = false;
   expectState.numPassingAsserts = 0;
   expectState.suppressedErrors = [];
+  expectState.testFailing = node.failing;
   const testStarted = performance.now();
   const failures = beforeAllError ? [beforeAllError] : [];
   if (!beforeAllError) {
@@ -6453,17 +6523,36 @@ async function runTest(
           node.timeout,
           `test "${result.fullName}"`,
         );
-        await dispatchCustomEnvironmentEvent({
-          name: 'test_fn_success',
-          test: node,
-        });
+        if (node.failing) {
+          const error = new RjestAssertionError(
+            'Failing test passed even though it was supposed to fail. Remove `.failing` to remove error.',
+          );
+          failures.push(error);
+          await dispatchCustomEnvironmentEvent({
+            error,
+            name: 'test_fn_failure',
+            test: node,
+          });
+        } else {
+          await dispatchCustomEnvironmentEvent({
+            name: 'test_fn_success',
+            test: node,
+          });
+        }
       } catch (error) {
-        failures.push(error);
-        await dispatchCustomEnvironmentEvent({
-          error,
-          name: 'test_fn_failure',
-          test: node,
-        });
+        if (node.failing) {
+          await dispatchCustomEnvironmentEvent({
+            name: 'test_fn_success',
+            test: node,
+          });
+        } else {
+          failures.push(error);
+          await dispatchCustomEnvironmentEvent({
+            error,
+            name: 'test_fn_failure',
+            test: node,
+          });
+        }
       }
     }
     for (const hook of hookChain(node, 'afterEach')) {
@@ -6499,9 +6588,13 @@ async function runTest(
     result.status = 'failed';
     result.failureMessage = failures.map(errorText).join('\n\n');
   }
+  if (node.failing && result.status === 'passed') {
+    markSnapshotsChecked(result.fullName);
+  }
   result.retryReasons = [...(node.retryReasons ?? [])];
   await dispatchCustomEnvironmentEvent({name: 'test_done', test: node});
   activeTest = undefined;
+  expectState.testFailing = false;
   return result;
 }
 

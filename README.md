@@ -206,8 +206,9 @@ much larger Jest 30 baseline across six Core/React projects: 563 suites, 9,974
 tests, and 519 snapshots. Its first Rjest attempt exposed and repaired native
 ESM semantics for `jest.config.ts` inside a type-module package. Rjest now lists
 the same 196 unique paths and matches targeted Core (78/78) and React
-(123/123) multi-project probes. The full capture is still in progress, so this
-remains an active compatibility target rather than a parity claim.
+(123/123) multi-project probes, plus a 30/30 Core response-stream probe. The
+full capture is still in progress, so this remains an active compatibility
+target rather than a parity claim.
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
