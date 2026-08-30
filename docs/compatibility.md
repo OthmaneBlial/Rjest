@@ -9,12 +9,12 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 151/151 (100.0%) across its explicitly listed
+The current generated matrix is 152/152 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 34/34 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 22/22 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 10/10 (100.0%). These
+(100.0%). Fake timers are 10/10 (100.0%), and coverage is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
 
@@ -220,8 +220,11 @@ expected/received color functions, structural diffs, and
 `printDiffOrStringify`. Rjest currently emits plain text from the color helpers.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
-thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
-counts, and transformer/test cache isolation are covered. Complete
+thresholds. Top-level coverage patterns are matched from the global root and
+partitioned across project roots, so imported and untested sources from a
+multi-project run share one Jest-compatible summary. Manual `__mocks__` lookup,
+virtual CommonJS factories, assertion counts, and transformer/test cache
+isolation are covered. Complete
 resolution/config semantics, V8 coverage, path/glob threshold groups, and watch mode remain missing, so Rjest
 does not claim broad or drop-in Jest compatibility yet.
 

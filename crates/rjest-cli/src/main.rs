@@ -877,7 +877,7 @@ fn execute_project_runs(
             enabled: project_collect_coverage,
             path_ignore_patterns: coverage_path_ignore_patterns,
             filter: coverage_filter,
-        } = coverage_runner_settings(cli, run.config)?;
+        } = coverage_runner_settings(cli, global_config, run.config)?;
         collect_coverage |= project_collect_coverage;
         let options = rjest_runner::RunnerOptions {
             max_workers,
@@ -1306,40 +1306,51 @@ fn load_execution_config(cli: &Cli, project_dir: &Path) -> Result<ProjectConfig>
     Ok(global)
 }
 
-fn coverage_runner_settings(cli: &Cli, config: &ProjectConfig) -> Result<CoverageRunnerSettings> {
-    let enabled = cli.coverage || config.collect_coverage;
+fn coverage_runner_settings(
+    cli: &Cli,
+    global_config: &ProjectConfig,
+    project_config: &ProjectConfig,
+) -> Result<CoverageRunnerSettings> {
+    let enabled = cli.coverage || global_config.collect_coverage;
     let provider = cli
         .coverage_provider
         .as_deref()
-        .unwrap_or(&config.coverage_provider);
+        .unwrap_or(&global_config.coverage_provider);
     if enabled && provider != "babel" {
         bail!(
             "coverageProvider `{provider}` is not supported yet; use Jest's default `babel` provider"
         );
     }
     let collect_from = if cli.collect_coverage_from.is_empty() {
-        &config.collect_coverage_from
+        &global_config.collect_coverage_from
     } else {
         &cli.collect_coverage_from
     };
     let path_ignore_patterns = if cli.coverage_path_ignore_patterns.is_empty() {
-        config.coverage_path_ignore_patterns.clone()
+        project_config.coverage_path_ignore_patterns.clone()
     } else {
         cli.coverage_path_ignore_patterns.clone()
     };
     let filter = if enabled && !collect_from.is_empty() {
-        let mut excluded_paths = rjest_discovery::discover(config, &[])?
+        let mut excluded_paths = rjest_discovery::discover(project_config, &[])?
             .into_iter()
             .map(|test| test.path)
             .collect::<Vec<_>>();
-        excluded_paths.extend(config.setup_files.iter().cloned());
-        excluded_paths.extend(config.setup_files_after_env.iter().cloned());
-        Some(discover_sources(
-            &config.root_dir,
+        excluded_paths.extend(project_config.setup_files.iter().cloned());
+        excluded_paths.extend(project_config.setup_files_after_env.iter().cloned());
+        let project_roots = project_config
+            .roots
+            .iter()
+            .map(|root| root.canonicalize().unwrap_or_else(|_| root.clone()))
+            .collect::<Vec<_>>();
+        let mut sources = discover_sources(
+            &global_config.root_dir,
             collect_from,
             &path_ignore_patterns,
             &excluded_paths,
-        )?)
+        )?;
+        sources.retain(|source| project_roots.iter().any(|root| source.starts_with(root)));
+        Some(sources)
     } else {
         None
     };

@@ -433,6 +433,11 @@ fn summarize_counts(counts: &[u64]) -> Metric {
 fn summary_json(total: Summary, files: &[(&str, Summary)], branches_true_unknown: bool) -> Value {
     let mut result = Map::new();
     let mut total_json = total.json();
+    let parent_directories = files
+        .iter()
+        .filter_map(|(path, _)| Path::new(path).parent())
+        .collect::<BTreeSet<_>>();
+    let branches_true_unknown = branches_true_unknown && parent_directories.len() <= 1;
     total_json
         .as_object_mut()
         .expect("summary is an object")
@@ -927,6 +932,28 @@ mod tests {
         assert!(directory.join("lcov-report/index.html").is_file());
         assert!(directory.join("clover.xml").is_file());
         assert!(report.terminal_output[0].contains("Statements"));
+    }
+
+    #[test]
+    fn matches_istanbul_package_summary_for_multiple_source_directories() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let alpha = temp.path().join("packages/alpha/source.js");
+        let beta = temp.path().join("packages/beta/source.js");
+        let mut coverage = fixture(&alpha);
+        coverage.extend(fixture(&beta));
+        let report = write_reports(
+            &coverage,
+            &CoverageOptions {
+                root_dir: temp.path().to_path_buf(),
+                coverage_directory: temp.path().join("coverage"),
+                reporters: vec![Value::String("none".into())],
+                thresholds: json!({}),
+                branches_true_unknown: true,
+            },
+        )
+        .expect("coverage report");
+
+        assert_eq!(report.summary["total"]["branchesTrue"]["pct"], 100);
     }
 
     #[test]

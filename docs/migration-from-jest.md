@@ -37,8 +37,10 @@ supported config-file paths, and standard path globs. The variadic
 `rjest --projects project-a project-b` form also runs several project
 directories or config files in one invocation. Display-name filtering through
 `--selectProjects` and `--ignoreProjects` follows Jest's composed selection and
-exclusion rules. Keep Jest as the gate for unmeasured cross-project coverage,
-bail, reporter combinations, or custom test sequencer sharding. Default
+exclusion rules. A top-level `collectCoverageFrom` pattern is rooted once at the
+global project and partitioned across child roots, including untested sources
+in the merged summary. Keep Jest as the gate for unmeasured cross-project bail,
+reporter/threshold combinations, or custom test sequencer sharding. Default
 multi-project sharding uses each test's own project root in the covered case.
 
 Configured CommonJS and native-ESM `testSequencer` classes can shard and sort
@@ -101,9 +103,10 @@ continues to use Node host intrinsics.
 `rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
 positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
 JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global
-positive-percentage and negative-uncovered thresholds. Keep Jest as the
-coverage gate when using the V8 provider, custom Istanbul reporters, or
-path/glob-specific threshold groups.
+positive-percentage and negative-uncovered thresholds. Global coverage globs
+also include imported and untested files across covered inline project roots.
+Keep Jest as the coverage gate when using the V8 provider, custom Istanbul
+reporters, or path/glob-specific and cross-project threshold groups.
 
 Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.

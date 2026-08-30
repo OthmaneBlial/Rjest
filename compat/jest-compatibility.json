@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 151,
-    "total": 151,
+    "passing": 152,
+    "total": 152,
     "percentage": 100
   },
   "categories": {
@@ -24,8 +24,8 @@
       "percentage": 100
     },
     "Coverage": {
-      "passing": 3,
-      "total": 3,
+      "passing": 4,
+      "total": 4,
       "percentage": 100
     },
     "Environment": {
@@ -246,6 +246,12 @@
     },
     {
       "name": "coverage-post-transform",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "coverage-projects-global-pattern",
       "category": "Coverage",
       "compatible": true,
       "differences": []

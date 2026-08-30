@@ -1,0 +1,1 @@
+exports.unusedBeta = () => 'beta';
