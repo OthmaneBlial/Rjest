@@ -179,6 +179,7 @@ for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
 const rootSuite = makeSuite('ROOT_DESCRIBE_BLOCK', undefined, undefined);
 let currentSuite = rootSuite;
 let definitionComplete = false;
+let environmentTornDown = false;
 
 function makeSuite(name, parent, mode) {
   return {
@@ -1592,11 +1593,16 @@ const matchers = {
     received.mock.calls.length > 0 &&
     deepEqual(received.mock.calls.at(-1), expected),
   toHaveBeenNthCalledWith: (received, nth, ...expected) =>
-    isMock(received) &&
-    Number.isInteger(nth) &&
-    nth > 0 &&
-    received.mock.calls.length >= nth &&
-    deepEqual(received.mock.calls[nth - 1], expected),
+    (() => {
+      if (!isMock(received)) return false;
+      if (!Number.isSafeInteger(nth) || nth < 1) {
+        throw new Error('n must be a positive integer');
+      }
+      return (
+        received.mock.calls.length >= nth &&
+        deepEqual(received.mock.calls[nth - 1], expected)
+      );
+    })(),
   toHaveReturned: received =>
     isMock(received) &&
     received.mock.results.some(result => result.type === 'return'),
@@ -1609,6 +1615,25 @@ const matchers = {
     received.mock.results.some(
       result => result.type === 'return' && deepEqual(result.value, expected),
     ),
+  toHaveLastReturnedWith: (received, expected) => {
+    if (!isMock(received)) {
+      throw new TypeError('Received value must be a mock function');
+    }
+    if (received.mock.results.length === 0) return false;
+    const result = received.mock.results.at(-1);
+    return result.type === 'return' && deepEqual(result.value, expected);
+  },
+  toHaveNthReturnedWith: (received, nth, expected) => {
+    if (!isMock(received)) {
+      throw new TypeError('Received value must be a mock function');
+    }
+    if (!Number.isSafeInteger(nth) || nth < 1) {
+      throw new Error('n must be a positive integer');
+    }
+    if (received.mock.results.length < nth) return false;
+    const result = received.mock.results[nth - 1];
+    return result.type === 'return' && deepEqual(result.value, expected);
+  },
 };
 Object.assign(matchers, {
   toBeCalled: matchers.toHaveBeenCalled,
@@ -4561,6 +4586,10 @@ function scopedJest(fromPath) {
       jest.setSystemTime(value);
       return scoped;
     },
+    setTimerTickMode(value) {
+      jest.setTimerTickMode(value);
+      return scoped;
+    },
     setTimeout(value) {
       jest.setTimeout(value);
       return scoped;
@@ -5851,6 +5880,9 @@ const fakeTimers = {
   mode: 'modern',
   maxRuns: 100_000,
   autoAdvanceHandle: undefined,
+  tickMode: 'manual',
+  tickModeCounter: 0,
+  tickModeDelta: undefined,
   realImmediateDescriptors: undefined,
   get now() {
     return fakeTimerStates[this.mode].now;
@@ -6139,6 +6171,9 @@ function installFakeTimers(options = {}) {
   if (fakeTimers.active) restoreRealTimers();
   fakeTimers.active = true;
   fakeTimers.mode = mode;
+  fakeTimers.tickMode = 'manual';
+  fakeTimers.tickModeDelta = undefined;
+  fakeTimers.tickModeCounter += 1;
   fakeTimers.maxRuns =
     mode === 'modern' && Number(options.timerLimit) > 0
       ? Number(options.timerLimit)
@@ -6303,7 +6338,13 @@ function installFakeTimers(options = {}) {
     fakeHrtime.bigint = () => BigInt(Math.floor(fakeTimers.monotonicNow * 1e6));
     process.hrtime = fakeHrtime;
   }
-  installAutomaticTimerAdvance(options.advanceTimers);
+  if (options.advanceTimers) {
+    const delta =
+      typeof options.advanceTimers === 'number' ? options.advanceTimers : 20;
+    fakeTimers.tickMode = 'interval';
+    fakeTimers.tickModeDelta = delta;
+    installAutomaticTimerAdvance(delta);
+  }
   return jest;
 }
 
@@ -6314,6 +6355,84 @@ function installAutomaticTimerAdvance(configured) {
     if (!fakeTimers.active || fakeTimers.mode !== 'modern') return;
     runTimersUntil(fakeTimers.now + delta);
   }, delta);
+}
+
+async function advanceTimersInNextAsyncMode(counter) {
+  while (
+    fakeTimers.active &&
+    fakeTimers.mode === 'modern' &&
+    fakeTimers.tickModeCounter === counter
+  ) {
+    await new Promise(resolve => nativeSetTimeout(resolve, 0));
+    if (
+      !fakeTimers.active ||
+      fakeTimers.mode !== 'modern' ||
+      fakeTimers.tickModeCounter !== counter
+    ) {
+      return;
+    }
+    const timer = nextFakeTimer();
+    if (!timer) continue;
+    const previousDuringTick = fakeTimers.duringTick;
+    fakeTimers.duringTick = true;
+    try {
+      runTimer(timer);
+    } finally {
+      fakeTimers.duringTick = previousDuringTick;
+    }
+  }
+}
+
+function setTimerTickMode(options) {
+  assertFakeTimers();
+  if (fakeTimers.mode === 'legacy') {
+    throw new TypeError(
+      '`jest.setTimerTickMode()` is not available when using legacy fake timers.',
+    );
+  }
+  const mode = options?.mode;
+  if (!['interval', 'manual', 'nextAsync'].includes(mode)) {
+    throw new TypeError(
+      '`jest.setTimerTickMode()` mode must be `interval`, `manual`, or `nextAsync`.',
+    );
+  }
+  const delta =
+    mode === 'interval' && Number(options?.delta) > 0
+      ? Number(options.delta)
+      : mode === 'interval'
+        ? 20
+        : undefined;
+  if (fakeTimers.tickMode === mode && fakeTimers.tickModeDelta === delta) {
+    return jest;
+  }
+
+  stopAutomaticTimerAdvance();
+  fakeTimers.tickMode = mode;
+  fakeTimers.tickModeDelta = delta;
+  const counter = ++fakeTimers.tickModeCounter;
+  if (mode === 'interval') {
+    installAutomaticTimerAdvance(delta);
+  } else if (mode === 'nextAsync') {
+    void advanceTimersInNextAsyncMode(counter).catch(error => {
+      fileErrors.push(errorText(error));
+    });
+  }
+  return jest;
+}
+
+async function withPausedNextAsyncMode(callback) {
+  const shouldResume =
+    fakeTimers.active &&
+    fakeTimers.mode === 'modern' &&
+    fakeTimers.tickMode === 'nextAsync';
+  if (shouldResume) setTimerTickMode({mode: 'manual'});
+  try {
+    return await callback();
+  } finally {
+    if (shouldResume && fakeTimers.active && fakeTimers.mode === 'modern') {
+      setTimerTickMode({mode: 'nextAsync'});
+    }
+  }
 }
 
 function stopAutomaticTimerAdvance() {
@@ -6398,6 +6517,9 @@ function installLegacyFakeTimerApis() {
 }
 
 function restoreRealTimers() {
+  fakeTimers.tickMode = 'manual';
+  fakeTimers.tickModeDelta = undefined;
+  fakeTimers.tickModeCounter += 1;
   stopAutomaticTimerAdvance();
   globalThis.setTimeout = nativeSetTimeout;
   globalThis.clearTimeout = nativeClearTimeout;
@@ -6454,6 +6576,9 @@ const jest = {
   spyOn,
   replaceProperty,
   isMockFunction: isMock,
+  isEnvironmentTornDown() {
+    return environmentTornDown;
+  },
   mocked(value) {
     return value;
   },
@@ -6604,20 +6729,22 @@ const jest = {
         '`jest.runAllTimersAsync()` is not available when using legacy fake timers.',
       );
     }
-    let runs = 0;
-    while (true) {
-      await new Promise(resolve => nativeSetTimeout(resolve, 0));
-      const timer = nextFakeTimer();
-      if (!timer) break;
-      if (++runs > fakeTimers.maxRuns) {
-        throw new Error(
-          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
-        );
+    return withPausedNextAsyncMode(async () => {
+      let runs = 0;
+      while (true) {
+        await new Promise(resolve => nativeSetTimeout(resolve, 0));
+        const timer = nextFakeTimer();
+        if (!timer) break;
+        if (++runs > fakeTimers.maxRuns) {
+          throw new Error(
+            `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
+          );
+        }
+        runTimer(timer);
       }
-      runTimer(timer);
-    }
-    runAllTicks();
-    return jest;
+      runAllTicks();
+      return jest;
+    });
   },
   runOnlyPendingTimers() {
     assertFakeTimers();
@@ -6648,16 +6775,18 @@ const jest = {
         '`jest.runOnlyPendingTimersAsync()` is not available when using legacy fake timers.',
       );
     }
-    const pending = [...fakeTimers.timers.values()].sort(
-      (left, right) => left.callAt - right.callAt || left.id - right.id,
-    );
-    for (const timer of pending) {
-      if (fakeTimers.timers.get(timer.id) === timer) {
-        runTimer(timer);
-        await Promise.resolve();
+    return withPausedNextAsyncMode(async () => {
+      const pending = [...fakeTimers.timers.values()].sort(
+        (left, right) => left.callAt - right.callAt || left.id - right.id,
+      );
+      for (const timer of pending) {
+        if (fakeTimers.timers.get(timer.id) === timer) {
+          runTimer(timer);
+          await Promise.resolve();
+        }
       }
-    }
-    return jest;
+      return jest;
+    });
   },
   advanceTimersByTime(milliseconds) {
     assertFakeTimers();
@@ -6683,8 +6812,10 @@ const jest = {
       );
     }
     const duration = timerDelay(milliseconds);
-    await runTimersUntilAsync(fakeTimers.now + duration);
-    return jest;
+    return withPausedNextAsyncMode(async () => {
+      await runTimersUntilAsync(fakeTimers.now + duration);
+      return jest;
+    });
   },
   advanceTimersToNextTimer(steps = 1) {
     assertFakeTimers();
@@ -6702,12 +6833,14 @@ const jest = {
         '`jest.advanceTimersToNextTimerAsync()` is not available when using legacy fake timers.',
       );
     }
-    for (let index = 0; index < Number(steps); index += 1) {
-      const timer = nextFakeTimer();
-      if (!timer) break;
-      await runTimersUntilAsync(timer.callAt);
-    }
-    return jest;
+    return withPausedNextAsyncMode(async () => {
+      for (let index = 0; index < Number(steps); index += 1) {
+        const timer = nextFakeTimer();
+        if (!timer) break;
+        await runTimersUntilAsync(timer.callAt);
+      }
+      return jest;
+    });
   },
   clearAllTimers() {
     assertFakeTimers();
@@ -6739,6 +6872,7 @@ const jest = {
     }
     return jest;
   },
+  setTimerTickMode,
   now() {
     return fakeTimers.active ? fakeTimers.now : NativeDate.now();
   },
@@ -7515,6 +7649,7 @@ try {
   fileErrors.push(errorText(error));
 }
 
+environmentTornDown = true;
 if (fakeTimers.active) restoreRealTimers();
 try {
   await teardownCustomTestEnvironment();

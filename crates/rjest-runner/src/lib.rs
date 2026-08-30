@@ -1107,6 +1107,8 @@ mod tests {
                     const mock = jest.fn().mockReturnValueOnce('first').mockReturnValue('later');
                     expect([mock(), mock()]).toEqual(['first', 'later']);
                     expect(mock).toHaveBeenCalledTimes(2);
+                    expect(mock).toHaveNthReturnedWith(1, 'first');
+                    expect(mock).toHaveLastReturnedWith('later');
                     done();
                   });
                   test.skip('skips', () => {});

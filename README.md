@@ -11,7 +11,7 @@
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility report](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![Differential scenarios: 207/207](https://img.shields.io/badge/Jest_differential-207%2F207-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Differential scenarios: 210/210](https://img.shields.io/badge/Jest_differential-210%2F210-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111511?style=for-the-badge)](LICENSE)
@@ -39,7 +39,7 @@ the destination until the npm package is published.
 
 | Evidence                              |  Current verified result |
 | ------------------------------------- | -----------------------: |
-| Jest/Rjest differential matrix        | **207 / 207 compatible** |
+| Jest/Rjest differential matrix        | **210 / 210 compatible** |
 | Coverage probes, including Babel + V8 |   **19 / 19 compatible** |
 | Local Rust test suite                 |    **117 / 117 passing** |
 | Pinned real-project corpus reports    |                   **25** |
@@ -74,21 +74,21 @@ Jest 29.7.0. No scenario is counted because a feature name appears in the code.
 | -------------------- | ------------: | -------------: |
 | CLI                  |       36 / 36 |           100% |
 | Configuration        |       48 / 48 |           100% |
-| Core API             |       13 / 13 |           100% |
+| Core API             |       14 / 14 |           100% |
 | Coverage             |       19 / 19 |           100% |
 | Environment          |         7 / 7 |           100% |
 | ESM                  |         8 / 8 |           100% |
-| Expect               |         7 / 7 |           100% |
-| Fake timers          |       10 / 10 |           100% |
+| Expect               |         8 / 8 |           100% |
+| Fake timers          |       11 / 11 |           100% |
 | Mocks                |       14 / 14 |           100% |
 | Reporters            |         7 / 7 |           100% |
 | Resolution           |       12 / 12 |           100% |
 | Snapshots            |       15 / 15 |           100% |
 | Transforms           |         7 / 7 |           100% |
 | Watch                |         4 / 4 |           100% |
-| **Versioned matrix** | **207 / 207** |       **100%** |
+| **Versioned matrix** | **210 / 210** |       **100%** |
 
-**What that number means:** Rjest matches Jest in all 207 scenarios currently
+**What that number means:** Rjest matches Jest in all 210 scenarios currently
 checked into this repository.
 
 **What it does not mean:** Rjest implements 100% of every Jest API and ecosystem
@@ -174,14 +174,16 @@ ignore a setting and give you a reassuring but incomplete run.
 - `describe`, `test`, `it`, nested hooks, async and callback tests, `.only`,
   `.skip`, `.todo`, `.failing`, retries, bail, sharding, and seeded randomization
 - Jest equality, common matchers, asymmetric matchers, custom async matchers,
-  `.resolves`, `.rejects`, and assertion counts
+  `.resolves`, `.rejects`, assertion counts, and complete mock return-history
+  assertions including nth and last returned values
 - `jest.fn`, spies, property replacement, CommonJS/native-ESM mocks, manual
   mocks, automocking, module resets, mock restoration, and mock generation hooks
 
 ### Runtime and projects
 
 - JavaScript, configured JSX/TypeScript/TSX transforms, CommonJS, native ESM,
-  top-level await, Node, JSDOM, and custom test environments
+  top-level await, Node, JSDOM, custom test environments, and Jest-compatible
+  environment teardown state
 - Executable JS/TS configuration, presets, multi-project runs, display-name
   selection, custom resolvers, custom sequencers, pnpm, and Yarn Plug'n'Play
 - CommonJS, ESM, and transformed TypeScript global setup/teardown, custom
@@ -192,7 +194,7 @@ ignore a setting and give you a reassuring but incomplete run.
 - External and inline snapshots, property matchers, serializers, update mode,
   obsolete detection, Prettier 2/3, and source-mapped inline writes
 - Modern and legacy fake timers across the covered Node and JSDOM scheduling
-  boundaries
+  boundaries, including Jest 30's manual, next-async, and interval tick modes
 - Babel/Istanbul and `coverageProvider: "v8"` collection with JSON, text,
   LCOV/HTML, Clover, source maps, raw V8 range merging across workers,
   `collectCoverageFrom` zero-hit files, global/path/directory/per-file-glob
@@ -234,7 +236,7 @@ Rjest is useful now. It is not yet a universal drop-in replacement.
 
 The directional project-readiness estimate is now **approximately 88%**. That
 is a maintained engineering estimate, not an automated percentage of the Jest
-API. The only 100% claim is the visible 207-scenario matrix above.
+API. The only 100% claim is the visible 210-scenario matrix above.
 
 - Watch plugins, Mercurial/Sapling changed-file selection, and some interactive
   output polish remain open. Core TTY controls and active-worker interruption
@@ -259,7 +261,7 @@ make check
 ```
 
 The local gate runs Rust formatting, strict Clippy, the complete workspace test
-suite, JavaScript syntax and comparator tests, then all 207 semantic fixtures
+suite, JavaScript syntax and comparator tests, then all 210 semantic fixtures
 against pinned official Jest oracles, including Jest 29.7.0 and Jest 30.5.0.
 No GitHub Actions are required. The Jest source checkout and project corpus
 remain ignored under `base/`.

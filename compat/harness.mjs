@@ -556,6 +556,13 @@ const cases = [
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
   {name: 'core-test-failing-pass', category: 'Core API', expectedExit: 0},
   {name: 'core-test-failing-failure', category: 'Core API', expectedExit: 1},
+  {
+    name: 'runtime-environment-torn-down',
+    category: 'Core API',
+    compareArtifacts: ['environment-state.json'],
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'core-each-name', category: 'Core API', expectedExit: 0},
   {name: 'equality-edge', category: 'Expect', expectedExit: 0},
   {
@@ -1169,10 +1176,20 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
+  {
+    name: 'expect-return-matchers',
+    category: 'Expect',
+    expectedExit: 0,
+  },
   {name: 'gap-promise-to-throw', category: 'Expect', expectedExit: 0},
   {name: 'gap-expect-assertions', category: 'Expect', expectedExit: 1},
   {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-async', category: 'Fake timers', expectedExit: 0},
+  {
+    name: 'fake-timers-tick-mode',
+    category: 'Fake timers',
+    expectedExit: 0,
+  },
   {
     name: 'gap-fake-timers-performance',
     category: 'Fake timers',

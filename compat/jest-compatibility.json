@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 207,
-    "total": 207,
+    "passing": 210,
+    "total": 210,
     "percentage": 100
   },
   "categories": {
@@ -19,8 +19,8 @@
       "percentage": 100
     },
     "Core API": {
-      "passing": 13,
-      "total": 13,
+      "passing": 14,
+      "total": 14,
       "percentage": 100
     },
     "Coverage": {
@@ -39,13 +39,13 @@
       "percentage": 100
     },
     "Expect": {
-      "passing": 7,
-      "total": 7,
+      "passing": 8,
+      "total": 8,
       "percentage": 100
     },
     "Fake timers": {
-      "passing": 10,
-      "total": 10,
+      "passing": 11,
+      "total": 11,
       "percentage": 100
     },
     "Mocks": {
@@ -484,6 +484,12 @@
     },
     {
       "name": "core-test-failing-failure",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "runtime-environment-torn-down",
       "category": "Core API",
       "compatible": true,
       "differences": []
@@ -1071,6 +1077,12 @@
       "differences": []
     },
     {
+      "name": "expect-return-matchers",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "gap-promise-to-throw",
       "category": "Expect",
       "compatible": true,
@@ -1090,6 +1102,12 @@
     },
     {
       "name": "gap-fake-timers-async",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "fake-timers-tick-mode",
       "category": "Fake timers",
       "compatible": true,
       "differences": []

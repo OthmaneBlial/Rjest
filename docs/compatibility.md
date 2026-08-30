@@ -9,12 +9,12 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 207/207 (100.0%) across its explicitly listed
-scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
+The current generated matrix is 210/210 (100.0%) across its explicitly listed
+scenarios and categories. Core API is 14/14 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
-Expect is 7/7 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 10/10 (100.0%), coverage is 19/19 (100.0%), and custom
+Expect is 8/8 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
+(100.0%). Fake timers are 11/11 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -295,6 +295,10 @@ the shared realm makes JSDOM call itself recursively; the environment's
 `window` functions remain available.
 Exact custom VM-context identity and every mutable circus state field remain
 outside this bounded claim.
+`jest.isEnvironmentTornDown()` is false while test code runs and flips before
+the custom environment teardown hook, matching the official runtime boundary.
+The differential probe preserves both observations through one captured Jest
+object rather than treating method presence alone as compatibility.
 Bespoke JSDOM environment globals preserve `window === globalThis` while
 forwarding Window event-target methods to the environment realm, including
 listener registration, removal, and dispatch. Configurable Node host `fetch`,
@@ -303,10 +307,18 @@ modules execute when the custom environment realm does not provide them, while
 a later user assignment remains visible through the shared global identity.
 Modern fake-timer activation and restoration preserve the environment's absent
 immediate APIs instead of reintroducing Node's host functions.
+Modern Jest 30 timers also support `setTimerTickMode`: `manual` cancels either
+configured or runtime auto-advancement, `interval` advances on a native cadence,
+and `nextAsync` crosses a native event-loop turn before each next timer. Mode
+switching is generation-counted so stale drivers stop during teardown.
 Bespoke equality functions registered through `expect.addEqualityTesters`
 participate recursively in equality-based matchers and receive Jest's matcher
 context. Setup modules that extend the installed `expect` package share the
 same matcher registry as the injected global `expect`.
+Mock return-history assertions include `toHaveLastReturnedWith` and
+`toHaveNthReturnedWith`. Their nth index follows call order, thrown and
+incomplete calls never count as returns, asymmetric/custom equality remains
+active, and invalid positions throw Jest's positive-integer diagnostic.
 `expect.objectContaining` requires each requested top-level property while its
 nested values use Jest's loose `toEqual` semantics, including omission of
 properties whose expected value is `undefined`.
