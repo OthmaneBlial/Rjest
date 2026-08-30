@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -25,6 +25,29 @@ use thiserror::Error;
 
 const RESULT_PREFIX: &str = "__RJEST_RESULT__";
 const WORKER_SOURCE: &str = include_str!("../runtime/worker.mjs");
+
+/// Thread-safe signal used to interrupt an active test-file execution batch.
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    /// Creates an unset cancellation signal.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Requests cancellation of active and not-yet-started test workers.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    /// Returns whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct RunnerOptions {
@@ -64,6 +87,8 @@ pub struct RunnerOptions {
     pub coverage_path_ignore_patterns: Vec<String>,
     pub coverage_filter: Option<Vec<PathBuf>>,
     pub coverage_sources: Vec<PathBuf>,
+    /// Optional run-wide cancellation signal, used by watch mode.
+    pub cancellation: Option<CancellationToken>,
     /// Environment changes made by Jest `globalSetup`, applied to workers.
     pub environment: BTreeMap<String, Option<String>>,
     pub file_timeout_ms: u64,
@@ -109,6 +134,7 @@ impl Default for RunnerOptions {
             coverage_path_ignore_patterns: vec!["/node_modules/".into()],
             coverage_filter: None,
             coverage_sources: Vec::new(),
+            cancellation: None,
             environment: BTreeMap::new(),
             file_timeout_ms: 120_000,
         }
@@ -211,6 +237,19 @@ struct BailState {
     triggered: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct Cancellation<'a> {
+    external: Option<&'a CancellationToken>,
+    bail: Option<&'a AtomicBool>,
+}
+
+impl Cancellation<'_> {
+    fn requested(self) -> bool {
+        self.external.is_some_and(CancellationToken::is_cancelled)
+            || self.bail.is_some_and(|flag| flag.load(Ordering::Acquire))
+    }
+}
+
 /// Runs test files through a bounded Rayon pool and returns path-sorted results.
 ///
 /// # Errors
@@ -256,14 +295,20 @@ fn run_internal(
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.max_workers)
         .build()?;
-    let results = if options.bail == 0 {
+    let results = if options.bail == 0 && options.cancellation.is_none() {
         pool.install(|| {
             files
                 .par_iter()
                 .enumerate()
                 .map(|(index, file)| {
                     notify_file_start(observer, file)?;
-                    match run_file(&file.path, options, worker_path, index == 0, None)? {
+                    match run_file(
+                        &file.path,
+                        options,
+                        worker_path,
+                        index == 0,
+                        Cancellation::default(),
+                    )? {
                         FileRunOutcome::Completed(result) => {
                             notify_file_result(observer, &result)?;
                             Ok(*result)
@@ -276,7 +321,7 @@ fn run_internal(
                 .collect::<Result<Vec<_>, _>>()
         })?
     } else {
-        run_files_with_bail(files, options, worker_path, &pool, observer)?
+        run_files_with_cancellation(files, options, worker_path, &pool, observer)?
     };
     let mut test_results = results;
     test_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
@@ -288,47 +333,46 @@ fn run_internal(
     })
 }
 
-fn run_files_with_bail(
+fn run_files_with_cancellation(
     files: &[TestFile],
     options: &RunnerOptions,
     worker_path: &Path,
     pool: &rayon::ThreadPool,
     observer: Option<&dyn RunObserver>,
 ) -> Result<Vec<TestFileResult>, RunnerError> {
-    let cancelled = AtomicBool::new(false);
+    let bail_cancelled = AtomicBool::new(false);
+    let cancellation = Cancellation {
+        external: options.cancellation.as_ref(),
+        bail: Some(&bail_cancelled),
+    };
     let state = Mutex::new(BailState::default());
     let results = pool.install(|| {
         files
             .par_iter()
             .enumerate()
             .map(|(index, file)| {
-                if cancelled.load(Ordering::Acquire) {
+                if cancellation.requested() {
                     return Ok(None);
                 }
                 notify_file_start(observer, file)?;
-                let result = match run_file(
-                    &file.path,
-                    options,
-                    worker_path,
-                    index == 0,
-                    Some(&cancelled),
-                )? {
-                    FileRunOutcome::Completed(result) => *result,
-                    FileRunOutcome::Cancelled => return Ok(None),
-                };
+                let result =
+                    match run_file(&file.path, options, worker_path, index == 0, cancellation)? {
+                        FileRunOutcome::Completed(result) => *result,
+                        FileRunOutcome::Cancelled => return Ok(None),
+                    };
                 notify_file_result(observer, &result)?;
                 let mut state = state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if state.triggered {
+                if state.triggered || cancellation.requested() {
                     return Ok(None);
                 }
                 state.failed_tests = state
                     .failed_tests
                     .saturating_add(failed_test_count(&result));
-                if state.failed_tests >= options.bail {
+                if options.bail != 0 && state.failed_tests >= options.bail {
                     state.triggered = true;
-                    cancelled.store(true, Ordering::Release);
+                    bail_cancelled.store(true, Ordering::Release);
                 }
                 Ok(Some(result))
             })
@@ -508,9 +552,9 @@ fn run_file(
     options: &RunnerOptions,
     worker_path: &Path,
     collect_uncovered_sources: bool,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Cancellation<'_>,
 ) -> Result<FileRunOutcome, RunnerError> {
-    if cancellation.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+    if cancellation.requested() {
         return Ok(FileRunOutcome::Cancelled);
     }
     let snapshot = rjest_snapshot::load(path, options.snapshot_update)?;
@@ -623,7 +667,7 @@ fn execute_worker(
     encoded_request: &[u8],
     options: &RunnerOptions,
     worker_path: &Path,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Cancellation<'_>,
 ) -> Result<(Vec<u8>, Vec<u8>, WorkerTermination), RunnerError> {
     let mut command = Command::new(&options.node_binary);
     if std::env::var_os("NODE_ENV").is_none() {
@@ -665,7 +709,7 @@ fn execute_worker(
         if child.try_wait().map_err(RunnerError::Wait)?.is_some() {
             break WorkerTermination::Completed;
         }
-        if cancellation.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        if cancellation.requested() {
             child.kill().map_err(RunnerError::Wait)?;
             child.wait().map_err(RunnerError::Wait)?;
             break WorkerTermination::Cancelled;
@@ -731,7 +775,7 @@ fn millis(duration: std::time::Duration) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, thread};
 
     use rjest_core::TestStatus;
     use tempfile::tempdir;
@@ -1004,6 +1048,47 @@ mod tests {
         assert_eq!(result.count(TestStatus::Failed), 1);
         assert!(!marker.exists());
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn cancels_an_in_flight_watch_worker_from_an_external_signal() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("stale.test.cjs");
+        let marker = temp.path().join("started.marker");
+        fs::write(
+            &test_path,
+            format!(
+                "const fs = require('node:fs');\n\
+                 fs.writeFileSync({}, 'started');\n\
+                 test('waits for cancellation', () => new Promise(() => {{}}));",
+                serde_json::to_string(&marker).expect("marker path")
+            ),
+        )
+        .expect("write stale suite");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical path"),
+        }];
+        let cancellation = CancellationToken::new();
+        let options = RunnerOptions {
+            cancellation: Some(cancellation.clone()),
+            default_timeout_ms: 60_000,
+            file_timeout_ms: 60_000,
+            max_workers: 1,
+            ..RunnerOptions::default()
+        };
+        let handle = thread::spawn(move || run(&files, &options));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !marker.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(marker.exists(), "worker never reached the stale test body");
+
+        let cancelled_at = Instant::now();
+        cancellation.cancel();
+        let result = handle.join().expect("runner thread").expect("cancel run");
+
+        assert!(result.test_results.is_empty());
+        assert!(cancelled_at.elapsed() < Duration::from_secs(2));
     }
 
     #[test]

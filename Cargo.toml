@@ -22,6 +22,7 @@ rust-version = "1.85"
 [workspace.dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
+crossterm = "0.29"
 globset = "0.4"
 natord = "1.0"
 notify = "8.2"

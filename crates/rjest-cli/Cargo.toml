@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+crossterm.workspace = true
 rjest-config = { path = "../rjest-config" }
 rjest-core = { path = "../rjest-core" }
 rjest-coverage = { path = "../rjest-coverage" }

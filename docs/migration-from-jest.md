@@ -28,8 +28,12 @@ snapshot paths. It is rebuilt after each settled change so newly added and
 deleted suites participate immediately. Outside a Git repository Rjest exits
 with guidance to use `--watchAll`; Jest's Mercurial and Sapling adapters are not
 implemented yet. Do not substitute Rjest for workflows that require interactive
-watch keys/plugins or cancellation of a still-running stale cycle; those remain
-explicit migration boundaries.
+watch plugins or exact terminal rendering; those remain explicit migration
+boundaries. Core TTY controls are available for all/changed/failed selection,
+filename and test-name filtering, snapshot updates, manual reruns, filter
+clearing, and exit. Pressing an actionable key during an active run interrupts
+and terminates its Node workers like Jest; press the key again when idle to
+apply the action.
 
 One-shot affected-test workflows can use `rjest --onlyChanged`,
 `--lastCommit`, `--changedSince`, or `--changedFilesWithAncestor`. Pre-commit

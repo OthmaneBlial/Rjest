@@ -9,13 +9,13 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 192/192 (100.0%) across its explicitly listed
+The current generated matrix is 193/193 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%), coverage is 7/7 (100.0%), and custom
-reporters are 6/6 (100.0%), and Watch is 3/3 (100.0%). These
+reporters are 6/6 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
 
@@ -61,8 +61,15 @@ that `--watch` outside source control exits like Jest with `--watchAll`
 guidance. `watchPathIgnorePatterns`, native event debouncing, generated
 coverage/cache/output ignores, Git staged/modified/deleted/untracked discovery,
 snapshot-to-test mapping, and `--no-watchman` normalization are covered by Rust
-and differential tests. Interactive keys, stale-run cancellation, Mercurial and
-Sapling selection, and watch plugins remain outside this score.
+and differential tests. A fourth PTY oracle interrupts a blocked parallel run
+with Enter, proves that the active key is consumed instead of immediately
+rerunning, triggers a fresh run with a second Enter, and exits with `q`. Rjest's
+run-wide cancellation token forcibly terminates the active Node worker. Core
+all/changed/failed, clear, filename, test-name, snapshot-update, rerun, and exit
+keys are implemented; watch plugins, exact terminal rendering, and
+Mercurial/Sapling selection remain outside this score. Filesystem changes do not
+cancel an active cycle because official Jest ignores `startRun` while one is
+already running.
 
 The one-shot changed-selection probes build independent Git histories for both
 runners. They cover `-o`/`--onlyChanged`, the last commit, a named revision,
@@ -297,9 +304,9 @@ partitioned across project roots, so imported and untested sources from a
 multi-project run share one Jest-compatible summary. Manual `__mocks__` lookup,
 virtual CommonJS factories, assertion counts, and transformer/test cache
 isolation are covered. Complete
-resolution/config semantics, V8 coverage, path/glob threshold groups,
-interactive watch controls, and non-Git changed-file selection remain missing, so Rjest
-does not claim broad or drop-in Jest compatibility yet.
+resolution/config semantics, V8 coverage, path/glob threshold groups, watch
+plugins, and non-Git changed-file selection remain missing, so Rjest does not
+claim broad or drop-in Jest compatibility yet.
 
 The modern timer surface includes animation-frame scheduling, cancellation,
 timestamps, and `advanceTimersToNextFrame` in JSDOM. Legacy mode preserves its

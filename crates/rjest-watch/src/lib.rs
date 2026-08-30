@@ -3,7 +3,7 @@
 use std::{
     collections::BTreeSet,
     path::{Component, Path, PathBuf},
-    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError},
     time::{Duration, Instant},
 };
 
@@ -95,6 +95,37 @@ impl NativeWatcher {
             }
         }
 
+        self.settle_changes(changed)
+    }
+
+    /// Returns a settled filesystem batch when one is already pending.
+    ///
+    /// This non-blocking entry point lets watch coordinators multiplex native
+    /// events with terminal input and active-run completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the platform watcher reports a failure or closes
+    /// unexpectedly.
+    pub fn try_wait_for_change(&self) -> Result<Option<Vec<PathBuf>>> {
+        let mut changed = BTreeSet::new();
+        loop {
+            match self.receiver.try_recv() {
+                Ok(Ok(event)) => {
+                    if self.filter.collect(&event, &mut changed) {
+                        return self.settle_changes(changed).map(Some);
+                    }
+                }
+                Ok(Err(error)) => return Err(error).context("native filesystem watch failed"),
+                Err(TryRecvError::Empty) => return Ok(None),
+                Err(TryRecvError::Disconnected) => {
+                    bail!("native filesystem watcher stopped unexpectedly");
+                }
+            }
+        }
+    }
+
+    fn settle_changes(&self, mut changed: BTreeSet<PathBuf>) -> Result<Vec<PathBuf>> {
         let mut deadline = Instant::now() + self.debounce;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -224,7 +255,10 @@ fn absolute_lexical(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, thread};
+    use std::{
+        fs, thread,
+        time::{Duration, Instant},
+    };
 
     use tempfile::tempdir;
 
@@ -265,6 +299,32 @@ mod tests {
         thread::spawn(move || fs::write(source, "export default 42;\n").expect("source write"));
 
         let changed = watcher.wait_for_change().expect("filesystem batch");
+        assert!(
+            changed
+                .iter()
+                .any(|path| path.file_name().is_some_and(|name| name == "value.js"))
+        );
+    }
+
+    #[test]
+    fn polls_a_pending_batch_without_blocking_the_coordinator() {
+        let temp = tempdir().expect("temp dir");
+        let watcher = NativeWatcher::start(&WatchOptions::new(vec![temp.path().to_path_buf()]))
+            .expect("native watcher");
+        assert!(watcher.try_wait_for_change().expect("empty poll").is_none());
+        fs::write(temp.path().join("value.js"), "export default 42;\n").expect("source write");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let changed = loop {
+            if let Some(changed) = watcher.try_wait_for_change().expect("filesystem poll") {
+                break changed;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "watcher did not report the write"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+
         assert!(
             changed
                 .iter()

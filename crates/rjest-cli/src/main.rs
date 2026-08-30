@@ -2,16 +2,21 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
     fs,
-    io::{BufRead, BufReader, Write as IoWrite},
+    io::{BufRead, BufReader, IsTerminal, Write as IoWrite},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     str::FromStr,
     sync::Mutex,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use clap::{ArgAction, Parser};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
 use rjest_config::ProjectConfig;
 use rjest_core::{
     AggregatedResult, ExecutionOrderConfig, GlobalExecutionConfig, SnapshotUpdate, TestFile,
@@ -21,6 +26,7 @@ use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_re
 use rjest_dependency::{
     DependencyGraph, GitChangeOptions, GraphOptions, git_changed_files_with_options,
 };
+use rjest_runner::CancellationToken;
 use rjest_watch::{NativeWatcher, WatchOptions};
 use sha1::{Digest, Sha1};
 
@@ -1381,6 +1387,125 @@ enum NativeReporterMode {
     Summary,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WatchAction {
+    FilesChanged,
+    Quit,
+    Rerun,
+    WatchAll,
+    WatchChanged,
+    ToggleFailures,
+    ClearFilters,
+    UpdateSnapshots,
+    PathPrompt,
+    TestNamePrompt,
+}
+
+struct WatchTerminal {
+    raw_mode: bool,
+}
+
+impl WatchTerminal {
+    fn start() -> Result<Option<Self>> {
+        if !std::io::stdin().is_terminal() {
+            return Ok(None);
+        }
+        enable_raw_mode().context("cannot enable interactive watch input")?;
+        Ok(Some(Self { raw_mode: true }))
+    }
+
+    fn poll_action(timeout: Duration) -> Result<Option<WatchAction>> {
+        if !event::poll(timeout).context("cannot poll interactive watch input")? {
+            return Ok(None);
+        }
+        let Event::Key(key) = event::read().context("cannot read interactive watch input")? else {
+            return Ok(None);
+        };
+        if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            return Ok(None);
+        }
+        Ok(watch_action_for_key(key))
+    }
+
+    fn read_pattern(&mut self, prompt: &str) -> Result<Option<String>> {
+        self.set_raw_mode(false)?;
+        eprint!("{prompt}");
+        std::io::stderr()
+            .flush()
+            .context("cannot flush interactive watch prompt")?;
+        let mut value = String::new();
+        let read_result = std::io::stdin()
+            .read_line(&mut value)
+            .context("cannot read interactive watch pattern");
+        let raw_result = self.set_raw_mode(true);
+        read_result?;
+        raw_result?;
+        let value = value.trim().to_owned();
+        Ok((!value.is_empty()).then_some(value))
+    }
+
+    fn set_raw_mode(&mut self, enabled: bool) -> Result<()> {
+        if self.raw_mode == enabled {
+            return Ok(());
+        }
+        if enabled {
+            enable_raw_mode().context("cannot restore interactive watch input")?;
+        } else {
+            disable_raw_mode().context("cannot suspend interactive watch input")?;
+        }
+        self.raw_mode = enabled;
+        Ok(())
+    }
+}
+
+impl Drop for WatchTerminal {
+    fn drop(&mut self) {
+        if self.raw_mode {
+            let _ = disable_raw_mode();
+        }
+    }
+}
+
+fn watch_action_for_key(key: KeyEvent) -> Option<WatchAction> {
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return match key.code {
+            KeyCode::Char('c' | 'd') => Some(WatchAction::Quit),
+            _ => None,
+        };
+    }
+    match key.code {
+        KeyCode::Enter => Some(WatchAction::Rerun),
+        KeyCode::Char('q') => Some(WatchAction::Quit),
+        KeyCode::Char('a') => Some(WatchAction::WatchAll),
+        KeyCode::Char('o') => Some(WatchAction::WatchChanged),
+        KeyCode::Char('f') => Some(WatchAction::ToggleFailures),
+        KeyCode::Char('c') => Some(WatchAction::ClearFilters),
+        KeyCode::Char('u') => Some(WatchAction::UpdateSnapshots),
+        KeyCode::Char('p') => Some(WatchAction::PathPrompt),
+        KeyCode::Char('t') => Some(WatchAction::TestNamePrompt),
+        KeyCode::Char('w' | '?') => {
+            write_watch_usage();
+            None
+        }
+        _ => None,
+    }
+}
+
+fn write_watch_usage() {
+    eprintln!(
+        "\nWatch Usage\n\
+         › Press a to run all tests.\n\
+         › Press f to run only failed tests.\n\
+         › Press o to run tests related to changed files.\n\
+         › Press p to filter by a filename pattern.\n\
+         › Press t to filter by a test name pattern.\n\
+         › Press u to update failing snapshots.\n\
+         › Press c to clear filters.\n\
+         › Press q to quit watch mode.\n\
+         › Press Enter to trigger a test run."
+    );
+}
+
 fn main() {
     match run() {
         Ok(true) => {}
@@ -1393,7 +1518,7 @@ fn main() {
 }
 
 fn run() -> Result<bool> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     ensure!(
         !cli.find_related_tests || !cli.test_path_patterns.is_empty(),
         "The --findRelatedTests option requires file paths to be specified.\n\
@@ -1431,51 +1556,18 @@ fn run() -> Result<bool> {
             show_seed,
             false,
             related.as_ref(),
+            None,
         );
     }
     if cli.watch_all || cli.watch {
-        let related = active_related_test_selection(
-            &cli,
-            &config,
-            &project_dir,
-            cli.watch && !cli.find_related_tests,
-        )?;
-        if !cli.find_related_tests && related.as_ref().is_some_and(|selection| !selection.has_scm) {
-            bail!("--watch is not supported without Git; use --watchAll");
-        }
-        let options = watch_options(&cli, &config, &project_dir);
-        let watcher = NativeWatcher::start(&options)?;
-        write_changed_selection_message(&cli, related.as_ref());
-        run_test_cycle(
-            &cli,
-            &config,
+        return run_watch_mode(
+            &mut cli,
+            &mut config,
             &project_dir,
             seed,
             randomize,
             show_seed,
-            true,
-            related.as_ref(),
-        )?;
-        loop {
-            watcher.wait_for_change()?;
-            let related = active_related_test_selection(
-                &cli,
-                &config,
-                &project_dir,
-                cli.watch && !cli.find_related_tests,
-            )?;
-            write_changed_selection_message(&cli, related.as_ref());
-            run_test_cycle(
-                &cli,
-                &config,
-                &project_dir,
-                seed,
-                randomize,
-                show_seed,
-                true,
-                related.as_ref(),
-            )?;
-        }
+        );
     }
     let related = active_related_test_selection(&cli, &config, &project_dir, changed_selection)?;
     write_changed_selection_message(&cli, related.as_ref());
@@ -1488,7 +1580,206 @@ fn run() -> Result<bool> {
         show_seed,
         false,
         related.as_ref(),
+        None,
     )
+}
+
+fn run_watch_mode(
+    cli: &mut Cli,
+    config: &mut ProjectConfig,
+    project_dir: &Path,
+    seed: i32,
+    randomize: bool,
+    show_seed: bool,
+) -> Result<bool> {
+    let options = watch_options(cli, config, project_dir);
+    let watcher = NativeWatcher::start(&options)?;
+    let mut terminal = WatchTerminal::start()?;
+    let mut snapshot_update_once = false;
+    loop {
+        let related = active_related_test_selection(
+            cli,
+            config,
+            project_dir,
+            cli.watch && !cli.find_related_tests,
+        )?;
+        if !cli.find_related_tests && related.as_ref().is_some_and(|selection| !selection.has_scm) {
+            bail!("--watch is not supported without Git; use --watchAll");
+        }
+        write_changed_selection_message(cli, related.as_ref());
+        let action = run_interruptible_watch_cycle(
+            cli,
+            config,
+            project_dir,
+            seed,
+            randomize,
+            show_seed,
+            related.as_ref(),
+            &watcher,
+            terminal.is_some(),
+        )?;
+        if snapshot_update_once {
+            cli.update_snapshot = false;
+            snapshot_update_once = false;
+        }
+        if action.is_none() && terminal.is_some() {
+            write_watch_usage();
+        }
+        let action = match action {
+            Some(action) => action,
+            None => wait_for_watch_action(&watcher, terminal.is_some())?,
+        };
+        if !apply_watch_action(
+            action,
+            cli,
+            config,
+            terminal.as_mut(),
+            &mut snapshot_update_once,
+        )? {
+            return Ok(true);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_interruptible_watch_cycle(
+    cli: &Cli,
+    config: &ProjectConfig,
+    project_dir: &Path,
+    seed: i32,
+    randomize: bool,
+    show_seed: bool,
+    related_selection: Option<&RelatedTestSelection>,
+    watcher: &NativeWatcher,
+    interactive: bool,
+) -> Result<Option<WatchAction>> {
+    let cancellation = CancellationToken::new();
+    let mut action = None;
+    let cycle_result = thread::scope(|scope| -> Result<bool> {
+        let run_cancellation = cancellation.clone();
+        let handle = scope.spawn(move || {
+            run_test_cycle(
+                cli,
+                config,
+                project_dir,
+                seed,
+                randomize,
+                show_seed,
+                true,
+                related_selection,
+                Some(&run_cancellation),
+            )
+        });
+        while !handle.is_finished() {
+            if interactive {
+                if WatchTerminal::poll_action(Duration::from_millis(10))?.is_some() {
+                    cancellation.cancel();
+                    // Jest uses actionable keys only to interrupt an active
+                    // run. The user must press the key again once the run is
+                    // idle to apply its normal action.
+                    action = None;
+                    break;
+                }
+            } else {
+                thread::sleep(Duration::from_millis(10));
+            }
+            if watcher.try_wait_for_change()?.is_some() {
+                // Jest ignores startRun while a run is active. Remember the
+                // change so the completed run is followed by one fresh run,
+                // but do not kill the active workers.
+                action = Some(WatchAction::FilesChanged);
+            }
+        }
+        handle
+            .join()
+            .map_err(|_| anyhow!("watch test cycle panicked"))?
+    });
+    cycle_result?;
+    Ok(action)
+}
+
+fn wait_for_watch_action(watcher: &NativeWatcher, interactive: bool) -> Result<WatchAction> {
+    loop {
+        if interactive {
+            if let Some(action) = WatchTerminal::poll_action(Duration::from_millis(25))? {
+                return Ok(action);
+            }
+        } else {
+            thread::sleep(Duration::from_millis(25));
+        }
+        if watcher.try_wait_for_change()?.is_some() {
+            return Ok(WatchAction::FilesChanged);
+        }
+    }
+}
+
+fn apply_watch_action(
+    action: WatchAction,
+    cli: &mut Cli,
+    config: &mut ProjectConfig,
+    terminal: Option<&mut WatchTerminal>,
+    snapshot_update_once: &mut bool,
+) -> Result<bool> {
+    match action {
+        WatchAction::Quit => return Ok(false),
+        WatchAction::FilesChanged | WatchAction::Rerun => {}
+        WatchAction::WatchAll => {
+            cli.watch_all = true;
+            cli.watch = false;
+            cli.test_path_patterns.clear();
+            cli.test_name_pattern = None;
+            set_only_changed(config, false);
+        }
+        WatchAction::WatchChanged | WatchAction::ClearFilters => {
+            cli.watch = true;
+            cli.watch_all = false;
+            cli.test_path_patterns.clear();
+            cli.test_name_pattern = None;
+            set_only_changed(config, true);
+        }
+        WatchAction::ToggleFailures => {
+            let enabled = !config.only_failures;
+            cli.only_failures = enabled;
+            set_only_failures(config, enabled);
+        }
+        WatchAction::UpdateSnapshots => {
+            cli.update_snapshot = true;
+            *snapshot_update_once = true;
+        }
+        WatchAction::PathPrompt => {
+            let input = terminal.context("interactive filename prompt is unavailable")?;
+            cli.test_path_patterns = input
+                .read_pattern("Pattern › ")?
+                .map(PathBuf::from)
+                .into_iter()
+                .collect();
+            cli.watch = true;
+            cli.watch_all = false;
+            set_only_changed(config, true);
+        }
+        WatchAction::TestNamePrompt => {
+            let input = terminal.context("interactive test-name prompt is unavailable")?;
+            cli.test_name_pattern = input.read_pattern("Test name pattern › ")?;
+            cli.watch = true;
+            cli.watch_all = false;
+            set_only_changed(config, true);
+        }
+    }
+    Ok(true)
+}
+
+fn set_only_changed(config: &mut ProjectConfig, enabled: bool) {
+    config.only_changed = enabled;
+    for project in &mut config.projects {
+        set_only_changed(project, enabled);
+    }
+}
+
+fn set_only_failures(config: &mut ProjectConfig, enabled: bool) {
+    config.only_failures = enabled;
+    for project in &mut config.projects {
+        set_only_failures(project, enabled);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1501,6 +1792,7 @@ fn run_test_cycle(
     show_seed: bool,
     watch_mode: bool,
     related_selection: Option<&RelatedTestSelection>,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<bool> {
     let test_path_patterns = if cli.find_related_tests {
         Vec::new()
@@ -1524,15 +1816,15 @@ fn run_test_cycle(
         .collect::<Result<Vec<_>>>()?;
     let (project_runs, mut sequencer_session, mut native_sequencer_cache) =
         order_project_runs(project_runs, config, seed, randomize, cli.shard)?;
+    if cancellation.is_some_and(CancellationToken::is_cancelled) {
+        finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
+        return Ok(true);
+    }
     let test_count = project_runs
         .iter()
         .map(|run| run.tests.len())
         .sum::<usize>();
-    let pass_with_no_tests = watch_mode
-        || cli.list_tests
-        || (related_selection.is_some() && !cli.find_related_tests)
-        || cli.pass_with_no_tests
-        || config.pass_with_no_tests;
+    let pass_with_no_tests = allows_no_tests(cli, config, watch_mode, related_selection.is_some());
     if cli.list_tests {
         return emit_test_list(
             cli,
@@ -1545,20 +1837,26 @@ fn run_test_cycle(
     }
 
     if test_count == 0 {
-        if config.only_failures {
-            finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
-            println!("No failed test found.");
-            return finish_empty_run(cli, config, pass_with_no_tests, seed, show_seed);
-        }
-        if !pass_with_no_tests {
-            bail!("No tests found");
-        }
-        finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
-        return finish_empty_run(cli, config, true, seed, show_seed);
+        return finish_no_test_cycle(
+            cli,
+            config,
+            pass_with_no_tests,
+            seed,
+            show_seed,
+            &mut sequencer_session,
+            &mut native_sequencer_cache,
+        );
     }
 
     let (result, collect_coverage, reporter_session, mut global_hook_session) =
-        execute_selected_runs(cli, config, project_runs, seed, randomize)?;
+        execute_selected_runs(cli, config, project_runs, seed, randomize, cancellation)?;
+    if cancellation.is_some_and(CancellationToken::is_cancelled) {
+        finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
+        if let Some(session) = global_hook_session.as_mut() {
+            session.finish()?;
+        }
+        return Ok(true);
+    }
     let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
     finish_test_sequencers(
         &mut sequencer_session,
@@ -1598,6 +1896,40 @@ fn run_test_cycle(
         )?;
     }
     Ok(final_success)
+}
+
+fn allows_no_tests(
+    cli: &Cli,
+    config: &ProjectConfig,
+    watch_mode: bool,
+    has_related_selection: bool,
+) -> bool {
+    watch_mode
+        || cli.list_tests
+        || (has_related_selection && !cli.find_related_tests)
+        || cli.pass_with_no_tests
+        || config.pass_with_no_tests
+}
+
+fn finish_no_test_cycle(
+    cli: &Cli,
+    config: &ProjectConfig,
+    pass_with_no_tests: bool,
+    seed: i32,
+    show_seed: bool,
+    sequencer_session: &mut Option<CustomTestSequencerSession>,
+    native_sequencer_cache: &mut Option<NativeSequencerCache>,
+) -> Result<bool> {
+    if config.only_failures {
+        finish_test_sequencers(sequencer_session, native_sequencer_cache, None)?;
+        println!("No failed test found.");
+        return finish_empty_run(cli, config, pass_with_no_tests, seed, show_seed);
+    }
+    if !pass_with_no_tests {
+        bail!("No tests found");
+    }
+    finish_test_sequencers(sequencer_session, native_sequencer_cache, None)?;
+    finish_empty_run(cli, config, true, seed, show_seed)
 }
 
 fn selected_project_run<'a>(
@@ -1862,6 +2194,7 @@ fn execute_selected_runs(
     project_runs: Vec<ProjectRun<'_>>,
     seed: i32,
     randomize: bool,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<(
     AggregatedResult,
     bool,
@@ -1881,15 +2214,14 @@ fn execute_selected_runs(
         .map_or(&empty_environment, GlobalHookSession::environment);
     let reporter_session =
         CustomReporterSession::start(config, cli, &project_runs, max_workers, seed, environment)?;
-    let (result, collect_coverage) = execute_project_runs(
-        cli,
-        config,
-        project_runs,
+    let execution = ProjectExecutionContext {
         max_workers,
-        ExecutionOrderConfig { seed, randomize },
-        reporter_session.as_ref(),
+        execution_order: ExecutionOrderConfig { seed, randomize },
+        reporter_session: reporter_session.as_ref(),
         environment,
-    )?;
+        cancellation,
+    };
+    let (result, collect_coverage) = execute_project_runs(cli, config, project_runs, &execution)?;
     Ok((
         result,
         collect_coverage,
@@ -2114,19 +2446,30 @@ fn normalize_test_path_patterns(patterns: &[PathBuf], project_dir: &Path) -> Vec
         .collect()
 }
 
+struct ProjectExecutionContext<'a> {
+    max_workers: usize,
+    execution_order: ExecutionOrderConfig,
+    reporter_session: Option<&'a CustomReporterSession>,
+    environment: &'a EnvironmentDelta,
+    cancellation: Option<&'a CancellationToken>,
+}
+
 fn execute_project_runs(
     cli: &Cli,
     global_config: &ProjectConfig,
     project_runs: Vec<ProjectRun<'_>>,
-    max_workers: usize,
-    execution_order: ExecutionOrderConfig,
-    reporter_session: Option<&CustomReporterSession>,
-    environment: &EnvironmentDelta,
+    execution: &ProjectExecutionContext<'_>,
 ) -> Result<(AggregatedResult, bool)> {
     let started = Instant::now();
     let mut result = AggregatedResult::default();
     let mut collect_coverage = false;
     for run in project_runs.into_iter().filter(|run| !run.tests.is_empty()) {
+        if execution
+            .cancellation
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            break;
+        }
         let failed = result.count(TestStatus::Failed);
         if global_config.bail != 0 && failed >= global_config.bail {
             break;
@@ -2141,17 +2484,15 @@ fn execute_project_runs(
         let options = runner_options(
             cli,
             &run,
-            max_workers,
             global_config.bail.saturating_sub(failed),
-            execution_order,
-            environment,
+            execution,
             coverage_settings,
         );
         let context_id = execution_projects(global_config)
             .iter()
             .position(|config| std::ptr::eq(*config, run.config))
             .expect("project run config belongs to the execution config");
-        let mut project_result = if let Some(session) = reporter_session {
+        let mut project_result = if let Some(session) = execution.reporter_session {
             rjest_runner::run_with_observer(
                 &run.tests,
                 &options,
@@ -2186,16 +2527,14 @@ fn execute_project_runs(
 fn runner_options(
     cli: &Cli,
     run: &ProjectRun<'_>,
-    max_workers: usize,
     bail: usize,
-    execution_order: ExecutionOrderConfig,
-    environment: &EnvironmentDelta,
+    execution: &ProjectExecutionContext<'_>,
     coverage: CoverageRunnerSettings,
 ) -> rjest_runner::RunnerOptions {
     rjest_runner::RunnerOptions {
-        max_workers,
+        max_workers: execution.max_workers,
         bail,
-        execution_order,
+        execution_order: execution.execution_order,
         test_name_pattern: cli.test_name_pattern.clone(),
         default_timeout_ms: run.config.test_timeout,
         root_dir: run.config.root_dir.clone(),
@@ -2239,7 +2578,8 @@ fn runner_options(
         coverage_path_ignore_patterns: coverage.path_ignore_patterns,
         coverage_filter: coverage.filter,
         coverage_sources: coverage.sources,
-        environment: environment.clone(),
+        cancellation: execution.cancellation.cloned(),
+        environment: execution.environment.clone(),
         snapshot_update: snapshot_update(cli),
         ..rjest_runner::RunnerOptions::default()
     }
@@ -3012,6 +3352,7 @@ fn indent(value: &str, spaces: usize) -> String {
 mod tests {
     use std::{fs, path::PathBuf};
 
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tempfile::tempdir;
 
     use clap::Parser;
@@ -3023,11 +3364,11 @@ mod tests {
     };
 
     use super::{
-        Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard,
-        changed_selection_enabled, clear_configured_caches, coverage_runner_settings,
-        filter_projects, native_context_key, native_reporter_mode, parse_max_workers,
-        sequence_project_runs_with_native, shard_tests, uses_modern_branches_true_summary,
-        validate_seed, watch_options,
+        Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard, WatchAction,
+        apply_watch_action, changed_selection_enabled, clear_configured_caches,
+        coverage_runner_settings, filter_projects, native_context_key, native_reporter_mode,
+        parse_max_workers, sequence_project_runs_with_native, shard_tests,
+        uses_modern_branches_true_summary, validate_seed, watch_action_for_key, watch_options,
     };
 
     #[test]
@@ -3048,6 +3389,72 @@ mod tests {
         let watch = Cli::try_parse_from(["rjest", "--watch"]).expect("watch flag");
         assert!(watch.watch);
         assert!(Cli::try_parse_from(["rjest", "--watch", "--watchAll"]).is_err());
+    }
+
+    #[test]
+    fn maps_and_applies_core_jest_watch_keys() {
+        let key = |code, modifiers| KeyEvent::new(code, modifiers);
+        assert_eq!(
+            watch_action_for_key(key(KeyCode::Char('q'), KeyModifiers::NONE)),
+            Some(WatchAction::Quit)
+        );
+        assert_eq!(
+            watch_action_for_key(key(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Some(WatchAction::Quit)
+        );
+        assert_eq!(
+            watch_action_for_key(key(KeyCode::Enter, KeyModifiers::NONE)),
+            Some(WatchAction::Rerun)
+        );
+        assert_eq!(
+            watch_action_for_key(key(KeyCode::Char('a'), KeyModifiers::NONE)),
+            Some(WatchAction::WatchAll)
+        );
+
+        let mut cli = Cli::try_parse_from([
+            "rjest",
+            "--watchAll",
+            "selected.test.js",
+            "--testNamePattern=selected",
+        ])
+        .expect("watchAll CLI");
+        let mut config = ProjectConfig::defaults(PathBuf::from(".").as_path()).expect("config");
+        let mut update_once = false;
+        assert!(
+            apply_watch_action(
+                WatchAction::WatchChanged,
+                &mut cli,
+                &mut config,
+                None,
+                &mut update_once,
+            )
+            .expect("watch changed action")
+        );
+        assert!(cli.watch);
+        assert!(!cli.watch_all);
+        assert!(cli.test_path_patterns.is_empty());
+        assert!(cli.test_name_pattern.is_none());
+        assert!(config.only_changed);
+
+        apply_watch_action(
+            WatchAction::ToggleFailures,
+            &mut cli,
+            &mut config,
+            None,
+            &mut update_once,
+        )
+        .expect("toggle failures");
+        assert!(config.only_failures);
+        apply_watch_action(
+            WatchAction::WatchAll,
+            &mut cli,
+            &mut config,
+            None,
+            &mut update_once,
+        )
+        .expect("watch all action");
+        assert!(cli.watch_all);
+        assert!(!config.only_changed);
     }
 
     #[test]

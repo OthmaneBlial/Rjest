@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 192,
-    "total": 192,
+    "passing": 193,
+    "total": 193,
     "percentage": 100
   },
   "categories": {
@@ -74,8 +74,8 @@
       "percentage": 100
     },
     "Watch": {
-      "passing": 3,
-      "total": 3,
+      "passing": 4,
+      "total": 4,
       "percentage": 100
     }
   },
@@ -1228,6 +1228,12 @@
     },
     {
       "name": "watch-related-no-scm",
+      "category": "Watch",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "watch-interactive-interruption",
       "category": "Watch",
       "compatible": true,
       "differences": []

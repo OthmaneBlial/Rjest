@@ -29,6 +29,7 @@ const prettierPath = require.resolve('prettier');
 const prettierV2Path = require.resolve('prettier-v2');
 const yarnPath = require.resolve('@yarnpkg/cli-dist/bin/yarn.js');
 const reportPath = join(repository, 'compat', 'jest-compatibility.json');
+const ptyRunner = join(repository, 'compat', 'pty_runner.py');
 
 const cases = [
   {
@@ -1294,13 +1295,39 @@ const watchCases = [
     category: 'Watch',
     mode: 'related-no-scm',
   },
+  {
+    name: 'watch-interactive-interruption',
+    category: 'Watch',
+    mode: 'interactive',
+  },
 ];
 
-const outcomes = cases.map(compareCase);
-for (const watchCase of watchCases) {
+const requestedCases = new Set(
+  (process.env.RJEST_COMPAT_FILTER ?? '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean),
+);
+const selectedCases = requestedCases.size
+  ? cases.filter(testCase => requestedCases.has(testCase.label ?? testCase.name))
+  : cases;
+const selectedWatchCases = requestedCases.size
+  ? watchCases.filter(testCase => requestedCases.has(testCase.name))
+  : watchCases;
+if (requestedCases.size && selectedCases.length + selectedWatchCases.length !== requestedCases.size) {
+  const selectedNames = new Set([
+    ...selectedCases.map(testCase => testCase.label ?? testCase.name),
+    ...selectedWatchCases.map(testCase => testCase.name),
+  ]);
+  const missing = [...requestedCases].filter(name => !selectedNames.has(name));
+  throw new Error(`Unknown compatibility filter: ${missing.join(', ')}`);
+}
+
+const outcomes = selectedCases.map(compareCase);
+for (const watchCase of selectedWatchCases) {
   outcomes.push(await compareWatchCompatibilityCase(watchCase));
 }
-writeCompatibilityReport(outcomes);
+if (!requestedCases.size) writeCompatibilityReport(outcomes);
 const passing = outcomes.filter(outcome => outcome.compatible).length;
 console.log(`Compatibility: ${passing}/${outcomes.length} differential scenarios compatible`);
 for (const [category, score] of categoryScores(outcomes)) {
@@ -1801,6 +1828,8 @@ function compareWatchCompatibilityCase(testCase) {
       return compareRelatedWatchCase(testCase);
     case 'related-no-scm':
       return compareNoScmWatchCase(testCase);
+    case 'interactive':
+      return compareInteractiveWatchCase(testCase);
     default:
       throw new Error(`Unknown watch compatibility mode: ${testCase.mode}`);
   }
@@ -1866,6 +1895,185 @@ async function compareRelatedWatchCase(testCase) {
   } finally {
     rmSync(temporary, {recursive: true, force: true});
   }
+}
+
+async function compareInteractiveWatchCase(testCase) {
+  const sourceFixture = join(fixtures, testCase.name);
+  const temporary = mkdtempSync(join(tmpdir(), 'rjest-interactive-watch-compat-'));
+  const jestFixture = join(temporary, 'jest');
+  const rjestFixture = join(temporary, 'rjest');
+  try {
+    cpSync(sourceFixture, jestFixture, {recursive: true});
+    cpSync(sourceFixture, rjestFixture, {recursive: true});
+    const environment = {
+      ...process.env,
+      CI: '',
+      NODE_PATH: join(repository, 'node_modules'),
+    };
+    const jestState = join(temporary, 'jest-state.txt');
+    const rjestState = join(temporary, 'rjest-state.txt');
+    writeFileSync(jestState, 'slow\n');
+    writeFileSync(rjestState, 'slow\n');
+    const jestResult = await exerciseInteractiveWatchProcess({
+      command: process.execPath,
+      args: [jest, '--watchAll', '--maxWorkers=2', '--no-cache', '--no-watchman'],
+      cwd: jestFixture,
+      environment,
+      label: `Jest (${testCase.name})`,
+      marker: join(temporary, 'jest-started.marker'),
+      results: join(temporary, 'jest-results.jsonl'),
+      state: jestState,
+    });
+    const rjestResult = await exerciseInteractiveWatchProcess({
+      command: rjest,
+      args: ['--watchAll', '--maxWorkers=2', '--no-cache', '--no-watchman'],
+      cwd: rjestFixture,
+      environment,
+      label: `Rjest (${testCase.name})`,
+      marker: join(temporary, 'rjest-started.marker'),
+      results: join(temporary, 'rjest-results.jsonl'),
+      state: rjestState,
+    });
+    const differences = [];
+    if (JSON.stringify(jestResult.runs) !== JSON.stringify(rjestResult.runs)) {
+      differences.push('interactive rerun results differ');
+    }
+    if (jestResult.interruptionMs > 5_000) {
+      fail(`${testCase.name}: Jest oracle did not interrupt its active run promptly`, jestResult);
+    }
+    if (rjestResult.interruptionMs > 5_000) {
+      differences.push(`Rjest active-run interruption took ${rjestResult.interruptionMs} ms`);
+    }
+    if (jestResult.exitCode !== rjestResult.exitCode) {
+      differences.push(`interactive exit ${rjestResult.exitCode} != Jest ${jestResult.exitCode}`);
+    }
+    if (differences.length > 0) {
+      console.error(`Differential mismatch for ${testCase.name}: ${differences.join('; ')}`);
+      console.error('Jest:', JSON.stringify(jestResult, null, 2));
+      console.error('Rjest:', JSON.stringify(rjestResult, null, 2));
+      fail(`${testCase.name}: expected Jest interactive-watch parity`, rjestResult);
+    }
+    return {
+      name: testCase.name,
+      category: testCase.category,
+      compatible: true,
+      differences,
+    };
+  } finally {
+    rmSync(temporary, {recursive: true, force: true});
+  }
+}
+
+async function exerciseInteractiveWatchProcess({
+  command,
+  args,
+  cwd,
+  environment,
+  label,
+  marker,
+  results,
+  state,
+}) {
+  const child = spawnInPseudoTerminal(command, args, {
+    cwd,
+    env: {
+      ...environment,
+      RJEST_INTERACTIVE_RESULTS: results,
+      RJEST_INTERACTIVE_STARTED: marker,
+      RJEST_INTERACTIVE_STATE: state,
+    },
+  });
+  let stdout = '';
+  let stderr = '';
+  let spawnError;
+  child.stdout.on('data', chunk => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', chunk => {
+    stderr += chunk;
+  });
+  child.on('error', error => {
+    spawnError = error;
+  });
+
+  let interruptionMs;
+  try {
+    await waitForFile({child, label, output: () => ({stdout, stderr}), path: marker});
+    const interruptedAt = Date.now();
+    writeFileSync(state, 'ready\n');
+    child.stdin.write('\r');
+    await waitForOutput({
+      child,
+      label,
+      output: () => ({stdout, stderr}),
+      predicate: () => /Watch Usage/i.test(`${stdout}\n${stderr}`),
+    });
+    interruptionMs = Date.now() - interruptedAt;
+    child.stdin.write('\r');
+    await waitForFile({child, label, output: () => ({stdout, stderr}), path: results});
+    await delay(500);
+    child.stdin.write('q');
+    await waitForNaturalExit({child, label, output: () => ({stdout, stderr})});
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGINT');
+    await waitForExit(child);
+  }
+  if (spawnError) fail(`${label} could not start: ${spawnError.message}`, {stdout, stderr});
+  const runs = readFileSync(results, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
+  return {exitCode: child.exitCode, interruptionMs, runs, stderr, stdout};
+}
+
+function spawnInPseudoTerminal(command, args, options) {
+  return spawn('python3', [ptyRunner, command, ...args], {
+    ...options,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+async function waitForOutput({child, label, output, predicate}) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const error = new Error(`${label} exited before producing expected terminal output`);
+      Object.assign(error, output());
+      throw error;
+    }
+    await delay(25);
+  }
+  const error = new Error(`${label} timed out waiting for terminal output`);
+  Object.assign(error, output());
+  throw error;
+}
+
+async function waitForNaturalExit({child, label, output}) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await delay(25);
+  }
+  const error = new Error(`${label} did not exit after the idle q command`);
+  Object.assign(error, output());
+  throw error;
+}
+
+async function waitForFile({child, label, output, path}) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return;
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const error = new Error(`${label} exited before creating ${path}`);
+      Object.assign(error, output());
+      throw error;
+    }
+    await delay(25);
+  }
+  const error = new Error(`${label} timed out waiting for ${path}`);
+  Object.assign(error, output());
+  throw error;
 }
 
 async function compareNoScmWatchCase(testCase) {
