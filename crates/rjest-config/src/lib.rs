@@ -130,6 +130,7 @@ pub struct ProjectConfig {
     pub transform: BTreeMap<String, Value>,
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
+    pub test_sequencer: Option<String>,
     pub bail: usize,
     pub randomize: bool,
     pub show_seed: bool,
@@ -196,6 +197,7 @@ struct RawProjectConfig {
     transform: Option<BTreeMap<String, Value>>,
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
+    test_sequencer: Option<String>,
     bail: Option<Value>,
     randomize: Option<bool>,
     show_seed: Option<bool>,
@@ -370,6 +372,7 @@ impl ProjectConfig {
             transform: BTreeMap::new(),
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
+            test_sequencer: None,
             bail: 0,
             randomize: false,
             show_seed: false,
@@ -679,6 +682,7 @@ fn merge_preset(
         snapshot_format,
         transform_ignore_patterns,
         test_timeout,
+        test_sequencer,
         bail,
         randomize,
         show_seed,
@@ -830,6 +834,9 @@ fn normalize(
     let resolver = raw
         .resolver
         .map(|value| normalize_module_reference(&value, &root_dir));
+    let test_sequencer = raw
+        .test_sequencer
+        .map(|value| normalize_module_reference(&value, &root_dir));
     let module_directories = raw
         .module_directories
         .unwrap_or(defaults.module_directories)
@@ -949,6 +956,7 @@ fn normalize(
         transform,
         transform_ignore_patterns,
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
+        test_sequencer,
         bail: normalize_bail(raw.bail, defaults.bail)?,
         randomize: raw.randomize.unwrap_or(defaults.randomize),
         show_seed: raw.show_seed.unwrap_or(defaults.show_seed),
@@ -1941,6 +1949,29 @@ mod tests {
         let package = load_inline_json(temp.path(), r#"{"resolver":"fixture-resolver"}"#)
             .expect("package resolver");
         assert_eq!(package.resolver.as_deref(), Some("fixture-resolver"));
+    }
+
+    #[test]
+    fn normalizes_custom_test_sequencer_module_references() {
+        let temp = tempdir().expect("temp dir");
+        let rooted = load_inline_json(
+            temp.path(),
+            r#"{"testSequencer":"<rootDir>/tools/sequencer.cjs"}"#,
+        )
+        .expect("rooted test sequencer");
+        assert_eq!(
+            rooted.test_sequencer,
+            Some(
+                temp.path()
+                    .join("tools/sequencer.cjs")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+
+        let package = load_inline_json(temp.path(), r#"{"testSequencer":"fixture"}"#)
+            .expect("package test sequencer");
+        assert_eq!(package.test_sequencer.as_deref(), Some("fixture"));
     }
 
     #[test]

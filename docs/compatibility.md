@@ -7,11 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 136/136 (100.0%) across its explicitly listed
+The current generated matrix is 139/139 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
-30/30 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 11/11 (100.0%), and environments are 7/7
+32/32 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
+Expect is 7/7 (100.0%), CLI is 12/12 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -105,8 +105,17 @@ Parallel bail atomically stops queued work and terminates in-flight Node workers
 the result that reaches the threshold is retained, while later results are not.
 After sharding, bail-enabled project matrices are sequenced as one combined test
 set using Jest's uncached larger-file-first fallback while retaining each file's
-own project configuration. Persisted Jest performance-cache ordering and custom
-sequencers are not implemented yet.
+own project configuration. Rjest does not yet persist performance data for its
+native default sequencer.
+Configured CommonJS and native-ESM `testSequencer` classes now run in a
+persistent Node bridge. One instance receives Jest-shaped `contexts` and
+`globalConfig`, synchronous or asynchronous `shard` runs before `sort`, returned
+test identity preserves project ownership, and `cacheResults` receives the
+executed aggregate after the run. Differentials cover seed-sensitive reverse
+ordering, custom shard membership, inherited `@jest/test-sequencer` caching,
+and native ESM loading. `--onlyFailures`/`allFailedTests`, the CLI
+`--testSequencer` override, and sequencer resolution through a configured custom
+resolver remain unsupported.
 New and mismatched inline snapshots rewrite the original matcher callsite in
 update modes. V8 stack locations are remapped through transformer source maps,
 then Babel parses and regenerates only the matched call expression. The

@@ -3,19 +3,19 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 136,
-    "total": 136,
+    "passing": 139,
+    "total": 139,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 11,
-      "total": 11,
+      "passing": 12,
+      "total": 12,
       "percentage": 100
     },
     "Configuration": {
-      "passing": 30,
-      "total": 30,
+      "passing": 32,
+      "total": 32,
       "percentage": 100
     },
     "Core API": {
@@ -643,6 +643,24 @@
     {
       "name": "config-projects-bail",
       "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-sequencer-sort",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-sequencer-shard",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-sequencer-esm",
+      "category": "Configuration",
       "compatible": true,
       "differences": []
     },

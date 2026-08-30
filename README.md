@@ -54,6 +54,10 @@ parent project root, while ordinary relative entries resolve from the parent
 config file as in Jest. The variadic `--projects` CLI form also loads multiple
 project directories or config files in one invocation. `--selectProjects` and
 `--ignoreProjects` compose as display-name filters over that execution matrix.
+Configured CommonJS and ESM `testSequencer` classes receive Jest-shaped project
+contexts and global seed/shard options. Their synchronous or asynchronous
+`shard` hook runs before `sort`, and the same instance receives post-run
+`cacheResults` data.
 Exported async config functions and supported `fakeTimers` options work. Unknown
 Jest options fail explicitly rather than being ignored. Node 22.18 or newer is
 required; the current TypeScript path uses Node's native erasable-syntax support

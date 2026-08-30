@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
+    io::{BufRead, BufReader, Write as IoWrite},
     path::{Path, PathBuf},
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     str::FromStr,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
@@ -15,6 +17,9 @@ use rjest_core::{
 };
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
 use sha1::{Digest, Sha1};
+
+const TEST_SEQUENCER_BRIDGE: &str = include_str!("../runtime/test-sequencer.mjs");
+const TEST_SEQUENCER_PREFIX: &str = "__RJEST_SEQUENCER__";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Shard {
@@ -255,6 +260,134 @@ struct ProjectRun<'a> {
     tests: Vec<TestFile>,
 }
 
+#[derive(Clone)]
+struct SequencerUnit<'a> {
+    config: &'a ProjectConfig,
+    test: TestFile,
+}
+
+struct CustomTestSequencerSession {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stdout: BufReader<ChildStdout>,
+    finished: bool,
+}
+
+impl CustomTestSequencerSession {
+    fn start(request: &serde_json::Value) -> Result<(Self, Vec<usize>)> {
+        let mut child = Command::new("node")
+            .arg("--input-type=module")
+            .arg("--eval")
+            .arg(TEST_SEQUENCER_BRIDGE)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .context("cannot start the configured Jest test sequencer")?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("sequencer stdin is unavailable")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("sequencer stdout is unavailable")?;
+        writeln!(stdin, "{}", serde_json::to_string(request)?)
+            .context("cannot send tests to the configured Jest test sequencer")?;
+        stdin
+            .flush()
+            .context("cannot flush the configured Jest test sequencer request")?;
+        let mut session = Self {
+            child,
+            stdin: Some(stdin),
+            stdout: BufReader::new(stdout),
+            finished: false,
+        };
+        let response = session.read_response()?;
+        let order = response
+            .get("order")
+            .and_then(serde_json::Value::as_array)
+            .context("configured Jest test sequencer returned no test order")?
+            .iter()
+            .map(|value| {
+                value
+                    .as_u64()
+                    .and_then(|value| usize::try_from(value).ok())
+                    .context("configured Jest test sequencer returned an invalid test identity")
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok((session, order))
+    }
+
+    fn finish(&mut self, result: Option<&AggregatedResult>) -> Result<()> {
+        let action = result.map_or_else(
+            || serde_json::json!({"action": "close"}),
+            |result| serde_json::json!({"action": "cacheResults", "result": result}),
+        );
+        let stdin = self
+            .stdin
+            .as_mut()
+            .context("configured Jest test sequencer session is already closed")?;
+        writeln!(stdin, "{}", serde_json::to_string(&action)?)
+            .context("cannot finalize the configured Jest test sequencer")?;
+        stdin
+            .flush()
+            .context("cannot flush the configured Jest test sequencer finalization")?;
+        let response = self.read_response();
+        self.stdin.take();
+        let status = self
+            .child
+            .wait()
+            .context("cannot wait for the configured Jest test sequencer")?;
+        self.finished = true;
+        response?;
+        ensure!(
+            status.success(),
+            "configured Jest test sequencer exited with {status}"
+        );
+        Ok(())
+    }
+
+    fn read_response(&mut self) -> Result<serde_json::Value> {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let read = self
+                .stdout
+                .read_line(&mut line)
+                .context("cannot read the configured Jest test sequencer response")?;
+            ensure!(
+                read != 0,
+                "configured Jest test sequencer exited without a response"
+            );
+            let Some(payload) = line.trim_end().strip_prefix(TEST_SEQUENCER_PREFIX) else {
+                continue;
+            };
+            let response: serde_json::Value = serde_json::from_str(payload)
+                .context("configured Jest test sequencer returned invalid JSON")?;
+            if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                let message = response
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown test sequencer error");
+                bail!("configured Jest test sequencer failed: {message}");
+            }
+            return Ok(response);
+        }
+    }
+}
+
+impl Drop for CustomTestSequencerSession {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.stdin.take();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct ReportSettings {
     silent: bool,
@@ -295,7 +428,12 @@ fn run() -> Result<bool> {
     let selected_projects =
         filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
     write_project_selection_message(&cli, &all_projects, &selected_projects);
-    let mut project_runs = selected_projects
+    let seed = cli
+        .seed
+        .map_or_else(|| Ok(generated_seed()), validate_seed)?;
+    let randomize = cli.randomize || config.randomize;
+    let show_seed = randomize || cli.show_seed || config.show_seed;
+    let project_runs = selected_projects
         .into_iter()
         .map(|project_config| {
             Ok(ProjectRun {
@@ -304,25 +442,20 @@ fn run() -> Result<bool> {
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    if let Some(shard) = cli.shard {
-        shard_project_runs(&mut project_runs, shard);
-    }
-    if config.bail != 0 {
-        project_runs = sequence_project_runs_for_bail(project_runs);
-    }
+    let (project_runs, mut sequencer_session) =
+        order_project_runs(project_runs, &config, seed, randomize, cli.shard)?;
     let test_count = project_runs
         .iter()
         .map(|run| run.tests.len())
         .sum::<usize>();
     let pass_with_no_tests = cli.pass_with_no_tests || config.pass_with_no_tests;
     if cli.list_tests {
-        let unique_tests = project_runs
-            .iter()
-            .flat_map(|run| &run.tests)
-            .map(|test| test.path.clone())
-            .collect::<BTreeSet<_>>();
+        let unique_tests = unique_test_paths(&project_runs, config.test_sequencer.is_some());
         for path in &unique_tests {
             println!("{}", path.display());
+        }
+        if let Some(session) = sequencer_session.as_mut() {
+            session.finish(None)?;
         }
         return if unique_tests.is_empty() && cli.shard.is_none() && !pass_with_no_tests {
             bail!("No tests found");
@@ -331,14 +464,12 @@ fn run() -> Result<bool> {
         };
     }
 
-    let seed = cli
-        .seed
-        .map_or_else(|| Ok(generated_seed()), validate_seed)?;
-    let randomize = cli.randomize || config.randomize;
-    let show_seed = randomize || cli.show_seed || config.show_seed;
     if test_count == 0 {
         if !pass_with_no_tests {
             bail!("No tests found");
+        }
+        if let Some(session) = sequencer_session.as_mut() {
+            session.finish(None)?;
         }
         emit_results(
             &cli,
@@ -364,6 +495,9 @@ fn run() -> Result<bool> {
         ExecutionOrderConfig { seed, randomize },
     )?;
     let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
+    if let Some(session) = sequencer_session.as_mut() {
+        session.finish((!bail_reached).then_some(&result))?;
+    }
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
     if !bail_reached || !cli.json {
         emit_results(
@@ -379,6 +513,48 @@ fn run() -> Result<bool> {
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn order_project_runs<'a>(
+    mut project_runs: Vec<ProjectRun<'a>>,
+    config: &ProjectConfig,
+    seed: i32,
+    randomize: bool,
+    shard: Option<Shard>,
+) -> Result<(Vec<ProjectRun<'a>>, Option<CustomTestSequencerSession>)> {
+    if config.test_sequencer.is_some() {
+        let (sequenced, session) =
+            sequence_project_runs_with_custom(project_runs, config, seed, randomize, shard)?;
+        return Ok((sequenced, Some(session)));
+    }
+    if let Some(shard) = shard {
+        shard_project_runs(&mut project_runs, shard);
+    }
+    if config.bail != 0 {
+        project_runs = sequence_project_runs_for_bail(project_runs);
+    }
+    Ok((project_runs, None))
+}
+
+fn unique_test_paths(project_runs: &[ProjectRun<'_>], preserve_order: bool) -> Vec<PathBuf> {
+    if !preserve_order {
+        return project_runs
+            .iter()
+            .flat_map(|run| &run.tests)
+            .map(|test| test.path.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+    }
+    let mut unique_paths = BTreeSet::new();
+    project_runs
+        .iter()
+        .flat_map(|run| &run.tests)
+        .filter_map(|test| {
+            let path = test.path.clone();
+            unique_paths.insert(path.clone()).then_some(path)
+        })
+        .collect()
 }
 
 fn normalize_test_path_patterns(patterns: &[PathBuf], project_dir: &Path) -> Vec<PathBuf> {
@@ -645,6 +821,89 @@ fn shard_project_runs(project_runs: &mut [ProjectRun<'_>], shard: Shard) {
     for (_, project_index, test) in flattened.into_iter().skip(start).take(size) {
         project_runs[project_index].tests.push(test);
     }
+}
+
+fn sequence_project_runs_with_custom<'a>(
+    project_runs: Vec<ProjectRun<'a>>,
+    global_config: &ProjectConfig,
+    seed: i32,
+    randomize: bool,
+    shard: Option<Shard>,
+) -> Result<(Vec<ProjectRun<'a>>, CustomTestSequencerSession)> {
+    let contexts = project_runs
+        .iter()
+        .enumerate()
+        .map(|(id, run)| {
+            serde_json::json!({
+                "id": id,
+                "rootDir": run.config.root_dir,
+                "displayName": run.config.display_name,
+            })
+        })
+        .collect::<Vec<_>>();
+    let units = project_runs
+        .into_iter()
+        .enumerate()
+        .flat_map(|(context_id, run)| {
+            run.tests
+                .into_iter()
+                .map(move |test| SequencerUnit {
+                    config: run.config,
+                    test,
+                })
+                .map(move |unit| (context_id, unit))
+        })
+        .collect::<Vec<_>>();
+    let tests = units
+        .iter()
+        .enumerate()
+        .map(|(id, (context_id, unit))| {
+            serde_json::json!({
+                "id": id,
+                "contextId": context_id,
+                "path": unit.test.path,
+            })
+        })
+        .collect::<Vec<_>>();
+    let shard = shard.map(|shard| {
+        serde_json::json!({
+            "shardIndex": shard.index,
+            "shardCount": shard.count,
+        })
+    });
+    let test_sequencer = global_config
+        .test_sequencer
+        .as_deref()
+        .context("custom test sequencer path is missing")?;
+    let request = serde_json::json!({
+        "testSequencer": test_sequencer,
+        "rootDir": global_config.root_dir,
+        "seed": seed,
+        "randomize": randomize,
+        "bail": global_config.bail,
+        "shard": shard,
+        "contexts": contexts,
+        "tests": tests,
+    });
+    let (session, order) = CustomTestSequencerSession::start(&request)?;
+    let mut ordered: Vec<ProjectRun<'a>> = Vec::new();
+    for id in order {
+        let (_, unit) = units
+            .get(id)
+            .with_context(|| format!("configured Jest test sequencer returned unknown test {id}"))?
+            .clone();
+        if let Some(previous) = ordered.last_mut()
+            && std::ptr::eq(previous.config, unit.config)
+        {
+            previous.tests.push(unit.test);
+        } else {
+            ordered.push(ProjectRun {
+                config: unit.config,
+                tests: vec![unit.test],
+            });
+        }
+    }
+    Ok((ordered, session))
 }
 
 fn sequence_project_runs_for_bail(project_runs: Vec<ProjectRun<'_>>) -> Vec<ProjectRun<'_>> {
