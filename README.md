@@ -40,6 +40,7 @@ cargo run -p rjest-cli -- --randomize --seed=1234
 cargo run -p rjest-cli -- --shard=1/3
 cargo run -p rjest-cli -- --bail
 cargo run -p rjest-cli -- --projects packages/api packages/web
+cargo run -p rjest-cli -- --selectProjects web --ignoreProjects legacy
 ```
 
 Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
@@ -51,7 +52,8 @@ Multi-project configs accept inline objects, project directories, config-file
 paths, and standard path globs. `<rootDir>` project entries resolve from the
 parent project root, while ordinary relative entries resolve from the parent
 config file as in Jest. The variadic `--projects` CLI form also loads multiple
-project directories or config files in one invocation.
+project directories or config files in one invocation. `--selectProjects` and
+`--ignoreProjects` compose as display-name filters over that execution matrix.
 Exported async config functions and supported `fakeTimers` options work. Unknown
 Jest options fail explicitly rather than being ignored. Node 22.18 or newer is
 required; the current TypeScript path uses Node's native erasable-syntax support

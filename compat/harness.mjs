@@ -85,6 +85,22 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-projects-select',
+    category: 'CLI',
+    expectedExit: 0,
+    fixtureName: 'config-projects-inline',
+    selectProjects: ['beta'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-projects-ignore',
+    category: 'CLI',
+    expectedExit: 0,
+    fixtureName: 'config-projects-inline',
+    ignoreProjects: ['alpha'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-projects-rootdir-cli-path',
     category: 'Configuration',
     expectedExit: 0,
@@ -739,7 +755,7 @@ function defaultProjectConfig(rootDir) {
 
 function compareCase(testCase) {
   const label = testCase.label ?? testCase.name;
-  const sourceFixture = join(fixtures, testCase.name);
+  const sourceFixture = join(fixtures, testCase.fixtureName ?? testCase.name);
   const temporary = mkdtempSync(join(tmpdir(), 'rjest-compat-'));
   const jestOutput = join(temporary, 'jest-result.json');
   const jestFixture = join(temporary, 'jest');
@@ -776,6 +792,12 @@ function compareCase(testCase) {
     const jestArguments = [testCase.jestExecutable ?? jest, '--runInBand'];
     if (testCase.projects) {
       jestArguments.push('--projects', ...testCase.projects);
+    }
+    if (testCase.selectProjects) {
+      jestArguments.push('--selectProjects', ...testCase.selectProjects);
+    }
+    if (testCase.ignoreProjects) {
+      jestArguments.push('--ignoreProjects', ...testCase.ignoreProjects);
     }
     if (testCase.compareExecutionMarkers) jestArguments.push('--no-cache');
     else jestArguments.push('--json', `--outputFile=${jestOutput}`);
@@ -830,6 +852,12 @@ function compareCase(testCase) {
     ];
     if (testCase.projects) {
       rjestArguments.push('--projects', ...testCase.projects);
+    }
+    if (testCase.selectProjects) {
+      rjestArguments.push('--selectProjects', ...testCase.selectProjects);
+    }
+    if (testCase.ignoreProjects) {
+      rjestArguments.push('--ignoreProjects', ...testCase.ignoreProjects);
     }
     if (!testCase.compareExecutionMarkers) rjestArguments.push('--json');
     if (!testCase.useFixtureConfig) {

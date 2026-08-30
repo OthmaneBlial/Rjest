@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
     path::{Path, PathBuf},
     str::FromStr,
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -72,6 +73,14 @@ struct Cli {
     /// Project directories or config files to run in one Jest invocation.
     #[arg(long, value_name = "PATH", num_args = 1.., action = ArgAction::Append)]
     projects: Vec<PathBuf>,
+
+    /// Run only projects whose configured display name is selected.
+    #[arg(long = "selectProjects", value_name = "NAME", num_args = 1.., action = ArgAction::Append)]
+    select_projects: Vec<String>,
+
+    /// Exclude projects whose configured display name is ignored.
+    #[arg(long = "ignoreProjects", value_name = "NAME", num_args = 1.., action = ArgAction::Append)]
+    ignore_projects: Vec<String>,
 
     /// Print all selected test files and exit.
     #[arg(long = "listTests", visible_alias = "list-tests", action = ArgAction::SetTrue)]
@@ -282,7 +291,11 @@ fn run() -> Result<bool> {
     }
 
     let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, &project_dir);
-    let mut project_runs = execution_projects(&config)
+    let all_projects = execution_projects(&config);
+    let selected_projects =
+        filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
+    write_project_selection_message(&cli, &all_projects, &selected_projects);
+    let mut project_runs = selected_projects
         .into_iter()
         .map(|project_config| {
             Ok(ProjectRun {
@@ -476,6 +489,106 @@ fn execution_projects(config: &ProjectConfig) -> Vec<&ProjectConfig> {
     } else {
         config.projects.iter().collect()
     }
+}
+
+fn filter_projects<'a>(
+    projects: &[&'a ProjectConfig],
+    selected_names: &[String],
+    ignored_names: &[String],
+) -> Vec<&'a ProjectConfig> {
+    projects
+        .iter()
+        .copied()
+        .filter(|project| {
+            let name = project
+                .display_name
+                .as_ref()
+                .map(|display_name| display_name.name.as_str());
+            let selected = selected_names.is_empty()
+                || name.is_some_and(|name| selected_names.iter().any(|value| value == name));
+            let ignored = name.is_some_and(|name| ignored_names.iter().any(|value| value == name));
+            selected && !ignored
+        })
+        .collect()
+}
+
+fn write_project_selection_message(
+    cli: &Cli,
+    projects: &[&ProjectConfig],
+    selected: &[&ProjectConfig],
+) {
+    if cli.select_projects.is_empty() && cli.ignore_projects.is_empty() {
+        return;
+    }
+    let mut message = String::new();
+    let unnamed = projects
+        .iter()
+        .filter(|project| project.display_name.is_none())
+        .count();
+    if unnamed > 0 {
+        let mut args = Vec::new();
+        if !cli.select_projects.is_empty() {
+            args.push("--selectProjects");
+        }
+        if !cli.ignore_projects.is_empty() {
+            args.push("--ignoreProjects");
+        }
+        let project_label = if unnamed == 1 {
+            "a project does not have a name".to_owned()
+        } else {
+            format!("{unnamed} projects do not have a name")
+        };
+        write!(
+            message,
+            "You provided values for {} but {project_label}.\nSet displayName in the config of all projects in order to disable this warning.\n",
+            args.join(" and ")
+        )
+        .expect("writing to a String cannot fail");
+    }
+    message.push_str(&project_selection_summary(cli, selected));
+    if cli.json {
+        eprint!("{message}");
+    } else {
+        print!("{message}");
+    }
+}
+
+fn project_selection_summary(cli: &Cli, selected: &[&ProjectConfig]) -> String {
+    if selected.is_empty() {
+        if !cli.select_projects.is_empty() && !cli.ignore_projects.is_empty() {
+            return "You provided values for --selectProjects and --ignoreProjects, but no projects were found matching the selection.\nAre you ignoring all the selected projects?\n".into();
+        }
+        if !cli.ignore_projects.is_empty() {
+            return "You provided values for --ignoreProjects, but no projects were found matching the selection.\nAre you ignoring all projects?\n".into();
+        }
+        return "You provided values for --selectProjects but no projects were found matching the selection.\n".into();
+    }
+    if selected.len() == 1 {
+        let name = selected[0]
+            .display_name
+            .as_ref()
+            .map_or("<unnamed project>", |display_name| &display_name.name);
+        return format!("Running one project: {name}\n");
+    }
+    let mut names = selected
+        .iter()
+        .map(|project| {
+            project
+                .display_name
+                .as_ref()
+                .map_or("<unnamed project>", |display_name| &display_name.name)
+        })
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    format!(
+        "Running {} projects:\n{}\n",
+        selected.len(),
+        names
+            .into_iter()
+            .map(|name| format!("- {name}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 fn snapshot_update(cli: &Cli) -> SnapshotUpdate {
@@ -901,11 +1014,12 @@ mod tests {
 
     use clap::Parser;
 
+    use rjest_config::{ProjectConfig, ProjectDisplayName};
     use rjest_core::TestFile;
 
     use super::{
-        Cli, Shard, parse_max_workers, shard_tests, uses_modern_branches_true_summary,
-        validate_seed,
+        Cli, Shard, filter_projects, parse_max_workers, shard_tests,
+        uses_modern_branches_true_summary, validate_seed,
     };
 
     #[test]
@@ -935,6 +1049,42 @@ mod tests {
             ]
         );
         assert!(cli.run_in_band);
+    }
+
+    #[test]
+    fn accepts_variadic_project_name_filters() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--selectProjects",
+            "alpha",
+            "beta",
+            "--ignoreProjects",
+            "beta",
+            "--runInBand",
+        ])
+        .expect("Jest project name filters");
+
+        assert_eq!(cli.select_projects, ["alpha", "beta"]);
+        assert_eq!(cli.ignore_projects, ["beta"]);
+        assert!(cli.run_in_band);
+    }
+
+    #[test]
+    fn filters_named_and_unnamed_projects_like_jest() {
+        let temp = tempdir().expect("temp dir");
+        let mut named = ProjectConfig::defaults(temp.path()).expect("named config");
+        named.display_name = Some(ProjectDisplayName {
+            name: "alpha".into(),
+            color: "white".into(),
+        });
+        let unnamed = ProjectConfig::defaults(temp.path()).expect("unnamed config");
+        let projects = [&named, &unnamed];
+
+        assert_eq!(filter_projects(&projects, &["alpha".into()], &[]), [&named]);
+        assert_eq!(
+            filter_projects(&projects, &[], &["alpha".into()]),
+            [&unnamed]
+        );
     }
 
     #[test]

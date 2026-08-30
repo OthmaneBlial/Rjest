@@ -33,8 +33,9 @@ ts-node fallback; `.mts` remains ESM-only.
 Root `projects` arrays may contain inline objects, project directories,
 supported config-file paths, and standard path globs. The variadic
 `rjest --projects project-a project-b` form also runs several project
-directories or config files in one invocation. Keep Jest as the gate for
-`--selectProjects`, `--ignoreProjects`, and unmeasured cross-project coverage,
+directories or config files in one invocation. Display-name filtering through
+`--selectProjects` and `--ignoreProjects` follows Jest's composed selection and
+exclusion rules. Keep Jest as the gate for unmeasured cross-project coverage,
 sharding, bail, or reporter combinations.
 
 The `fakeTimers` configuration supports global modern or legacy activation,
