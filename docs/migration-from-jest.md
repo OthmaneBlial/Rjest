@@ -21,8 +21,10 @@ Common `jest.config.js`, CJS, ESM, and erasable TypeScript config files can be
 used directly, as can Jest's inline JSON form of `--config`. Rjest normalizes
 discovery, environment/options, transform,
 setup-after-env, serializer, module-path, timeout, worker, and common tooling
-fields; unsupported options are migration work items and produce an explicit
-error.
+fields, including project-level `silent`; unsupported options are migration
+work items and produce an explicit error. For implicit `jest.config.mts`
+discovery, Rjest follows an installed Jest version's boundary: Jest releases
+before 30.4 ignore that filename, while 30.4 and later treat it as a config.
 
 The `fakeTimers` configuration supports global modern or legacy activation,
 `advanceTimers`, `doNotFake`, `now`, and `timerLimit`. Explicit
@@ -75,6 +77,8 @@ path/glob-specific threshold groups.
 
 Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.
+Transformed native ESM also falls back to Jest's configured extension order
+when Node rejects a relative import, including extensionless `.ts` imports.
 `moduleNameMapper` supports ordered rules, capture substitution, and fallback
 targets for CommonJS, transformed CommonJS, and the covered native-ESM paths.
 Keep Jest for suites relying on custom resolvers, pnpm/Yarn PnP edge cases, or

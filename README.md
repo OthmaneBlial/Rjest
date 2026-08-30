@@ -191,6 +191,12 @@ validates cross-package public exports, cookie storage, and server contexts.
 Both runners pass 7/7 suites and 50/50 tests with exact coverage across 21
 files.
 
+The pinned [NVIDIA Nsight VS Code language-support corpus](docs/corpus/nsight-vscode-language.md)
+adds Jest 30 native TypeScript, an ESM custom environment and transformer,
+extensionless ESM imports, VS Code mocks, and filesystem-heavy tests. Official
+Jest and Rjest reproduce the same 8 suite paths and all 95 test statuses,
+including the same single upstream macOS path failure.
+
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
 [progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).

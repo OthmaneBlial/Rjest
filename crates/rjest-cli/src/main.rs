@@ -551,7 +551,7 @@ fn emit_results(
             result,
             &config.root_dir,
             &ReportSettings {
-                silent: cli.silent,
+                silent: cli.silent || config.silent,
                 verbose: cli.verbose,
                 log_heap_usage: cli.log_heap_usage,
                 show_seed,

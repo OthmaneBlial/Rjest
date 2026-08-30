@@ -160,7 +160,7 @@ for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
   };
 }
 
-const rootSuite = makeSuite('', null, undefined);
+const rootSuite = makeSuite('ROOT_DESCRIBE_BLOCK', undefined, undefined);
 let currentSuite = rootSuite;
 let definitionComplete = false;
 
@@ -2491,7 +2491,13 @@ function mappedModuleCandidates(specifier) {
 
 function esmParentPath(parentURL) {
   if (parentURL?.startsWith('file:')) return fileURLToPath(parentURL);
+  if (typeof parentURL === 'string' && isAbsolute(parentURL)) return parentURL;
   return request.testPath;
+}
+
+function esmParentFileUrl(parentURL) {
+  if (parentURL?.startsWith('file:')) return parentURL;
+  return pathToFileURL(esmParentPath(parentURL)).href;
 }
 
 function esmUrlForResolvedPath(path) {
@@ -2539,11 +2545,15 @@ function mappedEsmResolution(specifier, parentURL) {
 
 function esmMockCoordinates(specifier, parentURL) {
   const moduleName = String(specifier);
-  const relative = moduleName.startsWith('.') || moduleName.startsWith('/');
+  const relative = moduleName.startsWith('.') || isAbsolute(moduleName);
   const canonical =
     mappedEsmResolution(moduleName, parentURL) ??
     resolveEsmCandidate(moduleName, parentURL);
-  const fallback = relative ? new URL(moduleName, parentURL).href : moduleName;
+  const fallback = isAbsolute(moduleName)
+    ? pathToFileURL(moduleName).href
+    : relative
+      ? new URL(moduleName, esmParentFileUrl(parentURL)).href
+      : moduleName;
   const identity = relative ? canonical ?? fallback : moduleName;
   const decisionIdentity = canonical ?? fallback;
   return {
@@ -3386,7 +3396,21 @@ function configureEsmRuntime() {
           url: versionedEsmUrl(url),
         };
       }
-      return versionedEsmResolution(nextResolve(specifier, context));
+      try {
+        return versionedEsmResolution(nextResolve(specifier, context));
+      } catch (error) {
+        const moduleName = String(specifier);
+        if (moduleName.startsWith('.') || isAbsolute(moduleName)) {
+          const resolved = resolveEsmCandidate(moduleName, context.parentURL);
+          if (resolved) {
+            return {
+              shortCircuit: true,
+              url: versionedEsmUrl(resolved),
+            };
+          }
+        }
+        throw error;
+      }
     },
     load(url, context, nextLoad) {
       if (isDynamicImportBridgeUrl(url)) {

@@ -120,6 +120,7 @@ pub struct ProjectConfig {
     pub bail: usize,
     pub randomize: bool,
     pub show_seed: bool,
+    pub silent: bool,
     pub max_workers: Option<String>,
     pub worker_idle_memory_limit: Option<String>,
     pub collect_coverage: bool,
@@ -166,6 +167,7 @@ struct RawProjectConfig {
     bail: Option<Value>,
     randomize: Option<bool>,
     show_seed: Option<bool>,
+    silent: Option<bool>,
     max_workers: Option<NumberOrString>,
     worker_idle_memory_limit: Option<MemoryLimit>,
     collect_coverage: Option<bool>,
@@ -305,6 +307,7 @@ impl ProjectConfig {
             bail: 0,
             randomize: false,
             show_seed: false,
+            silent: false,
             max_workers: None,
             worker_idle_memory_limit: None,
             collect_coverage: false,
@@ -600,6 +603,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
         bail: normalize_bail(raw.bail, defaults.bail)?,
         randomize: raw.randomize.unwrap_or(defaults.randomize),
         show_seed: raw.show_seed.unwrap_or(defaults.show_seed),
+        silent: raw.silent.unwrap_or(defaults.silent),
         max_workers: raw.max_workers.map(NumberOrString::into_string),
         worker_idle_memory_limit: normalize_worker_idle_memory_limit(raw.worker_idle_memory_limit),
         collect_coverage: raw.collect_coverage.unwrap_or(defaults.collect_coverage),
@@ -932,10 +936,12 @@ fn normalize_coverage(
 }
 
 fn find_config(project_dir: &Path) -> Result<PathBuf, ConfigError> {
+    let supports_implicit_mts = installed_jest_supports_implicit_mts(project_dir);
     let mut directory = project_dir;
     loop {
         let mut candidates = CONFIG_FILENAMES
             .iter()
+            .filter(|name| supports_implicit_mts || **name != "jest.config.mts")
             .map(|name| directory.join(name))
             .filter(|candidate| candidate.is_file())
             .collect::<Vec<_>>();
@@ -971,6 +977,35 @@ fn find_config(project_dir: &Path) -> Result<PathBuf, ConfigError> {
         }
         directory = parent;
     }
+}
+
+fn installed_jest_supports_implicit_mts(project_dir: &Path) -> bool {
+    for directory in project_dir.ancestors() {
+        for package_name in ["jest-config", "jest"] {
+            let package = directory
+                .join("node_modules")
+                .join(package_name)
+                .join("package.json");
+            let Ok(source) = fs::read_to_string(package) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<Value>(&source) else {
+                continue;
+            };
+            let Some(version) = value.get("version").and_then(Value::as_str) else {
+                continue;
+            };
+            let mut parts = version.split(['.', '-']);
+            let Some(major) = parts.next().and_then(|part| part.parse::<u64>().ok()) else {
+                continue;
+            };
+            let Some(minor) = parts.next().and_then(|part| part.parse::<u64>().ok()) else {
+                continue;
+            };
+            return major > 30 || (major == 30 && minor >= 4);
+        }
+    }
+    true
 }
 
 fn json_value_is_truthy(value: &Value) -> bool {
@@ -1321,6 +1356,7 @@ mod tests {
               "coverageProvider":"babel",
               "coverageReporters":["json-summary","lcov"],
               "coverageThreshold":{"global":{"lines":90}},
+              "silent":true,
               "workerIdleMemoryLimit":"45MiB",
               "watchPlugins":["jest-watch-typeahead/filename"]
             }"#,
@@ -1329,6 +1365,7 @@ mod tests {
 
         let config = load(temp.path(), None).expect("load runtime config");
         assert_eq!(config.module_paths, [temp.path().join("src")]);
+        assert!(config.silent);
         assert_eq!(config.module_name_mapper[0].pattern, r"^@first/(.*)$");
         assert_eq!(
             config.module_name_mapper[0].replacements,
@@ -1479,6 +1516,57 @@ mod tests {
 
         assert!(matches!(
             load(temp.path(), None),
+            Err(ConfigError::MultipleConfigs(_))
+        ));
+    }
+
+    #[test]
+    fn follows_the_installed_jest_version_for_implicit_mts_discovery() {
+        let jest_30_0 = tempdir().expect("Jest 30.0 fixture");
+        fs::create_dir_all(jest_30_0.path().join("node_modules/jest"))
+            .expect("create Jest package");
+        fs::write(
+            jest_30_0.path().join("node_modules/jest/package.json"),
+            r#"{"version":"30.0.0"}"#,
+        )
+        .expect("write Jest version");
+        fs::write(
+            jest_30_0.path().join("jest.config.mjs"),
+            "export {default} from './jest.config.mts';",
+        )
+        .expect("write wrapper config");
+        fs::write(
+            jest_30_0.path().join("jest.config.mts"),
+            "export default {testTimeout: 1234};",
+        )
+        .expect("write TypeScript config");
+
+        let config = load(jest_30_0.path(), None).expect("load Jest 30.0 wrapper");
+        assert_eq!(config.test_timeout, 1_234);
+
+        let jest_30_4 = tempdir().expect("Jest 30.4 fixture");
+        fs::create_dir_all(jest_30_4.path().join("node_modules/jest-config"))
+            .expect("create Jest config package");
+        fs::write(
+            jest_30_4
+                .path()
+                .join("node_modules/jest-config/package.json"),
+            r#"{"version":"30.4.0"}"#,
+        )
+        .expect("write Jest config version");
+        fs::write(
+            jest_30_4.path().join("jest.config.mjs"),
+            "export default {};",
+        )
+        .expect("write module config");
+        fs::write(
+            jest_30_4.path().join("jest.config.mts"),
+            "export default {};",
+        )
+        .expect("write TypeScript module config");
+
+        assert!(matches!(
+            load(jest_30_4.path(), None),
             Err(ConfigError::MultipleConfigs(_))
         ));
     }

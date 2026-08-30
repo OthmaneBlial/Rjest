@@ -42,3 +42,8 @@ reliability boundary, not a security sandbox.
 Executable Jest configuration is also trusted user code. Rjest evaluates it in a
 short-lived Node process, requires the exported value to be JSON-compatible, and
 then applies the same strict Rust validation used for JSON/package configuration.
+Implicit discovery is version-aware at one compatibility boundary: installed
+Jest versions before 30.4 did not consider `jest.config.mts`, while newer Jest
+versions do. Rjest reads the local `jest-config` or `jest` package version when
+available so an existing project's discovery behavior remains stable during
+migration; explicit config paths remain directly loadable.

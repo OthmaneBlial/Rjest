@@ -7,10 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 104/104 (100.0%) across its explicitly listed
-scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
+The current generated matrix is 107/107 (100.0%) across its explicitly listed
+scenarios and categories. Core API is 11/11 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-21/21 (100.0%). CLI is 6/6 (100.0%) and environments are 7/7 (100.0%). These
+22/22 (100.0%). Resolution is 9/9 (100.0%), CLI is 6/6 (100.0%), and
+environments are 7/7 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
 
@@ -34,6 +35,11 @@ Implicit configuration discovery traverses parent directories in Jest's file
 extension order, treats a package without a `jest` field as a default-config
 project root, and stops at the nearest package boundary. Invocations without a
 config or package root fail instead of silently choosing the current directory.
+Because official Jest added implicit `jest.config.mts` discovery in 30.4,
+Rjest follows the locally installed `jest-config`/`jest` version when one is
+present. This preserves older Jest 30 `.mjs` wrapper projects while retaining
+current multiple-config errors for Jest 30.4 and later. Project-level `silent`
+configuration is normalized alongside the CLI flag.
 CommonJS `deepUnmock` propagates actual-module decisions through dependencies
 and cycles while retaining explicit-factory priority and ordinary-parent mocks.
 `jest.replaceProperty` covers prototype lookup, repeated handles, descriptor
@@ -116,6 +122,10 @@ wall-clock advancement supports the boolean 20 ms default and a numeric cadence.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
+When native ESM resolution rejects a relative path, Rjest applies the configured
+Jest extension order; this is differentially verified for an extensionless
+transformed `.ts` dependency. Mixed ESM/CommonJS setup loading also preserves
+absolute package requests when Node's hook context has no parent URL.
 CommonJS mapping is verified for capture expansion, first-match ordering,
 fallback targets, `require.resolve`, and Jest mock identity. Native-ESM mapping,
 transformed TypeScript ESM, `@jest/globals`, and direct synchronous or
@@ -258,6 +268,14 @@ The pinned [top-level AWS Amplify facade corpus](corpus/amplify-aws-amplify.md)
 validates public exports across built workspace packages, cookie storage, and
 server-context cleanup. Both runners pass 7/7 suites and 50/50 tests with exact
 test identities and coverage across 21 files.
+
+The pinned [NVIDIA Nsight VS Code language-support corpus](corpus/nsight-vscode-language.md)
+adds an independent Jest 30 project with an ESM custom environment, native
+TypeScript transformer, ESM setup module, extensionless TypeScript imports,
+and VS Code mocks. Both runners discover the same eight suites and reproduce
+all 95 statuses exactly: 94 pass and the same one fails on macOS because of an
+upstream `/var` versus `/private/var` assertion. The comparator reports exact
+paths/statuses and zero Rjest file errors.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

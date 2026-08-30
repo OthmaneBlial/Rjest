@@ -27,6 +27,12 @@ const reportPath = join(repository, 'compat', 'jest-compatibility.json');
 
 const cases = [
   {name: 'config-mjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {
+    name: 'config-silent',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'config-cjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {name: 'config-ts', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
   {
@@ -203,6 +209,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'resolution-esm-extensionless',
+    category: 'Resolution',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
+  {
     name: 'resolution-module-directories-exclusive',
     category: 'Resolution',
     expectedExit: 0,
@@ -245,6 +258,14 @@ const cases = [
     category: 'ESM',
     expectedExit: 0,
     experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'esm-cjs-require-hook',
+    category: 'ESM',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareNodeModules: true,
     useFixtureConfig: true,
   },
   {

@@ -54,6 +54,14 @@ class FixtureEnvironment extends NodeEnvironment {
         ? `:${event.test.name}`
         : '';
     this.events.push(`${event.name}${suffix}`);
+    if (event.name === 'test_start') {
+      let root = event.test.parent;
+      while (root.parent !== undefined) root = root.parent;
+      this.global.environmentRootDescribeBlock = {
+        name: root.name,
+        parentIsUndefined: root.parent === undefined,
+      };
+    }
     if (event.name === 'hook_start') {
       this.global.environmentCurrentHook = event.hook.type;
     }

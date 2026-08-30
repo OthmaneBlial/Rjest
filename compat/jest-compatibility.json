@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 104,
-    "total": 104,
+    "passing": 107,
+    "total": 107,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 21,
-      "total": 21,
+      "passing": 22,
+      "total": 22,
       "percentage": 100
     },
     "Core API": {
@@ -34,8 +34,8 @@
       "percentage": 100
     },
     "ESM": {
-      "passing": 7,
-      "total": 7,
+      "passing": 8,
+      "total": 8,
       "percentage": 100
     },
     "Expect": {
@@ -54,8 +54,8 @@
       "percentage": 100
     },
     "Resolution": {
-      "passing": 8,
-      "total": 8,
+      "passing": 9,
+      "total": 9,
       "percentage": 100
     },
     "Snapshots": {
@@ -72,6 +72,12 @@
   "scenarios": [
     {
       "name": "config-mjs",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-silent",
       "category": "Configuration",
       "compatible": true,
       "differences": []
@@ -329,6 +335,12 @@
       "differences": []
     },
     {
+      "name": "resolution-esm-extensionless",
+      "category": "Resolution",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "resolution-module-directories-exclusive",
       "category": "Resolution",
       "compatible": true,
@@ -366,6 +378,12 @@
     },
     {
       "name": "gap-esm-transform",
+      "category": "ESM",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "esm-cjs-require-hook",
       "category": "ESM",
       "compatible": true,
       "differences": []

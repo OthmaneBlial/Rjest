@@ -22,6 +22,10 @@ test('runs inside the configured custom environment', () => {
     testFile: 'custom-environment.test.js',
   });
   expect(environmentSetup).toBe('ready');
+  expect(environmentRootDescribeBlock).toEqual({
+    name: 'ROOT_DESCRIBE_BLOCK',
+    parentIsUndefined: true,
+  });
   expect(environmentCurrentTest).toBe(
     'runs inside the configured custom environment',
   );
