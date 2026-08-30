@@ -1574,6 +1574,64 @@ function receivedCallCount(received) {
   return isSpy(received) ? received.calls.count() : received.mock.calls.length;
 }
 
+function thrownDetails(value) {
+  const hasMessage =
+    value !== null &&
+    value !== undefined &&
+    typeof value.message === 'string';
+  return {
+    hasMessage,
+    isError:
+      hasMessage &&
+      typeof value.name === 'string' &&
+      typeof value.stack === 'string',
+    message: hasMessage ? value.message : String(value),
+    value,
+  };
+}
+
+function serializeErrorValue(value) {
+  if (value === null || typeof value !== 'object') return value;
+  const serialized = {};
+  for (const name of Object.getOwnPropertyNames(value).sort()) {
+    if (name === 'stack' || name === 'fileName' || name === 'lineNumber') {
+      continue;
+    }
+    serialized[name] =
+      name === 'cause' ? serializeErrorValue(value[name]) : value[name];
+  }
+  return serialized;
+}
+
+function errorMessageAndCause(value) {
+  if (!value?.cause) return value?.message;
+  const seen = new WeakSet();
+  return JSON.stringify(serializeErrorValue(value), (_key, nested) => {
+    if (nested !== null && typeof nested === 'object') {
+      if (seen.has(nested)) return undefined;
+      seen.add(nested);
+    }
+    if (typeof nested === 'bigint' || nested === undefined) {
+      return String(nested);
+    }
+    return nested;
+  });
+}
+
+function matchesThrownObject(thrown, expected) {
+  if (thrown.message !== expected.message) return false;
+  if (errorMessageAndCause(thrown.value) !== errorMessageAndCause(expected)) {
+    return false;
+  }
+  const comparesErrorInstances = thrown.isError && expected instanceof Error;
+  const expectsCustomError = expected.constructor.name !== Error.name;
+  return (
+    !comparesErrorInstances ||
+    !expectsCustomError ||
+    thrown.value instanceof expected.constructor
+  );
+}
+
 const matchers = {
   toBe: (received, expected) => Object.is(received, expected),
   toEqual: (received, expected) => deepEqual(received, expected),
@@ -1717,27 +1775,31 @@ const matchers = {
     if (typeof received !== 'function') {
       throw new TypeError('Received value must be a function');
     }
-    let thrown;
+    let thrown = null;
     try {
       received();
     } catch (error) {
-      thrown = error;
+      thrown = thrownDetails(error);
     }
-    if (thrown === undefined) return false;
-    if (expected === undefined) return true;
+    if (expected === undefined) return thrown !== null;
     if (typeof expected === 'string') {
-      return String(thrown?.message ?? thrown).includes(expected);
+      return thrown !== null && thrown.message.includes(expected);
     }
-    if (expected instanceof RegExp) {
-      return expected.test(String(thrown?.message ?? thrown));
+    if (typeof expected === 'function') {
+      return thrown !== null && thrown.value instanceof expected;
     }
-    if (isAsymmetric(expected)) return expected.asymmetricMatch(thrown);
-    if (typeof expected === 'function') return thrown instanceof expected;
-    if (expected instanceof Error) return thrown?.message === expected.message;
-    if (typeof expected === 'object' && expected !== null) {
-      return subsetEqual(thrown, expected);
+    if (expected !== null && typeof expected.test === 'function') {
+      return thrown !== null && expected.test(thrown.message);
     }
-    return false;
+    if (expected !== null && typeof expected.asymmetricMatch === 'function') {
+      return thrown !== null && expected.asymmetricMatch(thrown.value);
+    }
+    if (expected !== null && typeof expected === 'object') {
+      return thrown !== null && matchesThrownObject(thrown, expected);
+    }
+    throw new Error(
+      'Expected value must be a string or regular expression or class or error',
+    );
   },
   toHaveBeenCalled: (received, expected) => {
     ensureNoExpected(expected);

@@ -1196,6 +1196,11 @@ const cases = [
     category: 'Expect',
     expectedExit: 0,
   },
+  {
+    name: 'expect-to-throw-contracts',
+    category: 'Expect',
+    expectedExit: 0,
+  },
   {name: 'gap-promise-to-throw', category: 'Expect', expectedExit: 0},
   {name: 'gap-expect-assertions', category: 'Expect', expectedExit: 1},
   {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0},
