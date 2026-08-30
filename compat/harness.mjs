@@ -1110,6 +1110,11 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'snapshot-add-serializer',
+    category: 'Snapshots',
+    expectedExit: 0,
+  },
+  {
     name: 'snapshot-format-config',
     category: 'Snapshots',
     compareSnapshots: true,

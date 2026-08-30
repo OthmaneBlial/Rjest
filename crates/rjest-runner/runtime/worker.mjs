@@ -2528,6 +2528,9 @@ expect.addEqualityTesters = testers => {
     customEqualityTesters.push(tester);
   }
 };
+expect.addSnapshotSerializer = serializer => {
+  runtimeSnapshotSerializers.unshift(serializer);
+};
 expect.not = {
   arrayContaining: sample => makeArrayContaining(sample, true),
   arrayOf: sample => makeArrayOf(sample, true),
