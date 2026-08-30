@@ -1237,6 +1237,11 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'fake-timers-pending-window',
+    category: 'Fake timers',
+    expectedExit: 0,
+  },
+  {
     name: 'gap-fake-timers-performance',
     category: 'Fake timers',
     expectedExit: 0,

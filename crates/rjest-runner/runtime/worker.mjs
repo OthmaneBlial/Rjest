@@ -6501,6 +6501,20 @@ function nextFakeTimer(limit = Number.POSITIVE_INFINITY, allowedIds) {
   return selected;
 }
 
+function lastFakeTimer() {
+  let selected;
+  for (const timer of fakeTimers.timers.values()) {
+    if (
+      !selected ||
+      timer.callAt > selected.callAt ||
+      (timer.callAt === selected.callAt && timer.order > selected.order)
+    ) {
+      selected = timer;
+    }
+  }
+  return selected;
+}
+
 function modernInfiniteLoopError() {
   return new Error(
     `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop!`,
@@ -7219,10 +7233,10 @@ const jest = {
   },
   runOnlyPendingTimers() {
     if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
-    const pending = [...fakeTimers.timers.values()].sort(
-      (left, right) => left.callAt - right.callAt || left.order - right.order,
-    );
     if (fakeTimers.mode === 'legacy') {
+      const pending = [...fakeTimers.timers.values()].sort(
+        (left, right) => left.callAt - right.callAt || left.order - right.order,
+      );
       for (const immediate of [...fakeTimers.immediates]) {
         runLegacyImmediate(immediate);
       }
@@ -7234,9 +7248,9 @@ const jest = {
       }
       return;
     }
-    for (const timer of pending) {
-      if (fakeTimers.timers.get(timer.id) === timer) runTimer(timer);
-    }
+    const last = lastFakeTimer();
+    if (last) runTimersUntil(last.callAt);
+    else runAllTicks();
   },
   async runOnlyPendingTimersAsync() {
     if (fakeTimers.mode === 'legacy') {
@@ -7246,15 +7260,10 @@ const jest = {
     }
     if (!checkFakeTimers()) return;
     return withPausedNextAsyncMode(async () => {
-      const pending = [...fakeTimers.timers.values()].sort(
-        (left, right) => left.callAt - right.callAt || left.order - right.order,
-      );
-      for (const timer of pending) {
-        if (fakeTimers.timers.get(timer.id) === timer) {
-          runTimer(timer);
-          await Promise.resolve();
-        }
-      }
+      await new Promise(resolve => nativeSetTimeout(resolve, 0));
+      const last = lastFakeTimer();
+      if (last) await runTimersUntilAsync(last.callAt);
+      else runAllTicks();
     });
   },
   advanceTimersByTime(milliseconds) {

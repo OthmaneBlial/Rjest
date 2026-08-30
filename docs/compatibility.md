@@ -9,12 +9,12 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 219/219 (100.0%) across its explicitly listed
+The current generated matrix is 220/220 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 14/14 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
 Expect is 12/12 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 16/16 (100.0%), coverage is 19/19 (100.0%), and custom
+(100.0%). Fake timers are 17/17 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -382,6 +382,11 @@ created before fake-timer installation to the captured host implementation.
 Node and JSDOM routing are covered independently. Timeout/interval handles keep
 Node's interchangeable clear behavior and return `undefined`; incompatible
 immediate clears throw the same Sinon diagnostic as Jest.
+`runOnlyPendingTimers` and its async form determine the final deadline from the
+original pending queue, then execute every interval and newly scheduled timer
+that lands on or before that boundary. Work beyond the boundary remains
+pending. With no timer deadline, both variants still drain fake microtasks,
+matching Sinon's `runToLast` behavior.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
