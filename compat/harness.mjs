@@ -634,6 +634,56 @@ const cases = [
     useJestCache: true,
   },
   {
+    name: 'cache-disabled',
+    label: 'config-cache-disabled-only-failures',
+    category: 'Configuration',
+    expectedExit: 1,
+    compareExecutionMarkers: true,
+    compareNoFailedMessage: true,
+    onlyFailures: true,
+    primeOnlyFailures: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
+    name: 'cache-disabled',
+    label: 'cli-cache-enables-config-cache',
+    category: 'CLI',
+    expectedExit: 1,
+    cache: true,
+    compareExecutionMarkers: true,
+    onlyFailures: true,
+    primeOnlyFailures: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
+    name: 'only-failures-cache',
+    label: 'cli-no-cache-clears-failure-history',
+    category: 'CLI',
+    expectedExit: 1,
+    compareExecutionMarkers: true,
+    noCache: true,
+    onlyFailures: true,
+    primeOnlyFailures: true,
+    primeWithCache: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
+    name: 'cache-controls',
+    label: 'cli-clear-configured-cache',
+    category: 'CLI',
+    expectedExit: 0,
+    clearCache: true,
+    compareCacheDirectory: '.cache',
+    compareExecutionMarkers: true,
+    expectedCacheDirectoryExists: false,
+    primeCacheThenClear: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
     name: 'config-test-sequencer-esm',
     category: 'Configuration',
     expectedExit: 0,
@@ -932,6 +982,9 @@ function compareCase(testCase) {
     if (testCase.shard) jestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.bail === true) jestArguments.push('--bail');
     if (testCase.bail === false) jestArguments.push('--no-bail');
+    if (testCase.cache) jestArguments.push('--cache');
+    if (testCase.noCache) jestArguments.push('--no-cache');
+    if (testCase.clearCache) jestArguments.push('--clearCache');
     if (testCase.onlyFailures) jestArguments.push('--onlyFailures');
     if (testCase.coverage) {
       jestArguments.push(
@@ -960,6 +1013,11 @@ function compareCase(testCase) {
       const primerArguments = jestArguments.filter(
         argument => argument !== '--onlyFailures',
       );
+      if (testCase.primeWithCache) {
+        const noCacheIndex = primerArguments.indexOf('--no-cache');
+        if (noCacheIndex >= 0) primerArguments.splice(noCacheIndex, 1);
+        primerArguments.push('--cache');
+      }
       if (testCase.primeWithBail) primerArguments.push('--bail');
       const primer = spawnSync(
         process.execPath,
@@ -987,6 +1045,19 @@ function compareCase(testCase) {
         }
         removeExecutionMarkers(jestFixture);
       }
+    }
+    if (testCase.primeCacheThenClear) {
+      const primerArguments = jestArguments.filter(argument => argument !== '--clearCache');
+      const primer = spawnSync(process.execPath, primerArguments, {
+        cwd: jestCwd,
+        encoding: 'utf8',
+        env: jestEnvironment,
+      });
+      assertSpawned(primer, `Jest cache primer (${label})`);
+      if (primer.status !== 1) {
+        fail(`${label}: Jest cache primer exit ${primer.status}, expected 1`, primer);
+      }
+      removeExecutionMarkers(jestFixture);
     }
     const jestRun = spawnSync(
       process.execPath,
@@ -1016,6 +1087,7 @@ function compareCase(testCase) {
     if (testCase.testSequencer) {
       rjestArguments.push(`--testSequencer=${testCase.testSequencer}`);
     }
+    if (!testCase.useJestCache) rjestArguments.push('--no-cache');
     if (!testCase.compareExecutionMarkers) rjestArguments.push('--json');
     if (!testCase.useFixtureConfig) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
@@ -1027,6 +1099,9 @@ function compareCase(testCase) {
     if (testCase.shard) rjestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.bail === true) rjestArguments.push('--bail');
     if (testCase.bail === false) rjestArguments.push('--no-bail');
+    if (testCase.cache) rjestArguments.push('--cache');
+    if (testCase.noCache) rjestArguments.push('--no-cache');
+    if (testCase.clearCache) rjestArguments.push('--clearCache');
     if (testCase.onlyFailures) rjestArguments.push('--onlyFailures');
     if (testCase.coverage) {
       rjestArguments.push(
@@ -1054,6 +1129,11 @@ function compareCase(testCase) {
       const primerArguments = rjestArguments.filter(
         argument => argument !== '--onlyFailures',
       );
+      if (testCase.primeWithCache) {
+        const noCacheIndex = primerArguments.indexOf('--no-cache');
+        if (noCacheIndex >= 0) primerArguments.splice(noCacheIndex, 1);
+        primerArguments.push('--cache');
+      }
       if (testCase.primeWithBail) primerArguments.push('--bail');
       const primer = spawnSync(
         rjest,
@@ -1082,6 +1162,19 @@ function compareCase(testCase) {
         removeExecutionMarkers(rjestFixture);
       }
     }
+    if (testCase.primeCacheThenClear) {
+      const primerArguments = rjestArguments.filter(argument => argument !== '--clearCache');
+      const primer = spawnSync(rjest, primerArguments, {
+        cwd: rjestCwd,
+        encoding: 'utf8',
+        env: rjestEnvironment,
+      });
+      assertSpawned(primer, `Rjest cache primer (${label})`);
+      if (primer.status !== 1) {
+        fail(`${label}: Rjest cache primer exit ${primer.status}, expected 1`, primer);
+      }
+      removeExecutionMarkers(rjestFixture);
+    }
     const rjestRun = spawnSync(rjest, rjestArguments, {
       cwd: rjestCwd,
       encoding: 'utf8',
@@ -1096,12 +1189,37 @@ function compareCase(testCase) {
     if (rjestRun.status !== jestRun.status) {
       differences.push(`exit Jest=${jestRun.status} Rjest=${rjestRun.status}`);
     }
+    if (testCase.compareNoFailedMessage) {
+      const expectedMessage = 'No failed test found.';
+      const jestOutputText = `${jestRun.stdout}\n${jestRun.stderr}`;
+      const rjestOutputText = `${rjestRun.stdout}\n${rjestRun.stderr}`;
+      if (!jestOutputText.includes(expectedMessage)) {
+        fail(`${label}: Jest did not emit the expected no-failures message`, jestRun);
+      }
+      if (!rjestOutputText.includes(expectedMessage)) {
+        differences.push('Rjest did not emit the no-failures message');
+      }
+    }
 
     let jestResult;
     let rjestResult;
     if (testCase.compareExecutionMarkers) {
       jestResult = {executionMarkers: readExecutionMarkers(jestFixture)};
       rjestResult = {executionMarkers: readExecutionMarkers(rjestFixture)};
+      if (testCase.compareCacheDirectory) {
+        jestResult.cacheDirectoryExists = existsSync(
+          join(jestFixture, testCase.compareCacheDirectory),
+        );
+        rjestResult.cacheDirectoryExists = existsSync(
+          join(rjestFixture, testCase.compareCacheDirectory),
+        );
+        if (
+          jestResult.cacheDirectoryExists !== testCase.expectedCacheDirectoryExists ||
+          rjestResult.cacheDirectoryExists !== testCase.expectedCacheDirectoryExists
+        ) {
+          differences.push('cache directory state differs from the oracle expectation');
+        }
+      }
       if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
         differences.push('executed test files differ');
       }

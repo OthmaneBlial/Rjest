@@ -3,19 +3,19 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 146,
-    "total": 146,
+    "passing": 150,
+    "total": 150,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 19,
-      "total": 19,
+      "passing": 22,
+      "total": 22,
       "percentage": 100
     },
     "Configuration": {
-      "passing": 32,
-      "total": 32,
+      "passing": 33,
+      "total": 33,
       "percentage": 100
     },
     "Core API": {
@@ -696,6 +696,30 @@
     },
     {
       "name": "only-failures-file-error",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-cache-disabled-only-failures",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-cache-enables-config-cache",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-no-cache-clears-failure-history",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-clear-configured-cache",
       "category": "CLI",
       "compatible": true,
       "differences": []

@@ -45,7 +45,11 @@ select failures through `allFailedTests`. The default native sequencer persists
 failure/duration history across processes, so `rjest --onlyFailures` and
 `rjest -f` rerun previously failing assertion or file-error suites. Fully
 skipped reruns preserve earlier failure state. Keep Jest as the gate for
-custom-resolver sequencer lookup and explicit cache-control options.
+custom-resolver sequencer lookup. `cache`, `cacheDirectory`, `--cache`,
+`--no-cache`, and `--clearCache` control this sequencer history; Rjest still has
+no persisted transform/discovery cache, so disabling cache does not otherwise
+change transform execution. The default directory is Rjest-namespaced rather
+than shared with Jest.
 
 The `fakeTimers` configuration supports global modern or legacy activation,
 `advanceTimers`, `doNotFake`, `now`, and `timerLimit`. Explicit

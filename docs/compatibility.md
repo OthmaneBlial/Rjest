@@ -5,15 +5,15 @@ Compatibility is tracked in the machine-readable
 Counts come only from executable Rust and Jest/Rjest differential tests;
 placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
-output differences. Oracle fixtures run from fresh copies with Jest's cache
-disabled, so stale haste/performance data cannot alter a differential unless a
-scenario explicitly tests caching.
+output differences. Oracle fixtures run from fresh copies with both runners'
+caches disabled, so stale haste/performance data cannot alter a differential
+unless a scenario explicitly tests caching.
 
-The current generated matrix is 146/146 (100.0%) across its explicitly listed
+The current generated matrix is 150/150 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
-32/32 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 19/19 (100.0%), and environments are 7/7
+33/33 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
+Expect is 7/7 (100.0%), CLI is 22/22 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -124,6 +124,15 @@ failure when a later suite execution is fully skipped, and records assertion
 failures and file-level execution errors. Differentials cover warm, cold,
 post-bail, skipped-suite, and file-error lifecycles. Sequencer resolution
 through a configured custom resolver remains unsupported.
+`cache` and `cacheDirectory` configuration are normalized for native and custom
+sequencers. CLI `--cache` overrides a disabled project cache; `--no-cache`
+discards previous performance history before selection while a completed run
+can write fresh state; and `--clearCache` deletes each distinct configured
+cache directory before discovery and exits successfully. Rjest's default cache
+directory is namespaced separately from Jest, and destructive clearing rejects
+broad filesystem, home, current-directory, temporary-root, and project-root
+targets. Rjest does not yet persist transformer or discovery data, so these
+controls currently have no transform-cache speed effect.
 New and mismatched inline snapshots rewrite the original matcher callsite in
 update modes. V8 stack locations are remapped through transformer source maps,
 then Babel parses and regenerates only the matched call expression. The

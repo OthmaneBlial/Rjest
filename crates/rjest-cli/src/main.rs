@@ -76,6 +76,30 @@ struct Cli {
     #[arg(long, value_name = "PATH|JSON")]
     config: Option<String>,
 
+    /// Enable Jest-compatible runtime caches.
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "no_cache")]
+    cache: bool,
+
+    /// Disable reads from existing caches and reset their current state.
+    #[arg(long = "no-cache", action = ArgAction::SetTrue, conflicts_with = "cache")]
+    no_cache: bool,
+
+    /// Directory used for Jest-compatible cache data.
+    #[arg(
+        long = "cacheDirectory",
+        visible_alias = "cache-directory",
+        value_name = "PATH"
+    )]
+    cache_directory: Option<String>,
+
+    /// Delete configured cache directories and exit successfully.
+    #[arg(
+        long = "clearCache",
+        visible_alias = "clear-cache",
+        action = ArgAction::SetTrue
+    )]
+    clear_cache: bool,
+
     /// Override the configured Jest test sequencer module.
     #[arg(
         long = "testSequencer",
@@ -296,13 +320,31 @@ struct NativeSequencerCache {
 impl NativeSequencerCache {
     fn load(global_config: &ProjectConfig, project_runs: &[ProjectRun<'_>]) -> Result<Self> {
         let root_hash = Sha1::digest(global_config.root_dir.to_string_lossy().as_bytes());
-        let path = std::env::temp_dir()
-            .join("rjest-test-sequencer-cache")
-            .join(format!("native-{root_hash:x}.json"));
-        let entries = fs::read_to_string(&path)
-            .ok()
-            .and_then(|source| serde_json::from_str(&source).ok())
-            .unwrap_or_default();
+        let path = global_config
+            .cache_directory
+            .join(format!("rjest-perf-cache-{root_hash:x}.json"));
+        if !global_config.cache {
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "cannot reset native test sequencer cache `{}`",
+                            path.display()
+                        )
+                    });
+                }
+            }
+        }
+        let entries = if global_config.cache {
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|source| serde_json::from_str(&source).ok())
+                .unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        };
         let owners = project_runs
             .iter()
             .map(|run| {
@@ -381,6 +423,7 @@ fn native_context_key(config: &ProjectConfig) -> Result<String> {
     // `onlyFailures` is run-wide in Jest and does not alter the project config
     // id used for the sequencer performance cache.
     normalized.only_failures = false;
+    normalized.cache = true;
     let encoded = serde_json::to_vec(&normalized)?;
     Ok(format!("{:x}", Sha1::digest(encoded)))
 }
@@ -552,6 +595,9 @@ fn run() -> Result<bool> {
         println!("{}", serde_json::to_string_pretty(&config)?);
         return Ok(true);
     }
+    if cli.clear_cache {
+        return clear_configured_caches(&config).map(|()| true);
+    }
 
     let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, &project_dir);
     let all_projects = execution_projects(&config);
@@ -659,6 +705,75 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
         ));
     }
     config.only_failures |= cli.only_failures;
+    apply_cache_overrides(config, cli);
+}
+
+fn apply_cache_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if cli.cache {
+        config.cache = true;
+    } else if cli.no_cache {
+        config.cache = false;
+    }
+    if let Some(directory) = cli.cache_directory.as_deref() {
+        config.cache_directory = normalize_cli_cache_directory(directory, &config.root_dir);
+    }
+    for project in &mut config.projects {
+        apply_cache_overrides(project, cli);
+    }
+}
+
+fn normalize_cli_cache_directory(directory: &str, root_dir: &Path) -> PathBuf {
+    if directory == "<rootDir>" {
+        return root_dir.to_path_buf();
+    }
+    if let Some(suffix) = directory.strip_prefix("<rootDir>/") {
+        return root_dir.join(suffix);
+    }
+    let path = Path::new(directory);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root_dir.join(path)
+    }
+}
+
+fn clear_configured_caches(config: &ProjectConfig) -> Result<()> {
+    let projects = execution_projects(config);
+    let roots = projects
+        .iter()
+        .map(|project| project.root_dir.as_path())
+        .collect::<Vec<_>>();
+    let directories = projects
+        .iter()
+        .map(|project| project.cache_directory.clone())
+        .collect::<BTreeSet<_>>();
+    let current_dir = std::env::current_dir().context("cannot determine current directory")?;
+    let temp_dir = std::env::temp_dir();
+    let user_home = std::env::var_os("HOME").map(PathBuf::from);
+
+    for directory in directories {
+        ensure!(
+            directory.is_absolute()
+                && directory.parent().is_some()
+                && directory != current_dir
+                && directory != temp_dir
+                && user_home.as_ref() != Some(&directory)
+                && roots.iter().all(|root| *root != directory),
+            "refusing to clear unsafe cache directory `{}`",
+            directory.display()
+        );
+        match fs::remove_dir_all(&directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("cannot clear cache directory `{}`", directory.display())
+                });
+            }
+        }
+        println!("Cleared {}", directory.display());
+    }
+    Ok(())
 }
 
 fn order_project_runs<'a>(
@@ -1010,6 +1125,8 @@ fn sequence_project_runs_with_custom<'a>(
                 "id": id,
                 "rootDir": run.config.root_dir,
                 "displayName": run.config.display_name,
+                "cache": run.config.cache,
+                "cacheDirectory": run.config.cache_directory,
             })
         })
         .collect::<Vec<_>>();
@@ -1517,8 +1634,8 @@ mod tests {
     };
 
     use super::{
-        Cli, NativeSequencerCache, ProjectRun, Shard, filter_projects, native_context_key,
-        parse_max_workers, sequence_project_runs_with_native, shard_tests,
+        Cli, NativeSequencerCache, ProjectRun, Shard, clear_configured_caches, filter_projects,
+        native_context_key, parse_max_workers, sequence_project_runs_with_native, shard_tests,
         uses_modern_branches_true_summary, validate_seed,
     };
 
@@ -1571,6 +1688,41 @@ mod tests {
 
         let short = Cli::try_parse_from(["rjest", "-f"]).expect("short flag");
         assert!(short.only_failures);
+    }
+
+    #[test]
+    fn accepts_jest_cache_control_flags() {
+        let enabled = Cli::try_parse_from([
+            "rjest",
+            "--cache",
+            "--cacheDirectory=.cache",
+            "--clearCache",
+        ])
+        .expect("enabled cache flags");
+        assert!(enabled.cache);
+        assert_eq!(enabled.cache_directory.as_deref(), Some(".cache"));
+        assert!(enabled.clear_cache);
+
+        let disabled = Cli::try_parse_from(["rjest", "--no-cache"]).expect("disabled cache");
+        assert!(disabled.no_cache);
+        assert!(Cli::try_parse_from(["rjest", "--cache", "--no-cache"]).is_err());
+    }
+
+    #[test]
+    fn clears_only_a_safe_configured_cache_directory() {
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config.cache_directory = temp.path().join(".cache");
+        fs::create_dir_all(config.cache_directory.join("nested")).expect("cache directory");
+        fs::write(config.cache_directory.join("nested/entry"), "cached").expect("cache entry");
+
+        clear_configured_caches(&config).expect("clear cache");
+        assert!(!config.cache_directory.exists());
+
+        config.cache_directory.clone_from(&config.root_dir);
+        let error = clear_configured_caches(&config).expect_err("unsafe project-root cache");
+        assert!(error.to_string().contains("refusing to clear unsafe"));
+        assert!(config.root_dir.exists());
     }
 
     #[test]
@@ -1872,6 +2024,70 @@ mod tests {
 
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].tests, [TestFile { path: failing_path }]);
+    }
+
+    #[test]
+    fn no_cache_discards_previous_native_performance_data() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("failing.test.cjs");
+        fs::write(&test_path, "test('failing', () => {});").expect("test source");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config.cache_directory = temp.path().join(".cache");
+        let project_runs = vec![ProjectRun {
+            config: &config,
+            tests: vec![TestFile {
+                path: test_path.clone(),
+            }],
+        }];
+        let mut cache =
+            NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
+        let context_key = native_context_key(&config).expect("context key");
+        cache
+            .entries
+            .entry(context_key)
+            .or_default()
+            .insert(test_path.to_string_lossy().into_owned(), (true, 25));
+        cache.save().expect("persist cache");
+        let cache_path = cache.path.clone();
+        assert!(cache_path.exists());
+
+        let mut disabled = config.clone();
+        disabled.cache = false;
+        let disabled_runs = vec![ProjectRun {
+            config: &disabled,
+            tests: vec![TestFile { path: test_path }],
+        }];
+        let mut reset =
+            NativeSequencerCache::load(&disabled, &disabled_runs).expect("reset sequencer cache");
+
+        assert!(reset.entries.is_empty());
+        assert!(!cache_path.exists());
+
+        let disabled_context_key = native_context_key(&disabled).expect("disabled context key");
+        reset
+            .entries
+            .entry(disabled_context_key)
+            .or_default()
+            .insert(
+                disabled_runs[0].tests[0]
+                    .path
+                    .to_string_lossy()
+                    .into_owned(),
+                (true, 40),
+            );
+        reset.save().expect("persist fresh no-cache result");
+
+        let enabled_runs = vec![ProjectRun {
+            config: &config,
+            tests: vec![disabled_runs[0].tests[0].clone()],
+        }];
+        let reloaded =
+            NativeSequencerCache::load(&config, &enabled_runs).expect("reload fresh cache");
+        let enabled_context_key = native_context_key(&config).expect("enabled context key");
+        assert_eq!(
+            reloaded.performance(&enabled_context_key, &enabled_runs[0].tests[0].path),
+            Some((true, 40))
+        );
     }
 
     #[test]

@@ -43,6 +43,8 @@ cargo run -p rjest-cli -- --projects packages/api packages/web
 cargo run -p rjest-cli -- --selectProjects web --ignoreProjects legacy
 cargo run -p rjest-cli -- --testSequencer=./tools/sequencer.cjs
 cargo run -p rjest-cli -- --onlyFailures
+cargo run -p rjest-cli -- --no-cache
+cargo run -p rjest-cli -- --clearCache
 ```
 
 Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
@@ -64,6 +66,10 @@ asynchronous `allFailedTests` hook after sorting. A CLI `--testSequencer` value
 takes precedence over the configured class. The native default sequencer
 persists failure/duration data, prioritizes failed, uncached, and slower files
 like Jest, and uses that cache to select failed files on later invocations.
+`cache` and `cacheDirectory` configuration, CLI `--cache`/`--no-cache`, and
+`--clearCache` are supported for sequencer cache state. Rjest uses a namespaced
+temporary default and refuses to clear a filesystem root, project root, current
+directory, temporary root, or home directory.
 Exported async config functions and supported `fakeTimers` options work. Unknown
 Jest options fail explicitly rather than being ignored. Node 22.18 or newer is
 required; the current TypeScript path uses Node's native erasable-syntax support

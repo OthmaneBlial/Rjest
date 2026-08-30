@@ -1,8 +1,7 @@
 import {createHash} from 'node:crypto';
-import {existsSync, mkdirSync, statSync} from 'node:fs';
+import {existsSync, mkdirSync, rmSync, statSync} from 'node:fs';
 import {createRequire} from 'node:module';
-import {tmpdir} from 'node:os';
-import {isAbsolute, join, resolve} from 'node:path';
+import {isAbsolute, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createInterface} from 'node:readline';
 
@@ -62,12 +61,11 @@ async function startSession(request) {
     const testPaths = request.tests
       .filter(test => test.contextId === context.id)
       .map(test => test.path);
-    const cacheDirectory = join(tmpdir(), 'rjest-test-sequencer-cache');
-    mkdirSync(cacheDirectory, {recursive: true});
+    mkdirSync(context.cacheDirectory, {recursive: true});
     const normalized = {
       config: {
-        cache: true,
-        cacheDirectory,
+        cache: context.cache,
+        cacheDirectory: context.cacheDirectory,
         displayName: context.displayName ?? undefined,
         haste: {hasteMapModulePath: null},
         id: createHash('sha1')
@@ -102,6 +100,13 @@ async function startSession(request) {
     testSequencer: modulePath,
   };
   const sequencer = new Sequencer({contexts, globalConfig});
+  if (typeof sequencer._getCachePath === 'function') {
+    for (const context of contexts) {
+      if (!context.config.cache) {
+        rmSync(sequencer._getCachePath(context), {force: true});
+      }
+    }
+  }
   let orderedTests = tests;
   if (request.shard) {
     if (typeof sequencer.shard !== 'function') {

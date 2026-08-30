@@ -18,7 +18,7 @@ previous file-level execution error without running the complete suite.
 ## Decision
 
 Keep the default sequencer in the Rust coordinator and persist a compact JSON
-map below the operating system's temporary directory. Partition entries by a
+map below the configured cache directory. Partition entries by a
 normalized project-context digest and test path. Missing, malformed, or
 partially stale cache data is treated as absent rather than preventing a run.
 
@@ -49,5 +49,4 @@ successfully.
   `cacheResults` behavior through ADR 0037.
 - Permanent differentials cover custom async selection, warm and cold native
   caches, bail finalization, skipped-suite retention, and zero-test file errors.
-- Cache-control flags, explicit cache directories, and clear-cache behavior
-  remain separate compatibility work.
+- Cache-control behavior is specified by ADR 0039.

@@ -98,6 +98,8 @@ pub struct ProjectConfig {
     pub display_name: Option<ProjectDisplayName>,
     pub projects: Vec<ProjectConfig>,
     pub root_dir: PathBuf,
+    pub cache: bool,
+    pub cache_directory: PathBuf,
     pub roots: Vec<PathBuf>,
     pub test_match: Vec<String>,
     pub test_regex: Vec<String>,
@@ -164,6 +166,8 @@ struct RawProjectConfig {
     projects: Option<Vec<RawProjectEntry>>,
     preset: Option<String>,
     root_dir: Option<String>,
+    cache: Option<bool>,
+    cache_directory: Option<String>,
     roots: Option<Vec<String>>,
     test_match: Option<Vec<String>>,
     test_regex: Option<OneOrMany>,
@@ -334,8 +338,10 @@ impl ProjectConfig {
         Ok(Self {
             display_name: None,
             projects: Vec::new(),
-            roots: vec![root_dir.clone()],
-            root_dir,
+            root_dir: root_dir.clone(),
+            cache: true,
+            cache_directory: std::env::temp_dir().join("rjest"),
+            roots: vec![root_dir],
             test_match: vec![
                 "**/__tests__/**/*.?([mc])[jt]s?(x)".into(),
                 "**/?(*.)+(spec|test).?([mc])[jt]s?(x)".into(),
@@ -659,6 +665,8 @@ fn merge_preset(
     inherit!(
         display_name,
         projects,
+        cache,
+        cache_directory,
         roots,
         test_match,
         test_regex,
@@ -821,6 +829,10 @@ fn normalize(
     let defaults = ProjectConfig::defaults(&root_dir)?;
     let display_name = normalize_display_name(raw.display_name)?;
     let projects = normalize_projects(raw.projects, default_root_dir, project_dir, &root_dir)?;
+    let cache_directory = raw.cache_directory.map_or_else(
+        || Ok(defaults.cache_directory.clone()),
+        |value| absolute(&resolve_root_token(&root_dir, &value)),
+    )?;
     let mock_lifecycle = normalize_mock_lifecycle(mock_lifecycle_options, &defaults);
     let roots = normalize_roots(raw.roots, &root_dir, &defaults.roots)?;
 
@@ -912,6 +924,8 @@ fn normalize(
         display_name,
         projects,
         root_dir,
+        cache: raw.cache.unwrap_or(defaults.cache),
+        cache_directory,
         roots,
         test_match,
         test_regex,
@@ -1766,10 +1780,31 @@ mod tests {
         assert!(config.module_file_extensions.contains(&"tsx".to_owned()));
         assert_eq!(config.module_directories, ["node_modules"]);
         assert_eq!(config.roots, vec![temp.path().to_path_buf()]);
+        assert!(config.cache);
+        assert_eq!(config.cache_directory, std::env::temp_dir().join("rjest"));
         assert_eq!(config.bail, 0);
         assert!(!config.only_failures);
         assert_eq!(config.max_concurrency, 5);
         assert!(!config.pass_with_no_tests);
+    }
+
+    #[test]
+    fn normalizes_cache_options_and_root_tokens() {
+        let temp = tempdir().expect("temp dir");
+        let config = load_inline_json(
+            temp.path(),
+            r#"{"cache":false,"cacheDirectory":"<rootDir>/.jest-cache"}"#,
+        )
+        .expect("cache config");
+
+        assert!(!config.cache);
+        assert_eq!(config.cache_directory, temp.path().join(".jest-cache"));
+        let serialized = serde_json::to_value(config).expect("serialized config");
+        assert_eq!(serialized["cache"], false);
+        assert_eq!(
+            serialized["cacheDirectory"],
+            temp.path().join(".jest-cache").to_string_lossy().as_ref()
+        );
     }
 
     #[test]
