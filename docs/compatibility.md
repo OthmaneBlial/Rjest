@@ -9,10 +9,10 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 171/171 (100.0%) across its explicitly listed
+The current generated matrix is 172/172 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
-47/47 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
+48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 22/22 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%), coverage is 4/4 (100.0%), and custom
 reporters are 6/6 (100.0%). These
@@ -73,6 +73,10 @@ TypeScript config evaluation is native-first on supported Node versions, so a
 `.ts` file inside a type-module package retains ESM and `import.meta` semantics.
 CommonJS `.ts`/`.cts` configs still fall back to ts-node when native loading
 fails with a syntax error; `.mts` remains strictly ESM.
+Executable config objects may contain `undefined` optional properties. Rjest
+omits those properties at its JSON process boundary as JavaScript does, covering
+real Granite `displayName` and Nx `resolver` patterns without weakening errors
+for functions, symbols, or circular values that cannot cross that boundary.
 Inline object entries in `projects` are normalized as independent project
 configs and executed with their own discovery, environment, resolver,
 transform, setup, snapshot, and display-name state. String entries load project

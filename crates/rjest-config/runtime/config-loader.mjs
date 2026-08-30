@@ -97,6 +97,7 @@ function respond(payload) {
 }
 
 function assertJsonCompatible(value, path, seen) {
+  if (value === undefined) return;
   if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return;
   if (typeof value !== 'object') {
     throw new TypeError(`Unsupported ${typeof value} at ${path}; configuration must be serializable`);

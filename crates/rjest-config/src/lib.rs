@@ -2711,6 +2711,32 @@ mod tests {
     }
 
     #[test]
+    fn omits_undefined_properties_from_javascript_configs() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(
+            temp.path().join("jest.config.cjs"),
+            r#"module.exports = () => ({
+              displayName: undefined,
+              resolver: undefined,
+              testEnvironmentOptions: {
+                retained: "yes",
+                omitted: undefined,
+                nested: {retained: 42, omitted: undefined},
+              },
+            });"#,
+        )
+        .expect("write executable config");
+
+        let config = load(temp.path(), None).expect("load config with undefined properties");
+        assert_eq!(config.display_name, None);
+        assert_eq!(config.resolver, None);
+        assert_eq!(
+            config.test_environment_options,
+            serde_json::json!({"retained": "yes", "nested": {"retained": 42}})
+        );
+    }
+
+    #[test]
     fn loads_esm_typescript_config_with_native_node_semantics() {
         let temp = tempdir().expect("temp dir");
         fs::write(temp.path().join("package.json"), r#"{"type":"module"}"#)
