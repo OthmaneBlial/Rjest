@@ -6183,6 +6183,7 @@ async function loadRuntimeModule(path) {
 }
 
 const modernFakeTimerIdStart = 1e12;
+const modernFakeTimerMaxDelay = 2 ** 31 - 1;
 
 function createFakeTimerState(nextId = 1, nextOrder = 1) {
   return {
@@ -6269,9 +6270,11 @@ function checkFakeTimers() {
 }
 
 function timerDelay(value) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number) || number < 0) return 0;
-  return Math.floor(number);
+  const number =
+    typeof value === 'number' ? value : Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) return 0;
+  if (number > modernFakeTimerMaxDelay) return 1;
+  return Math.floor(Math.max(0, number));
 }
 
 function timerAdvanceDuration(value) {
@@ -6341,8 +6344,13 @@ function timeToNextFrame() {
 }
 
 function scheduleFakeTimer(type, callback, delay, args) {
+  if (fakeTimers.mode !== 'legacy' && callback === undefined) {
+    throw new Error('Callback must be provided to timer calls');
+  }
   if (fakeTimers.mode !== 'legacy' && typeof callback !== 'function') {
-    throw new TypeError(`${type} callback must be a function`);
+    throw new TypeError(
+      `[ERR_INVALID_CALLBACK]: Callback must be a function. Received ${callback} of type ${typeof callback}`,
+    );
   }
   const id = fakeTimers.nextId++;
   let duration;
