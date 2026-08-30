@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -1123,6 +1124,75 @@ const cases = [
     experimentalVmModules: true,
     useFixtureConfig: true,
   },
+  {
+    name: 'changed-selection-only-changed',
+    fixtureName: 'changed-selection',
+    category: 'CLI',
+    changedSelectionArgs: ['-o'],
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareChangedGit: 'working',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'changed-selection-last-commit',
+    fixtureName: 'changed-selection',
+    category: 'CLI',
+    changedSelectionArgs: ['--lastCommit'],
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareChangedGit: 'history',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'changed-selection-since',
+    fixtureName: 'changed-selection',
+    category: 'CLI',
+    changedSelectionArgs: ['--changedSince=baseline'],
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareChangedGit: 'history',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'changed-selection-ancestor',
+    fixtureName: 'changed-selection',
+    category: 'CLI',
+    changedSelectionArgs: ['--changedFilesWithAncestor'],
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareChangedGit: 'history',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'changed-selection-all-override',
+    fixtureName: 'changed-selection',
+    category: 'CLI',
+    changedSelectionArgs: ['--all'],
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareChangedGit: 'config-working',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'changed-selection-positional-override',
+    fixtureName: 'changed-selection',
+    category: 'CLI',
+    expectedExit: 0,
+    experimentalVmModules: true,
+    prepareChangedGit: 'config-clean',
+    testPathPatterns: ['beta.test.mjs'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'changed-selection-no-scm',
+    fixtureName: 'changed-selection',
+    category: 'CLI',
+    changedSelectionArgs: ['--onlyChanged'],
+    expectedExit: 0,
+    experimentalVmModules: true,
+    useFixtureConfig: true,
+  },
 ];
 
 const watchCases = [
@@ -1169,6 +1239,18 @@ function compareCase(testCase) {
   try {
     cpSync(sourceFixture, jestFixture, {recursive: true});
     cpSync(sourceFixture, rjestFixture, {recursive: true});
+    if (testCase.prepareChangedGit) {
+      prepareChangedSelectionFixture(
+        jestFixture,
+        testCase.prepareChangedGit,
+        `Jest (${label})`,
+      );
+      prepareChangedSelectionFixture(
+        rjestFixture,
+        testCase.prepareChangedGit,
+        `Rjest (${label})`,
+      );
+    }
     if (testCase.prepareNodeModules) {
       prepareNodeModule(jestFixture);
       prepareNodeModule(rjestFixture);
@@ -1233,6 +1315,7 @@ function compareCase(testCase) {
     if (testCase.noCoverage) jestArguments.push('--no-coverage');
     if (testCase.clearCache) jestArguments.push('--clearCache');
     if (testCase.onlyFailures) jestArguments.push('--onlyFailures');
+    jestArguments.push(...(testCase.changedSelectionArgs ?? []));
     if (testCase.coverage) {
       jestArguments.push(
         '--coverage',
@@ -1347,6 +1430,7 @@ function compareCase(testCase) {
     if (testCase.noCoverage) rjestArguments.push('--no-coverage');
     if (testCase.clearCache) rjestArguments.push('--clearCache');
     if (testCase.onlyFailures) rjestArguments.push('--onlyFailures');
+    rjestArguments.push(...(testCase.changedSelectionArgs ?? []));
     if (testCase.coverage) {
       rjestArguments.push(
         '--coverage',
@@ -1751,6 +1835,35 @@ function initializeGitFixture(cwd, label) {
     const run = spawnSync('git', args, {cwd, encoding: 'utf8'});
     assertSpawned(run, `${label} Git ${args[0]}`);
     if (run.status !== 0) fail(`${label}: Git ${args[0]} exited ${run.status}`, run);
+  }
+}
+
+function prepareChangedSelectionFixture(cwd, scenario, label) {
+  if (scenario.startsWith('config-')) {
+    const configPath = join(cwd, 'jest.config.cjs');
+    const config = readFileSync(configPath, 'utf8');
+    writeFileSync(configPath, config.replace('  transform: {},', '  onlyChanged: true,\n  transform: {},'));
+  }
+  initializeGitFixture(cwd, label);
+  const tag = spawnSync('git', ['tag', 'baseline'], {cwd, encoding: 'utf8'});
+  assertSpawned(tag, `${label} Git tag`);
+  if (tag.status !== 0) fail(`${label}: Git tag exited ${tag.status}`, tag);
+
+  if (scenario === 'working' || scenario === 'config-working') {
+    appendFileSync(join(cwd, 'alpha.cjs'), '\n// working tree change\n');
+    return;
+  }
+  if (scenario === 'history') {
+    appendFileSync(join(cwd, 'alpha.cjs'), '\n// committed change\n');
+    for (const args of [
+      ['add', 'alpha.cjs'],
+      ['commit', '-m', 'change alpha'],
+    ]) {
+      const run = spawnSync('git', args, {cwd, encoding: 'utf8'});
+      assertSpawned(run, `${label} Git ${args[0]}`);
+      if (run.status !== 0) fail(`${label}: Git ${args[0]} exited ${run.status}`, run);
+    }
+    appendFileSync(join(cwd, 'beta.mjs'), '\n// working tree change\n');
   }
 }
 

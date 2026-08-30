@@ -18,7 +18,9 @@ use rjest_core::{
     TestStatus,
 };
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
-use rjest_dependency::{DependencyGraph, GraphOptions, git_changed_files};
+use rjest_dependency::{
+    DependencyGraph, GitChangeOptions, GraphOptions, git_changed_files_with_options,
+};
 use rjest_watch::{NativeWatcher, WatchOptions};
 use sha1::{Digest, Sha1};
 
@@ -142,6 +144,47 @@ struct Cli {
         value_name = "PATH"
     )]
     test_results_processor: Option<String>,
+
+    /// Force all tests even when only-changed or only-failures is configured.
+    #[arg(long, action = ArgAction::SetTrue)]
+    all: bool,
+
+    /// Run only tests related to changed files in the current repository.
+    #[arg(
+        short = 'o',
+        long = "onlyChanged",
+        visible_alias = "only-changed",
+        action = ArgAction::SetTrue,
+        conflicts_with = "watch_all"
+    )]
+    only_changed: bool,
+
+    /// Run tests related to files changed since this Git revision.
+    #[arg(
+        long = "changedSince",
+        visible_alias = "changed-since",
+        value_name = "REVISION",
+        conflicts_with = "watch_all"
+    )]
+    changed_since: Option<String>,
+
+    /// Include changes made in the last commit and the working tree.
+    #[arg(
+        long = "changedFilesWithAncestor",
+        visible_alias = "changed-files-with-ancestor",
+        action = ArgAction::SetTrue,
+        conflicts_with = "watch_all"
+    )]
+    changed_files_with_ancestor: bool,
+
+    /// Run tests related to files changed in the last commit.
+    #[arg(
+        long = "lastCommit",
+        visible_alias = "last-commit",
+        action = ArgAction::SetTrue,
+        conflicts_with = "watch_all"
+    )]
+    last_commit: bool,
 
     /// Run only test files that failed in the previous execution.
     #[arg(short = 'f', long = "onlyFailures", visible_alias = "only-failures", action = ArgAction::SetTrue)]
@@ -1138,10 +1181,22 @@ fn jest_global_config(
     object.insert("logHeapUsage".into(), cli.log_heap_usage.into());
     object.insert("watch".into(), cli.watch.into());
     object.insert("watchAll".into(), cli.watch_all.into());
-    object.insert("onlyChanged".into(), cli.watch.into());
+    let only_changed = changed_selection_enabled(cli, config);
+    object.insert("onlyChanged".into(), only_changed.into());
+    object.insert(
+        "changedSince".into(),
+        cli.changed_since
+            .as_ref()
+            .map_or(serde_json::Value::Null, |value| value.clone().into()),
+    );
+    object.insert("lastCommit".into(), cli.last_commit.into());
+    object.insert(
+        "changedFilesWithAncestor".into(),
+        cli.changed_files_with_ancestor.into(),
+    );
     object.insert(
         "passWithNoTests".into(),
-        (cli.watch_all || config.pass_with_no_tests).into(),
+        (cli.watch_all || only_changed || config.pass_with_no_tests).into(),
     );
     object.insert("seed".into(), seed.into());
     object.insert(
@@ -1336,7 +1391,12 @@ fn run() -> Result<bool> {
     let randomize = cli.randomize || config.randomize;
     let show_seed = randomize || cli.show_seed || config.show_seed;
 
+    let changed_selection = changed_selection_enabled(&cli, &config);
     if cli.list_tests {
+        let related = changed_selection
+            .then(|| related_test_selection(&cli, &config, &project_dir))
+            .transpose()?;
+        write_changed_selection_message(&cli, related.as_ref());
         return run_test_cycle(
             &cli,
             &config,
@@ -1345,7 +1405,9 @@ fn run() -> Result<bool> {
             randomize,
             show_seed,
             false,
-            None,
+            related
+                .as_ref()
+                .map(|selection| selection.tests_by_context.as_slice()),
         );
     }
     if cli.watch_all || cli.watch {
@@ -1358,7 +1420,7 @@ fn run() -> Result<bool> {
         }
         let options = watch_options(&cli, &config, &project_dir);
         let watcher = NativeWatcher::start(&options)?;
-        write_watch_selection_message(&cli, related.as_ref());
+        write_changed_selection_message(&cli, related.as_ref());
         run_test_cycle(
             &cli,
             &config,
@@ -1377,7 +1439,7 @@ fn run() -> Result<bool> {
                 .watch
                 .then(|| related_test_selection(&cli, &config, &project_dir))
                 .transpose()?;
-            write_watch_selection_message(&cli, related.as_ref());
+            write_changed_selection_message(&cli, related.as_ref());
             run_test_cycle(
                 &cli,
                 &config,
@@ -1392,6 +1454,10 @@ fn run() -> Result<bool> {
             )?;
         }
     }
+    let related = changed_selection
+        .then(|| related_test_selection(&cli, &config, &project_dir))
+        .transpose()?;
+    write_changed_selection_message(&cli, related.as_ref());
     run_test_cycle(
         &cli,
         &config,
@@ -1400,7 +1466,9 @@ fn run() -> Result<bool> {
         randomize,
         show_seed,
         false,
-        None,
+        related
+            .as_ref()
+            .map(|selection| selection.tests_by_context.as_slice()),
     )
 }
 
@@ -1443,7 +1511,10 @@ fn run_test_cycle(
         .iter()
         .map(|run| run.tests.len())
         .sum::<usize>();
-    let pass_with_no_tests = watch_mode || cli.pass_with_no_tests || config.pass_with_no_tests;
+    let pass_with_no_tests = watch_mode
+        || related_tests.is_some()
+        || cli.pass_with_no_tests
+        || config.pass_with_no_tests;
     if cli.list_tests {
         return emit_test_list(
             cli,
@@ -1549,7 +1620,14 @@ fn related_test_selection(
         .iter()
         .flat_map(|project| project.roots.iter().cloned())
         .collect::<Vec<_>>();
-    let changed = git_changed_files(&roots)?;
+    let changed = git_changed_files_with_options(
+        &roots,
+        &GitChangeOptions {
+            changed_since: cli.changed_since.as_deref(),
+            last_commit: cli.last_commit,
+            with_ancestor: cli.changed_files_with_ancestor,
+        },
+    )?;
     let mut tests_by_context = vec![BTreeSet::new(); all_projects.len()];
     if changed.repositories.is_empty() || changed.files.is_empty() {
         return Ok(RelatedTestSelection {
@@ -1595,15 +1673,36 @@ fn related_test_selection(
     })
 }
 
-fn write_watch_selection_message(cli: &Cli, selection: Option<&RelatedTestSelection>) {
-    if !cli.watch {
-        return;
+fn changed_selection_enabled(cli: &Cli, config: &ProjectConfig) -> bool {
+    if cli.all || cli.watch_all {
+        return false;
     }
+    if !cli.test_path_patterns.is_empty() && !cli.watch {
+        return false;
+    }
+    cli.watch
+        || cli.only_changed
+        || cli.last_commit
+        || cli.changed_files_with_ancestor
+        || cli.changed_since.is_some()
+        || config.only_changed
+}
+
+fn write_changed_selection_message(cli: &Cli, selection: Option<&RelatedTestSelection>) {
     let Some(selection) = selection else {
         return;
     };
+    if !selection.has_scm {
+        eprintln!(
+            "Rjest can only find changed files in a Git repository. Initialize Git or run with --all."
+        );
+    }
     if selection.tests_by_context.iter().all(BTreeSet::is_empty) {
-        eprintln!("No tests found related to files changed since last commit.");
+        let reference = cli
+            .changed_since
+            .as_ref()
+            .map_or_else(|| "last commit".to_string(), |value| format!("\"{value}\""));
+        eprintln!("No tests found related to files changed since {reference}.");
     }
 }
 
@@ -1703,9 +1802,25 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
             &config.root_dir,
         ));
     }
-    config.only_failures |= cli.only_failures;
+    apply_selection_overrides(config, cli);
     apply_global_execution_overrides(config, cli);
     apply_cache_overrides(config, cli);
+}
+
+fn apply_selection_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if cli.all {
+        config.only_changed = false;
+        config.only_failures = false;
+    } else {
+        config.only_changed |= cli.only_changed
+            || cli.last_commit
+            || cli.changed_files_with_ancestor
+            || cli.changed_since.is_some();
+        config.only_failures |= cli.only_failures;
+    }
+    for project in &mut config.projects {
+        apply_selection_overrides(project, cli);
+    }
 }
 
 fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
@@ -2706,10 +2821,10 @@ mod tests {
     };
 
     use super::{
-        Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard, clear_configured_caches,
-        filter_projects, native_context_key, native_reporter_mode, parse_max_workers,
-        sequence_project_runs_with_native, shard_tests, uses_modern_branches_true_summary,
-        validate_seed, watch_options,
+        Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard,
+        changed_selection_enabled, clear_configured_caches, filter_projects, native_context_key,
+        native_reporter_mode, parse_max_workers, sequence_project_runs_with_native, shard_tests,
+        uses_modern_branches_true_summary, validate_seed, watch_options,
     };
 
     #[test]
@@ -2730,6 +2845,33 @@ mod tests {
         let watch = Cli::try_parse_from(["rjest", "--watch"]).expect("watch flag");
         assert!(watch.watch);
         assert!(Cli::try_parse_from(["rjest", "--watch", "--watchAll"]).is_err());
+    }
+
+    #[test]
+    fn accepts_jest_changed_selection_flags_and_precedence() {
+        let only_changed = Cli::try_parse_from(["rjest", "-o"]).expect("onlyChanged alias");
+        assert!(only_changed.only_changed);
+
+        let ranges = Cli::try_parse_from([
+            "rjest",
+            "--changedSince=main",
+            "--changedFilesWithAncestor",
+            "--lastCommit",
+        ])
+        .expect("changed range flags");
+        assert_eq!(ranges.changed_since.as_deref(), Some("main"));
+        assert!(ranges.changed_files_with_ancestor);
+        assert!(ranges.last_commit);
+
+        let all = Cli::try_parse_from(["rjest", "--all"]).expect("all flag");
+        let mut config = ProjectConfig::defaults(PathBuf::from(".").as_path()).expect("config");
+        config.only_changed = true;
+        assert!(!changed_selection_enabled(&all, &config));
+
+        let positional =
+            Cli::try_parse_from(["rjest", "some.test.js"]).expect("positional test path");
+        assert!(!changed_selection_enabled(&positional, &config));
+        assert!(Cli::try_parse_from(["rjest", "--lastCommit", "--watchAll"]).is_err());
     }
 
     #[test]

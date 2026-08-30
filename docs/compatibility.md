@@ -9,11 +9,11 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 176/176 (100.0%) across its explicitly listed
+The current generated matrix is 183/183 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 23/23 (100.0%), and environments are 7/7
+Expect is 7/7 (100.0%), CLI is 30/30 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%), coverage is 4/4 (100.0%), and custom
 reporters are 6/6 (100.0%), and Watch is 3/3 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -63,6 +63,13 @@ coverage/cache/output ignores, Git staged/modified/deleted/untracked discovery,
 snapshot-to-test mapping, and `--no-watchman` normalization are covered by Rust
 and differential tests. Interactive keys, stale-run cancellation, Mercurial and
 Sapling selection, and watch plugins remain outside this score.
+
+The one-shot changed-selection probes build independent Git histories for both
+runners. They cover `-o`/`--onlyChanged`, the last commit, a named revision,
+the parent commit plus working tree, transitive mapped CommonJS dependencies,
+native ESM dependencies, `onlyChanged` from configuration, `--all` and
+positional-path precedence, and a parseable successful empty JSON result outside
+source control. Mercurial and Sapling remain outside this bounded claim.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous

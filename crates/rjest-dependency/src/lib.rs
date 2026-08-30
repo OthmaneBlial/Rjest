@@ -2,7 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fs,
     io::Write,
     path::{Component, Path, PathBuf},
@@ -153,6 +153,14 @@ pub struct ChangedFiles {
     pub repositories: BTreeSet<PathBuf>,
 }
 
+/// Git history boundary used by Jest's changed-test CLI modes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GitChangeOptions<'a> {
+    pub changed_since: Option<&'a str>,
+    pub last_commit: bool,
+    pub with_ancestor: bool,
+}
+
 /// Finds staged, unstaged, deleted, and untracked files below Jest roots.
 ///
 /// Roots outside Git repositories are retained as a no-SCM result, matching
@@ -162,6 +170,24 @@ pub struct ChangedFiles {
 ///
 /// Returns an error when a discovered Git repository cannot report its state.
 pub fn git_changed_files(roots: &[PathBuf]) -> Result<ChangedFiles> {
+    git_changed_files_with_options(roots, &GitChangeOptions::default())
+}
+
+/// Finds Git changes below Jest roots using an explicit history boundary.
+///
+/// `last_commit` selects the files in `HEAD`. `with_ancestor` selects the
+/// `HEAD^...HEAD` range and takes precedence over `changed_since`, matching
+/// Jest's Git adapter. Staged and working-tree changes are included unless
+/// `last_commit` is selected.
+///
+/// # Errors
+///
+/// Returns an error when a discovered Git repository cannot report its state
+/// or the requested revision does not exist.
+pub fn git_changed_files_with_options(
+    roots: &[PathBuf],
+    options: &GitChangeOptions<'_>,
+) -> Result<ChangedFiles> {
     let normalized_roots = roots
         .iter()
         .map(|root| normalize_absolute_path(root))
@@ -183,19 +209,52 @@ pub fn git_changed_files(roots: &[PathBuf]) -> Result<ChangedFiles> {
 
     let mut files = BTreeSet::new();
     for repository in &repositories {
-        for arguments in [
-            ["diff", "--cached", "--name-only", "-z"].as_slice(),
-            [
-                "ls-files",
-                "--other",
-                "--modified",
-                "--exclude-standard",
-                "-z",
-            ]
-            .as_slice(),
-        ] {
+        let changed_since = options
+            .with_ancestor
+            .then_some("HEAD^")
+            .or(options.changed_since);
+        let mut queries = Vec::<Vec<OsString>>::new();
+        if options.last_commit {
+            queries.push(
+                ["show", "--name-only", "--pretty=format:", "-z", "HEAD"]
+                    .into_iter()
+                    .map(OsString::from)
+                    .collect(),
+            );
+        } else {
+            if let Some(revision) = changed_since {
+                queries.push(
+                    ["diff", "--name-only", "-z"]
+                        .into_iter()
+                        .map(OsString::from)
+                        .chain(std::iter::once(OsString::from(format!(
+                            "{revision}...HEAD"
+                        ))))
+                        .collect(),
+                );
+            }
+            queries.push(
+                ["diff", "--cached", "--name-only", "-z"]
+                    .into_iter()
+                    .map(OsString::from)
+                    .collect(),
+            );
+            queries.push(
+                [
+                    "ls-files",
+                    "--other",
+                    "--modified",
+                    "--exclude-standard",
+                    "-z",
+                ]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+            );
+        }
+        for arguments in queries {
             let output = Command::new("git")
-                .args(arguments)
+                .args(&arguments)
                 .current_dir(repository)
                 .output()
                 .with_context(|| {
@@ -375,14 +434,25 @@ mod tests {
         collections::{BTreeMap, BTreeSet},
         ffi::OsStr,
         fs,
-        path::PathBuf,
+        path::{Path, PathBuf},
         process::Command,
     };
 
     use tempfile::tempdir;
 
-    use super::{DependencyGraph, git_changed_files};
+    use super::{
+        DependencyGraph, GitChangeOptions, git_changed_files, git_changed_files_with_options,
+    };
     use rjest_core::TestFile;
+
+    fn run_git(cwd: &Path, arguments: &[&str]) {
+        let status = Command::new("git")
+            .args(arguments)
+            .current_dir(cwd)
+            .status()
+            .expect("git command");
+        assert!(status.success());
+    }
 
     #[test]
     fn selects_direct_transitive_and_snapshot_related_tests() {
@@ -448,12 +518,7 @@ mod tests {
             ["config", "user.email", "rjest@example.test"].as_slice(),
             ["config", "user.name", "Rjest"].as_slice(),
         ] {
-            let status = Command::new("git")
-                .args(arguments)
-                .current_dir(temp.path())
-                .status()
-                .expect("git setup");
-            assert!(status.success());
+            run_git(temp.path(), arguments);
         }
         for name in ["staged.js", "modified.js", "deleted.js"] {
             fs::write(temp.path().join(name), "module.exports = 1;\n").expect("baseline file");
@@ -548,5 +613,102 @@ mod tests {
         let alpha_source = fs::canonicalize(temp.path().join("packages/alpha/source.js"))
             .expect("canonical alpha source");
         assert_eq!(changed.files, [alpha_source].into());
+    }
+
+    #[test]
+    fn selects_last_commit_changed_since_and_ancestor_ranges() {
+        let temp = tempdir().expect("temp dir");
+        for arguments in [
+            ["init", "-b", "main"].as_slice(),
+            ["config", "user.email", "rjest@example.test"].as_slice(),
+            ["config", "user.name", "Rjest"].as_slice(),
+        ] {
+            let status = Command::new("git")
+                .args(arguments)
+                .current_dir(temp.path())
+                .status()
+                .expect("git setup");
+            assert!(status.success());
+        }
+        for name in ["alpha.js", "beta.js"] {
+            fs::write(temp.path().join(name), "module.exports = 1;\n").expect("baseline file");
+        }
+        for arguments in [
+            ["add", "."].as_slice(),
+            ["commit", "-m", "baseline"].as_slice(),
+        ] {
+            run_git(temp.path(), arguments);
+        }
+        let baseline = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(temp.path())
+            .output()
+            .expect("baseline revision");
+        assert!(baseline.status.success());
+        let baseline = String::from_utf8(baseline.stdout)
+            .expect("utf8 revision")
+            .trim()
+            .to_owned();
+
+        fs::write(temp.path().join("alpha.js"), "module.exports = 2;\n").expect("alpha change");
+        for arguments in [
+            ["add", "alpha.js"].as_slice(),
+            ["commit", "-m", "alpha change"].as_slice(),
+        ] {
+            run_git(temp.path(), arguments);
+        }
+        fs::write(temp.path().join("beta.js"), "module.exports = 2;\n").expect("beta change");
+        let roots = [temp.path().to_path_buf()];
+        let names = |changed: super::ChangedFiles| {
+            changed
+                .files
+                .into_iter()
+                .filter_map(|path| path.file_name().and_then(OsStr::to_str).map(str::to_owned))
+                .collect::<BTreeSet<_>>()
+        };
+
+        assert_eq!(
+            names(git_changed_files(&roots).expect("working tree")),
+            ["beta.js".into()].into()
+        );
+        assert_eq!(
+            names(
+                git_changed_files_with_options(
+                    &roots,
+                    &GitChangeOptions {
+                        last_commit: true,
+                        ..GitChangeOptions::default()
+                    },
+                )
+                .expect("last commit"),
+            ),
+            ["alpha.js".into()].into()
+        );
+        assert_eq!(
+            names(
+                git_changed_files_with_options(
+                    &roots,
+                    &GitChangeOptions {
+                        changed_since: Some(&baseline),
+                        ..GitChangeOptions::default()
+                    },
+                )
+                .expect("changed since"),
+            ),
+            ["alpha.js".into(), "beta.js".into()].into()
+        );
+        assert_eq!(
+            names(
+                git_changed_files_with_options(
+                    &roots,
+                    &GitChangeOptions {
+                        with_ancestor: true,
+                        ..GitChangeOptions::default()
+                    },
+                )
+                .expect("with ancestor"),
+            ),
+            ["alpha.js".into(), "beta.js".into()].into()
+        );
     }
 }

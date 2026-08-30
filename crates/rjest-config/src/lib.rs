@@ -139,6 +139,7 @@ pub struct ProjectConfig {
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
     pub test_sequencer: Option<String>,
+    pub only_changed: bool,
     pub only_failures: bool,
     pub bail: usize,
     pub randomize: bool,
@@ -218,6 +219,7 @@ struct RawProjectConfig {
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
     test_sequencer: Option<String>,
+    only_changed: Option<bool>,
     only_failures: Option<bool>,
     bail: Option<Value>,
     randomize: Option<bool>,
@@ -404,6 +406,7 @@ impl ProjectConfig {
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
             test_sequencer: None,
+            only_changed: false,
             only_failures: false,
             bail: 0,
             randomize: false,
@@ -724,6 +727,7 @@ fn merge_preset(
         transform_ignore_patterns,
         test_timeout,
         test_sequencer,
+        only_changed,
         only_failures,
         bail,
         randomize,
@@ -1029,6 +1033,7 @@ fn normalize(
         transform_ignore_patterns,
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
         test_sequencer,
+        only_changed: raw.only_changed.unwrap_or(defaults.only_changed),
         only_failures: raw.only_failures.unwrap_or(defaults.only_failures),
         bail: normalize_bail(raw.bail, defaults.bail)?,
         randomize: raw.randomize.unwrap_or(defaults.randomize),
@@ -1904,6 +1909,7 @@ mod tests {
         assert!(config.cache);
         assert_eq!(config.cache_directory, std::env::temp_dir().join("rjest"));
         assert_eq!(config.bail, 0);
+        assert!(!config.only_changed);
         assert!(!config.only_failures);
         assert_eq!(config.max_concurrency, 5);
         assert!(!config.pass_with_no_tests);
@@ -1981,6 +1987,7 @@ mod tests {
               "detectOpenHandles":true,
               "forceExit":true,
               "maxConcurrency":1,
+              "onlyChanged":true,
               "onlyFailures":true,
               "passWithNoTests":true
             }"#,
@@ -1994,11 +2001,13 @@ mod tests {
         assert!(config.detect_open_handles);
         assert!(config.force_exit);
         assert_eq!(config.max_concurrency, 1);
+        assert!(config.only_changed);
         assert!(config.only_failures);
         assert!(config.pass_with_no_tests);
 
         let serialized = serde_json::to_value(config).expect("serialized config");
         assert_eq!(serialized["maxConcurrency"], 1);
+        assert_eq!(serialized["onlyChanged"], true);
         assert_eq!(serialized["onlyFailures"], true);
         assert_eq!(serialized["haste"]["defaultPlatform"], "ios");
 
