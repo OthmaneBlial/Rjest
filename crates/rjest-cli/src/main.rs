@@ -18,6 +18,7 @@ use rjest_core::{
     TestStatus,
 };
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
+use rjest_watch::{NativeWatcher, WatchOptions};
 use sha1::{Digest, Sha1};
 
 const TEST_SEQUENCER_BRIDGE: &str = include_str!("../runtime/test-sequencer.mjs");
@@ -144,6 +145,23 @@ struct Cli {
     /// Run only test files that failed in the previous execution.
     #[arg(short = 'f', long = "onlyFailures", visible_alias = "only-failures", action = ArgAction::SetTrue)]
     only_failures: bool,
+
+    /// Watch files and rerun all test suites after a change.
+    #[arg(
+        long = "watchAll",
+        visible_alias = "watch-all",
+        action = ArgAction::SetTrue,
+        conflicts_with = "watch"
+    )]
+    watch_all: bool,
+
+    /// Watch files and rerun tests related to changed files.
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "watch_all")]
+    watch: bool,
+
+    /// Disable Watchman and use the native filesystem watcher.
+    #[arg(long = "no-watchman", action = ArgAction::SetTrue)]
+    no_watchman: bool,
 
     /// Project directories or config files to run in one Jest invocation.
     #[arg(long, value_name = "PATH", num_args = 1.., action = ArgAction::Append)]
@@ -1112,6 +1130,12 @@ fn jest_global_config(
     object.insert("json".into(), cli.json.into());
     object.insert("listTests".into(), cli.list_tests.into());
     object.insert("logHeapUsage".into(), cli.log_heap_usage.into());
+    object.insert("watch".into(), cli.watch.into());
+    object.insert("watchAll".into(), cli.watch_all.into());
+    object.insert(
+        "passWithNoTests".into(),
+        (cli.watch_all || config.pass_with_no_tests).into(),
+    );
     object.insert("seed".into(), seed.into());
     object.insert(
         "showSeed".into(),
@@ -1299,16 +1323,79 @@ fn run() -> Result<bool> {
         return clear_configured_caches(&config).map(|()| true);
     }
 
-    let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, &project_dir);
-    let all_projects = execution_projects(&config);
-    let selected_projects =
-        filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
-    write_project_selection_message(&cli, &all_projects, &selected_projects);
     let seed = cli
         .seed
         .map_or_else(|| Ok(generated_seed()), validate_seed)?;
     let randomize = cli.randomize || config.randomize;
     let show_seed = randomize || cli.show_seed || config.show_seed;
+
+    if cli.watch {
+        bail!(
+            "dependency-aware `--watch` is not supported yet; use `--watchAll` to rerun every test suite after a change"
+        );
+    }
+    if cli.list_tests {
+        return run_test_cycle(
+            &cli,
+            &config,
+            &project_dir,
+            seed,
+            randomize,
+            show_seed,
+            false,
+        );
+    }
+    if cli.watch_all {
+        let options = watch_options(&cli, &config, &project_dir);
+        let watcher = NativeWatcher::start(&options)?;
+        run_test_cycle(
+            &cli,
+            &config,
+            &project_dir,
+            seed,
+            randomize,
+            show_seed,
+            true,
+        )?;
+        loop {
+            watcher.wait_for_change()?;
+            run_test_cycle(
+                &cli,
+                &config,
+                &project_dir,
+                seed,
+                randomize,
+                show_seed,
+                true,
+            )?;
+        }
+    }
+    run_test_cycle(
+        &cli,
+        &config,
+        &project_dir,
+        seed,
+        randomize,
+        show_seed,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_test_cycle(
+    cli: &Cli,
+    config: &ProjectConfig,
+    project_dir: &Path,
+    seed: i32,
+    randomize: bool,
+    show_seed: bool,
+    watch_mode: bool,
+) -> Result<bool> {
+    let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, project_dir);
+    let all_projects = execution_projects(config);
+    let selected_projects =
+        filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
+    write_project_selection_message(cli, &all_projects, &selected_projects);
     let project_runs = selected_projects
         .into_iter()
         .map(|project_config| {
@@ -1319,16 +1406,16 @@ fn run() -> Result<bool> {
         })
         .collect::<Result<Vec<_>>>()?;
     let (project_runs, mut sequencer_session, mut native_sequencer_cache) =
-        order_project_runs(project_runs, &config, seed, randomize, cli.shard)?;
+        order_project_runs(project_runs, config, seed, randomize, cli.shard)?;
     let test_count = project_runs
         .iter()
         .map(|run| run.tests.len())
         .sum::<usize>();
-    let pass_with_no_tests = cli.pass_with_no_tests || config.pass_with_no_tests;
+    let pass_with_no_tests = watch_mode || cli.pass_with_no_tests || config.pass_with_no_tests;
     if cli.list_tests {
         return emit_test_list(
-            &cli,
-            &config,
+            cli,
+            config,
             &project_runs,
             pass_with_no_tests,
             &mut sequencer_session,
@@ -1340,17 +1427,17 @@ fn run() -> Result<bool> {
         if config.only_failures {
             finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
             println!("No failed test found.");
-            return finish_empty_run(&cli, &config, pass_with_no_tests, seed, show_seed);
+            return finish_empty_run(cli, config, pass_with_no_tests, seed, show_seed);
         }
         if !pass_with_no_tests {
             bail!("No tests found");
         }
         finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
-        return finish_empty_run(&cli, &config, true, seed, show_seed);
+        return finish_empty_run(cli, config, true, seed, show_seed);
     }
 
     let (result, collect_coverage, reporter_session, mut global_hook_session) =
-        execute_selected_runs(&cli, &config, project_runs, seed, randomize)?;
+        execute_selected_runs(cli, config, project_runs, seed, randomize)?;
     let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
     finish_test_sequencers(
         &mut sequencer_session,
@@ -1363,7 +1450,7 @@ fn run() -> Result<bool> {
     if let Some(session) = global_hook_session.as_mut() {
         session.finish()?;
     }
-    let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
+    let coverage_report = coverage_report(cli, config, &result, collect_coverage)?;
     let base_success = result.is_success()
         && reporters_succeeded
         && coverage_report
@@ -1374,14 +1461,14 @@ fn run() -> Result<bool> {
         .as_ref()
         .map_or(&empty_environment, GlobalHookSession::environment);
     let processed_result =
-        process_test_results(&config, &result, processor_environment, base_success)?;
+        process_test_results(config, &result, processor_environment, base_success)?;
     let final_success = processed_result
         .as_ref()
         .map_or(base_success, |processed| processed.success);
     if !bail_reached || !cli.json {
         emit_results(
-            &cli,
-            &config,
+            cli,
+            config,
             &result,
             coverage_report.as_ref(),
             processed_result.as_ref().map(|processed| &processed.json),
@@ -1390,6 +1477,32 @@ fn run() -> Result<bool> {
         )?;
     }
     Ok(final_success)
+}
+
+fn watch_options(cli: &Cli, config: &ProjectConfig, project_dir: &Path) -> WatchOptions {
+    let all_projects = execution_projects(config);
+    let selected_projects =
+        filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
+    let mut roots = Vec::new();
+    let mut ignore_patterns = Vec::new();
+    let mut ignored_paths = Vec::new();
+    for project in selected_projects {
+        roots.extend(project.roots.iter().cloned());
+        ignore_patterns.extend(project.watch_path_ignore_patterns.iter().cloned());
+        ignored_paths.push(project.cache_directory.clone());
+        ignored_paths.push(project.coverage_directory.clone());
+    }
+    if let Some(output_file) = &cli.output_file {
+        ignored_paths.push(if output_file.is_absolute() {
+            output_file.clone()
+        } else {
+            project_dir.join(output_file)
+        });
+    }
+    let mut options = WatchOptions::new(roots);
+    options.ignore_patterns = ignore_patterns;
+    options.ignored_paths = ignored_paths;
+    options
 }
 
 fn finish_empty_run(
@@ -1499,6 +1612,9 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
     }
     if cli.no_coverage {
         config.collect_coverage = false;
+    }
+    if cli.no_watchman {
+        config.watchman = false;
     }
     for project in &mut config.projects {
         apply_global_execution_overrides(project, cli);
@@ -2491,7 +2607,7 @@ mod tests {
         Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard, clear_configured_caches,
         filter_projects, native_context_key, native_reporter_mode, parse_max_workers,
         sequence_project_runs_with_native, shard_tests, uses_modern_branches_true_summary,
-        validate_seed,
+        validate_seed, watch_options,
     };
 
     #[test]
@@ -2500,6 +2616,41 @@ mod tests {
             .expect("Jest-compatible flags");
         assert_eq!(cli.max_workers.as_deref(), Some("1"));
         assert!(cli.log_heap_usage);
+    }
+
+    #[test]
+    fn accepts_jest_watch_flags_and_rejects_conflicting_modes() {
+        let watch_all =
+            Cli::try_parse_from(["rjest", "--watchAll", "--no-watchman"]).expect("watchAll flags");
+        assert!(watch_all.watch_all);
+        assert!(watch_all.no_watchman);
+
+        let watch = Cli::try_parse_from(["rjest", "--watch"]).expect("watch flag");
+        assert!(watch.watch);
+        assert!(Cli::try_parse_from(["rjest", "--watch", "--watchAll"]).is_err());
+    }
+
+    #[test]
+    fn builds_watch_options_from_selected_project_outputs_and_patterns() {
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config.watch_path_ignore_patterns = vec!["generated\\.json$".into()];
+        config.cache_directory = temp.path().join(".cache");
+        config.coverage_directory = temp.path().join("coverage-custom");
+        let cli = Cli::try_parse_from(["rjest", "--watchAll", "--outputFile=results.json"])
+            .expect("watch arguments");
+
+        let options = watch_options(&cli, &config, temp.path());
+        assert_eq!(options.roots, [temp.path().to_path_buf()]);
+        assert_eq!(options.ignore_patterns, ["generated\\.json$"]);
+        assert_eq!(
+            options.ignored_paths,
+            [
+                temp.path().join(".cache"),
+                temp.path().join("coverage-custom"),
+                temp.path().join("results.json"),
+            ]
+        );
     }
 
     #[test]
@@ -2522,6 +2673,12 @@ mod tests {
         assert!(!config.collect_coverage);
         assert!(config.projects[0].force_exit);
         assert!(!config.projects[0].collect_coverage);
+
+        let cli =
+            Cli::try_parse_from(["rjest", "--no-watchman"]).expect("native watch backend flag");
+        super::apply_global_execution_overrides(&mut config, &cli);
+        assert!(!config.watchman);
+        assert!(!config.projects[0].watchman);
     }
 
     #[test]

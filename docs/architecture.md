@@ -21,6 +21,8 @@ The architecture follows the boundary recorded in
 - `rjest-snapshot`: safe Jest v1 snapshot parsing, natural key ordering,
   template-literal escaping, deterministic coordinator-side persistence, and
   obsolete-file cleanup.
+- `rjest-watch`: native recursive filesystem subscriptions, Jest regex ignores,
+  generated-output filtering, root de-duplication, and event debouncing.
 - `runtime/worker.mjs`: Jest-style declaration, hooks, assertions, mocks,
   snapshots, fake timers, configured sync/async transforms, JSDOM globals,
   custom-environment lifecycle bridging, async timeouts, and per-file execution
@@ -41,6 +43,15 @@ sorts aggregation by canonical path. Each file gets a fresh process, which
 isolates global state and crashes at the cost of startup overhead. A coordinator
 wall-clock limit terminates a worker whose event loop is synchronously blocked.
 Worker reuse and cooperative cancellation remain future work.
+
+`--watchAll` starts the native watcher before its initial execution cycle, then
+re-enters the same discovery, sequencing, hook, reporter, coverage, and result
+pipeline after each settled filesystem batch. Re-discovery on every cycle is
+deliberate: added and deleted test files cannot be represented by reusing the
+previous file list. Cache, coverage, and JSON output paths are filtered at the
+watch boundary to prevent coordinator-generated files from causing loops.
+Dependency-aware `--watch` needs a source dependency graph and is not currently
+aliased to this all-tests behavior.
 
 Test processes run with the invoking user's permissions. Process isolation is a
 reliability boundary, not a security sandbox.

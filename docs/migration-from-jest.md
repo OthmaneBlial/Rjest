@@ -12,6 +12,17 @@ default bounded parallel execution. Follow the compatibility matrix rather than
 assuming an unlisted Jest behavior works, and keep Jest as the release gate until
 the project's own suite is proven equivalent.
 
+`rjest --watchAll` performs an initial run and then reruns the complete selected
+matrix after debounced native filesystem changes. Every cycle performs fresh
+discovery, so new and deleted test files are reflected without restarting the
+process; failing runs also remain alive for the next edit. Existing
+`watchPathIgnorePatterns` are normalized, and Rjest automatically excludes its
+cache, coverage, and configured JSON output paths from feedback events.
+`--no-watchman` is accepted, although Rjest always uses its native Rust watcher.
+Do not substitute Rjest yet for projects that depend on Jest's dependency-aware
+`--watch`, interactive keys, watch plugins, or cancellation of a still-running
+stale cycle; those behaviors remain explicit migration boundaries.
+
 Rjest reads existing Jest snapshot files without rewriting them when values
 match and loads configured snapshot serializers. Existing inline snapshots are
 matched and counted. New and updated inline snapshots rewrite JavaScript,

@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 
@@ -1086,10 +1086,15 @@ const cases = [
   },
 ];
 
+const watchCases = [{name: 'watch-all-lifecycle', category: 'Watch'}];
+
 const outcomes = cases.map(compareCase);
+for (const watchCase of watchCases) {
+  outcomes.push(await compareWatchCase(watchCase));
+}
 writeCompatibilityReport(outcomes);
 const passing = outcomes.filter(outcome => outcome.compatible).length;
-console.log(`Compatibility: ${passing}/${cases.length} differential scenarios compatible`);
+console.log(`Compatibility: ${passing}/${outcomes.length} differential scenarios compatible`);
 for (const [category, score] of categoryScores(outcomes)) {
   console.log(`  ${category}: ${score.passing}/${score.total} (${score.percentage.toFixed(1)}%)`);
 }
@@ -1522,6 +1527,162 @@ function compareCase(testCase) {
   } finally {
     rmSync(temporary, {recursive: true, force: true});
   }
+}
+
+async function compareWatchCase(testCase) {
+  const sourceFixture = join(fixtures, testCase.name);
+  const temporary = mkdtempSync(join(tmpdir(), 'rjest-watch-compat-'));
+  const jestFixture = join(temporary, 'jest');
+  const rjestFixture = join(temporary, 'rjest');
+  try {
+    cpSync(sourceFixture, jestFixture, {recursive: true});
+    cpSync(sourceFixture, rjestFixture, {recursive: true});
+    const environment = {
+      ...process.env,
+      CI: '',
+      NODE_PATH: join(repository, 'node_modules'),
+    };
+    const jestResult = await exerciseWatchProcess({
+      command: process.execPath,
+      args: [
+        jest,
+        '--watchAll',
+        '--runInBand',
+        '--no-cache',
+        '--no-watchman',
+      ],
+      cwd: jestFixture,
+      environment,
+      label: `Jest (${testCase.name})`,
+    });
+    const rjestResult = await exerciseWatchProcess({
+      command: rjest,
+      args: ['--watchAll', '--runInBand', '--no-cache', '--no-watchman'],
+      cwd: rjestFixture,
+      environment,
+      label: `Rjest (${testCase.name})`,
+    });
+    const differences = [];
+    if (JSON.stringify(jestResult.runs) !== JSON.stringify(rjestResult.runs)) {
+      differences.push('watch run results differ');
+    }
+    if (rjestResult.extraRuns !== 0) {
+      differences.push(`Rjest emitted ${rjestResult.extraRuns} unexpected rerun(s)`);
+    }
+    if (jestResult.extraRuns !== 0) {
+      fail(
+        `${testCase.name}: Jest oracle emitted ${jestResult.extraRuns} unexpected rerun(s)`,
+        jestResult,
+      );
+    }
+    if (differences.length > 0) {
+      console.error(`Differential mismatch for ${testCase.name}: ${differences.join('; ')}`);
+      console.error('Jest:', JSON.stringify(jestResult.runs, null, 2));
+      console.error('Rjest:', JSON.stringify(rjestResult.runs, null, 2));
+      fail(`${testCase.name}: expected Jest watch parity`, rjestResult);
+    }
+    return {
+      name: testCase.name,
+      category: testCase.category,
+      compatible: true,
+      differences,
+    };
+  } finally {
+    rmSync(temporary, {recursive: true, force: true});
+  }
+}
+
+async function exerciseWatchProcess({command, args, cwd, environment, label}) {
+  const artifact = join(cwd, 'watch-results.jsonl');
+  const shared = join(cwd, 'shared.cjs');
+  const addedTest = join(cwd, 'gamma.test.cjs');
+  const child = spawn(command, args, {
+    cwd,
+    env: environment,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  let spawnError;
+  child.stdout.on('data', chunk => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', chunk => {
+    stderr += chunk;
+  });
+  child.on('error', error => {
+    spawnError = error;
+  });
+
+  try {
+    await waitForWatchRuns({artifact, child, count: 1, label, output: () => ({stdout, stderr})});
+    writeFileSync(shared, 'module.exports = {value: 2};\n');
+    await waitForWatchRuns({artifact, child, count: 2, label, output: () => ({stdout, stderr})});
+    writeFileSync(shared, 'module.exports = {value: 1};\n');
+    await waitForWatchRuns({artifact, child, count: 3, label, output: () => ({stdout, stderr})});
+    writeFileSync(
+      addedTest,
+      "const {value} = require('./shared.cjs');\n\n" +
+        "test('newly discovered gamma suite', () => {\n" +
+        '  expect(value).toBe(1);\n' +
+        '});\n',
+    );
+    await waitForWatchRuns({artifact, child, count: 4, label, output: () => ({stdout, stderr})});
+    rmSync(addedTest);
+    await waitForWatchRuns({artifact, child, count: 5, label, output: () => ({stdout, stderr})});
+    await delay(800);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGINT');
+    await waitForExit(child);
+  }
+  if (spawnError) fail(`${label} could not start: ${spawnError.message}`, {stdout, stderr});
+  const runs = readWatchRuns(artifact);
+  return {
+    runs: runs.slice(0, 5),
+    extraRuns: Math.max(0, runs.length - 5),
+    stdout,
+    stderr,
+  };
+}
+
+async function waitForWatchRuns({artifact, child, count, label, output}) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (readWatchRuns(artifact).length >= count) return;
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const error = new Error(`${label} exited before watch run ${count}`);
+      Object.assign(error, output());
+      throw error;
+    }
+    await delay(75);
+  }
+  const error = new Error(`${label} timed out waiting for watch run ${count}`);
+  Object.assign(error, output());
+  throw error;
+}
+
+function readWatchRuns(artifact) {
+  if (!existsSync(artifact)) return [];
+  return readFileSync(artifact, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
+}
+
+async function waitForExit(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise(resolve => child.once('exit', resolve));
+  const timedOut = await Promise.race([
+    exited.then(() => false),
+    delay(3_000).then(() => true),
+  ]);
+  if (!timedOut) return;
+  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  await Promise.race([exited, delay(2_000)]);
+}
+
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 function readOptionalArtifact(fixture, relativePath) {

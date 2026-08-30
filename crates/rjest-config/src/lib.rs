@@ -157,7 +157,9 @@ pub struct ProjectConfig {
     pub coverage_provider: String,
     pub coverage_reporters: Vec<Value>,
     pub coverage_threshold: Value,
+    pub watch_path_ignore_patterns: Vec<String>,
     pub watch_plugins: Value,
+    pub watchman: bool,
 }
 
 /// A normalized Jest project label. Jest accepts either a name string or a
@@ -232,7 +234,9 @@ struct RawProjectConfig {
     coverage_provider: Option<String>,
     coverage_reporters: Option<Vec<Value>>,
     coverage_threshold: Option<Value>,
+    watch_path_ignore_patterns: Option<Vec<String>>,
     watch_plugins: Option<Value>,
+    watchman: Option<bool>,
     #[serde(flatten)]
     unsupported: BTreeMap<String, Value>,
 }
@@ -419,7 +423,9 @@ impl ProjectConfig {
                 .map(|reporter| Value::String(reporter.into()))
                 .collect(),
             coverage_threshold: serde_json::json!({}),
+            watch_path_ignore_patterns: Vec::new(),
             watch_plugins: serde_json::json!([]),
+            watchman: true,
         })
     }
 }
@@ -734,7 +740,9 @@ fn merge_preset(
         coverage_provider,
         coverage_reporters,
         coverage_threshold,
+        watch_path_ignore_patterns,
         watch_plugins,
+        watchman,
     );
     configured.globals = merge_preset_json(preset.globals.take(), configured.globals.take());
     prepend_preset_values(&mut configured.setup_files, preset.setup_files.take());
@@ -956,6 +964,11 @@ fn normalize(
         defaults.coverage_path_ignore_patterns,
         &root_dir,
     );
+    let watch_path_ignore_patterns = normalize_regex_path_patterns(
+        raw.watch_path_ignore_patterns,
+        defaults.watch_path_ignore_patterns,
+        &root_dir,
+    );
 
     Ok(ProjectConfig {
         display_name,
@@ -1038,7 +1051,9 @@ fn normalize(
         coverage_threshold: raw
             .coverage_threshold
             .unwrap_or(defaults.coverage_threshold),
+        watch_path_ignore_patterns,
         watch_plugins: raw.watch_plugins.unwrap_or(defaults.watch_plugins),
+        watchman: raw.watchman.unwrap_or(defaults.watchman),
     })
 }
 
@@ -1892,6 +1907,8 @@ mod tests {
         assert!(!config.only_failures);
         assert_eq!(config.max_concurrency, 5);
         assert!(!config.pass_with_no_tests);
+        assert!(config.watch_path_ignore_patterns.is_empty());
+        assert!(config.watchman);
     }
 
     #[test]
@@ -1923,7 +1940,8 @@ mod tests {
               "testPathIgnorePatterns":["plain-test","<rootDir>/ignored-test"],
               "modulePathIgnorePatterns":["<rootDir>/ignored-module"],
               "transformIgnorePatterns":["<rootDir>/ignored-transform"],
-              "coveragePathIgnorePatterns":["<rootDir>/ignored-coverage"]
+              "coveragePathIgnorePatterns":["<rootDir>/ignored-coverage"],
+              "watchPathIgnorePatterns":["<rootDir>/ignored-watch"]
             }"#,
         )
         .expect("root-token regex patterns");
@@ -1945,6 +1963,10 @@ mod tests {
         assert_eq!(
             config.coverage_path_ignore_patterns,
             [format!("{root}/ignored-coverage")]
+        );
+        assert_eq!(
+            config.watch_path_ignore_patterns,
+            [format!("{root}/ignored-watch")]
         );
     }
 
@@ -2622,6 +2644,27 @@ mod tests {
         );
         assert_eq!(config.coverage_reporters, ["json-summary", "lcov"]);
         assert_eq!(config.worker_idle_memory_limit.as_deref(), Some("45MiB"));
+    }
+
+    #[test]
+    fn normalizes_watch_backend_configuration() {
+        let temp = tempdir().expect("temp dir");
+        let config = load_inline_json(
+            temp.path(),
+            r#"{
+              "watchPathIgnorePatterns":["/generated-watch/"],
+              "watchPlugins":["jest-watch-typeahead/filename"],
+              "watchman":false
+            }"#,
+        )
+        .expect("watch config");
+
+        assert_eq!(config.watch_path_ignore_patterns, ["/generated-watch/"]);
+        assert_eq!(
+            config.watch_plugins,
+            serde_json::json!(["jest-watch-typeahead/filename"])
+        );
+        assert!(!config.watchman);
     }
 
     #[test]

@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 173,
-    "total": 173,
+    "passing": 174,
+    "total": 174,
     "percentage": 100
   },
   "categories": {
@@ -71,6 +71,11 @@
     "Transforms": {
       "passing": 7,
       "total": 7,
+      "percentage": 100
+    },
+    "Watch": {
+      "passing": 1,
+      "total": 1,
       "percentage": 100
     }
   },
@@ -1110,6 +1115,12 @@
     {
       "name": "gap-async-transformer-coverage",
       "category": "Transforms",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "watch-all-lifecycle",
+      "category": "Watch",
       "compatible": true,
       "differences": []
     }
