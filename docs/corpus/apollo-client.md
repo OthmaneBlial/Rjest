@@ -126,8 +126,58 @@ failures, and three flattened-asymmetric-matcher failures. The two captured
 Rjest-only failures still requiring investigation are the timing-sensitive
 `useQuery` stale-variables case and a `useLazyQuery` manual-trigger case. Six
 official-Jest-only GC/minimum-RxJS failures also contribute to the 36 status
-differences. A latest-source full rerun is required before recalculating this
-corpus score.
+differences. The latest-source capture below recalculates this corpus score
+after all five repairs.
+
+## Latest full Rjest capture
+
+The latest complete run used the exact `7e7c5e5` binary, which contains all five
+subsequent targeted repairs. The later `8884829` commit only extends the
+result-file comparator and does not change the runtime under test:
+
+```sh
+cd base/corpus/apollo-client
+env NODE_OPTIONS='--expose-gc --experimental-import-meta-resolve --disable-warning=ExperimentalWarning' \
+  /usr/bin/time -l -o ../results/jest-apollo-client/rjest-latest.time.log \
+  ../../../target/debug/rjest \
+  --config ./config/jest.config.ts --runInBand --json \
+  --outputFile=../results/jest-apollo-client/rjest-latest.json
+cd ../../..
+npm run compare:corpus -- \
+  --root base/corpus/apollo-client \
+  base/corpus/results/jest-apollo-client/official.json \
+  base/corpus/results/jest-apollo-client/rjest-latest.json
+```
+
+| Measurement | Latest Rjest capture |
+| --- | ---: |
+| Discovered project-suite executions | 563 |
+| Passed / failed / skipped suites | 542 / 3 / 18 |
+| Registered tests | 9,974 |
+| Passed / failed / skipped tests | 9,495 / 3 / 476 |
+| Matched / unmatched snapshots | 519 / 0 |
+| File-level errors | 0 |
+| Exit code | 1 |
+| Rjest-reported time | 2,649.389 s |
+| End-to-end wall time | 2,651.08 s |
+| Peak RSS | 2,118,156,288 bytes |
+| Test-identity parity | 9,974 / 9,974 (100.000%) |
+| Test identity/status parity | 9,968 / 9,974 (99.940%) |
+
+Every test that passed under the recorded official baseline also passes under
+Rjest, every skipped identity remains skipped, and all 519 snapshots match.
+Rjest has no file errors and no Rjest-only failing test. Its three failures are
+the same WHATWG response-stream identity repeated across the three Core
+projects, which also fails in the official baseline.
+
+The six strict status differences run in the other direction: Rjest passes one
+minimum-RxJS `ApolloClient` assertion and five forced-GC assertions that failed
+in the recorded official run. Three consecutive official-Jest isolated
+rechecks passed all nine selected assertions across their six project-suite
+executions; the paired Rjest recheck is exact across all 453 registered
+statuses (9 passed and 444 skipped). The frozen full-run comparison remains
+99.940% rather than hiding this run-order/GC instability, while the recheck
+shows no stable isolated incompatibility for those six identities.
 
 ## Rjest compatibility loop
 
@@ -169,19 +219,19 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `useSuspenseQuery.test.tsx` | React 18 / 19 | 318 / 318 passed | 318 / 318 passed |
 | `streamGraphQL17Alpha9.test.tsx` | React 18 / 19 | 36 / 36 passed | 36 / 36 passed |
 | `useFragment.test.tsx` | React 17 / 18 / 19 | 99 passed, 6 skipped | 99 passed, 6 skipped |
-| `useQuery.test.tsx` | React 17 / 18 / 19 | 477 / 477 passed | 476 / 477 passed |
+| `useQuery.test.tsx` | React 17 / 18 / 19 | 477 / 477 passed | 477 / 477 passed |
 | `onlineSource.test.ts` + `windowFocusSource.test.ts` | Core / min-RxJS / GraphQL 16 | 12 / 12 passed | 12 / 12 passed |
 | `HttpLink.ts` (`HttpLink Dev warnings`) | Core / min-RxJS / GraphQL 16 | 9 passed, 246 skipped | 9 passed, 246 skipped |
 | `MockedProvider.test.tsx` (`maxUsageCount`) | React 17 / 18 / 19 | 3 passed, 84 skipped | 3 passed, 84 skipped |
 | `mockLink.ts` | Core / min-RxJS / GraphQL 16 | 138 passed, 12 skipped, 42 snapshots | 138 passed, 12 skipped, 42 snapshots |
 | `policies.ts` | Core / min-RxJS / GraphQL 16 | 153 passed, 78 snapshots | 153 passed, 78 snapshots |
 
-These are targeted compatibility results, not a claim for the complete corpus.
-The remaining `useQuery` mismatch is timing-sensitive and has moved between
-React 18 and 19 on isolated reruns; it is not counted as compatible. A fresh
-full 563-suite capture with all repairs and strict comparison is still required.
-The completed second capture is also much slower than Jest, but correctness is
-still the priority and no performance claim is inferred from mismatched runs.
+The latest complete capture strengthens these targeted results: all previously
+Rjest-only failures, including the `useLazyQuery` manual-trigger and `useQuery`
+stale-variable cases, now pass in every applicable React project. Strict status
+parity remains 99.940% only because Rjest passes six failures from the frozen
+official baseline. Rjest is still materially slower than Jest, and correctness
+remains the priority over performance claims.
 
 ## Compatibility pressure
 
@@ -196,6 +246,8 @@ The pinned suite combines:
 - nearly ten thousand registered tests under repeated dependency variants;
 - forced garbage collection and a roughly 3 GB official-Jest peak RSS.
 
-This report records an authoritative baseline, two full Rjest convergence
-captures, an automated real-corpus status score, and repaired multi-project
-execution slices. It does not yet claim Apollo Client can switch to Rjest.
+This report records an authoritative baseline, three full Rjest convergence
+captures, automated real-corpus status scores, and exact targeted rechecks.
+For this pinned run, replacing Jest with Rjest introduces no additional failing
+or skipped test and preserves every snapshot. This is evidence for this corpus,
+not a claim of complete Jest compatibility across unmeasured projects.

@@ -375,8 +375,20 @@ custom-JSDOM event forwarding, host `fetch` and scheduler isolation, nested
 `useSuspenseQuery.test.tsx` probe now has exact 318/318 parity across React 18
 and 19; the development-warning probe matches all 255 statuses; `mockLink.ts`
 matches 150 statuses and 42 snapshots; and `policies.ts` matches 153 statuses
-and 78 snapshots. A latest-source full rerun is still required, so these
-results remain progress evidence rather than a corpus-wide parity claim.
+and 78 snapshots.
+
+The latest complete `7e7c5e5` capture closes every Rjest-only failure from the
+second run. Rjest registers the same 9,974 identities, passes 9,495 tests,
+fails three, skips the same 476 identities, matches all 519 snapshots, and has
+zero file errors. Its three failures are the same WHATWG stream identity that
+fails in all three Core projects under official Jest. Every official pass and
+skip is therefore preserved, with no Rjest-only failure. Strict frozen-baseline
+identity/status parity is 9,968/9,974 (99.940%) because Rjest passes six tests
+that failed in the recorded official run. Three consecutive isolated official
+rechecks pass those six identities; one paired Rjest recheck is exact across
+all 453 statuses (9 passed, 444 skipped). This proves compatibility for the
+pinned corpus conditions without turning the result into an exhaustive Jest
+compatibility claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

@@ -204,12 +204,13 @@ including the same single upstream macOS path failure.
 The pinned [Apollo Client corpus](docs/corpus/apollo-client.md) establishes a
 much larger Jest 30 baseline across six Core/React projects: 563 suites, 9,974
 tests, and 519 snapshots. Its second complete Rjest capture found the exact 563
-suite paths and all 9,974 test identities, matched every snapshot, and had zero
-file-level errors. The automated comparator measured 9,938/9,974 exact
-identity/status records (99.639%) at commit `1ce28ab`. Five later targeted
-repairs have exact focused evidence for 28 of that capture's 30 Rjest-only
-failures. A latest-source full rerun is still required, so this is not a
-corpus-parity claim.
+suite paths and all 9,974 test identities. The latest complete capture passes
+9,495 tests, fails the same three WHATWG-stream cases as official Jest, skips
+the same 476 tests, matches all 519 snapshots, and has zero file errors or
+Rjest-only failures. Strict identity/status parity against the frozen official
+baseline is 9,968/9,974 (99.940%) because Rjest passes six official failures;
+three isolated official rechecks pass those cases too. This is evidence for the
+pinned corpus, not an exhaustive Jest-compatibility claim.
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current
