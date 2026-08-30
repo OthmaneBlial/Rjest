@@ -1227,6 +1227,11 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'fake-timers-modern-handles',
+    category: 'Fake timers',
+    expectedExit: 0,
+  },
+  {
     name: 'gap-fake-timers-performance',
     category: 'Fake timers',
     expectedExit: 0,

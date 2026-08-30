@@ -9,12 +9,12 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 217/217 (100.0%) across its explicitly listed
+The current generated matrix is 218/218 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 14/14 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
 Expect is 12/12 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 14/14 (100.0%), coverage is 19/19 (100.0%), and custom
+(100.0%). Fake timers are 15/15 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -372,6 +372,11 @@ recursive-drain boundary and diagnostic. Recursive microtasks retain Sinon's
 separate job-count behavior, while finite `advanceTimersByTime` operations are
 not incorrectly capped merely because they execute more callbacks than the
 drain limit. The same boundary holds for synchronous and asynchronous APIs.
+Modern timers in the Node environment return Sinon-compatible handle objects
+with `ref`, `unref`, `hasRef`, `refresh`, and numeric coercion; JSDOM retains
+browser-style numeric identifiers. Refreshing reactivates fired handles,
+postpones intervals, updates equal-deadline order, and cannot leak an obsolete
+handle into a newly installed fake clock.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.

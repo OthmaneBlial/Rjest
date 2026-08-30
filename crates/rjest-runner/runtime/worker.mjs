@@ -6181,11 +6181,12 @@ async function loadRuntimeModule(path) {
   return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
 }
 
-function createFakeTimerState() {
+function createFakeTimerState(nextId = 1, nextOrder = 1) {
   return {
     now: 0,
     monotonicNow: 0,
-    nextId: 1,
+    nextId,
+    nextOrder,
     timers: new Map(),
     ticks: [],
     immediates: [],
@@ -6194,7 +6195,7 @@ function createFakeTimerState() {
 }
 
 const fakeTimerStates = {
-  modern: createFakeTimerState(),
+  modern: createFakeTimerState(1e12, 0),
   legacy: createFakeTimerState(),
 };
 
@@ -6202,6 +6203,7 @@ const fakeTimers = {
   active: false,
   duringTick: false,
   mode: 'modern',
+  generation: 0,
   maxRuns: 100_000,
   autoAdvanceHandle: undefined,
   tickMode: 'manual',
@@ -6226,6 +6228,12 @@ const fakeTimers = {
   },
   set nextId(value) {
     fakeTimerStates[this.mode].nextId = value;
+  },
+  get nextOrder() {
+    return fakeTimerStates[this.mode].nextOrder;
+  },
+  set nextOrder(value) {
+    fakeTimerStates[this.mode].nextOrder = value;
   },
   get timers() {
     return fakeTimerStates[this.mode].timers;
@@ -6351,11 +6359,15 @@ function scheduleFakeTimer(type, callback, delay, args) {
   ) {
     duration = 1;
   }
-  fakeTimers.timers.set(id, {
+  const timer = {
     id,
     type,
     callback,
     args,
+    delay: duration,
+    generation: fakeTimers.generation,
+    mode: fakeTimers.mode,
+    order: fakeTimers.nextOrder++,
     callAt: fakeTimers.now + duration,
     interval:
       type === 'interval'
@@ -6363,14 +6375,49 @@ function scheduleFakeTimer(type, callback, delay, args) {
           ? duration
           : Math.max(1, duration)
         : undefined,
-  });
-  return legacyTimerReference(id);
+  };
+  fakeTimers.timers.set(id, timer);
+  return fakeTimerReference(timer);
 }
 
-function legacyTimerReference(id) {
-  if (fakeTimers.mode !== 'legacy' || jsdomEnvironment) return id;
+function fakeTimerReference(timer) {
+  if (timer.mode === 'modern') {
+    if (jsdomEnvironment) return timer.id;
+    return {
+      refed: true,
+      ref() {
+        this.refed = true;
+        return this;
+      },
+      unref() {
+        this.refed = false;
+        return this;
+      },
+      hasRef() {
+        return this.refed;
+      },
+      refresh() {
+        if (
+          timer.mode !== fakeTimers.mode ||
+          timer.generation !== fakeTimers.generation
+        ) {
+          return this;
+        }
+        timer.callAt =
+          fakeTimers.now +
+          (timer.delay || (fakeTimers.duringTick ? 1 : 0));
+        timer.order = fakeTimers.nextOrder++;
+        fakeTimers.timers.set(timer.id, timer);
+        return this;
+      },
+      [Symbol.toPrimitive]() {
+        return timer.id;
+      },
+    };
+  }
+  if (jsdomEnvironment) return timer.id;
   return {
-    id,
+    id: timer.id,
     ref() {
       return this;
     },
@@ -6397,7 +6444,7 @@ function nextFakeTimer(limit = Number.POSITIVE_INFINITY, allowedIds) {
     if (
       !selected ||
       timer.callAt < selected.callAt ||
-      (timer.callAt === selected.callAt && timer.id < selected.id)
+      (timer.callAt === selected.callAt && timer.order < selected.order)
     ) {
       selected = timer;
     }
@@ -6497,6 +6544,7 @@ function runTimer(timer) {
       fakeTimers.mode === 'legacy'
         ? fakeTimers.now + (timer.interval || 0)
         : timer.callAt + timer.interval;
+    timer.order = fakeTimers.nextOrder++;
     fakeTimers.timers.set(timer.id, timer);
   }
   if (fakeTimers.mode === 'legacy') {
@@ -6557,6 +6605,7 @@ function installFakeTimers(options = {}) {
   if (fakeTimers.active) restoreRealTimers();
   fakeTimers.active = true;
   fakeTimers.mode = mode;
+  fakeTimers.generation += 1;
   fakeTimers.tickMode = 'manual';
   fakeTimers.tickModeDelta = undefined;
   fakeTimers.tickModeCounter += 1;
@@ -6582,7 +6631,6 @@ function installFakeTimers(options = {}) {
       ? NativeDate.now()
       : timerEpoch(options.now);
   fakeTimers.monotonicNow = 0;
-  fakeTimers.nextId = 1;
   fakeTimers.timers.clear();
   fakeTimers.ticks.length = 0;
   const doNotFake = new Set(options?.doNotFake ?? []);
@@ -7124,7 +7172,7 @@ const jest = {
   runOnlyPendingTimers() {
     if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
     const pending = [...fakeTimers.timers.values()].sort(
-      (left, right) => left.callAt - right.callAt || left.id - right.id,
+      (left, right) => left.callAt - right.callAt || left.order - right.order,
     );
     if (fakeTimers.mode === 'legacy') {
       for (const immediate of [...fakeTimers.immediates]) {
@@ -7151,7 +7199,7 @@ const jest = {
     if (!checkFakeTimers()) return;
     return withPausedNextAsyncMode(async () => {
       const pending = [...fakeTimers.timers.values()].sort(
-        (left, right) => left.callAt - right.callAt || left.id - right.id,
+        (left, right) => left.callAt - right.callAt || left.order - right.order,
       );
       for (const timer of pending) {
         if (fakeTimers.timers.get(timer.id) === timer) {
