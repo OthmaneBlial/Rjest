@@ -2596,7 +2596,7 @@ function matchMockArity(callback, length) {
 
 function createMock(implementation) {
   let defaultImplementation = implementation;
-  const once = [];
+  let once = [];
   let name = 'jest.fn()';
   let restore;
   let state = newMockState();
@@ -2661,6 +2661,24 @@ function createMock(implementation) {
   mock.mockImplementationOnce = fn => {
     once.push(fn);
     return mock;
+  };
+  mock.withImplementation = (temporaryImplementation, callback) => {
+    const previousImplementation = defaultImplementation;
+    const previousOnce = once;
+    defaultImplementation = temporaryImplementation;
+    once = [];
+
+    const returnedValue = callback();
+    const restoreImplementation = () => {
+      defaultImplementation = previousImplementation;
+      once = previousOnce;
+    };
+    if (returnedValue && typeof returnedValue.then === 'function') {
+      return returnedValue.then(() => {
+        restoreImplementation();
+      });
+    }
+    restoreImplementation();
   };
   mock.mockReturnValue = value => mock.mockImplementation(() => value);
   mock.mockReturnValueOnce = value =>

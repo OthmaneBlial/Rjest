@@ -9,9 +9,9 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 223/223 (100.0%) across its explicitly listed
+The current generated matrix is 224/224 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 14/14 (100.0%), ESM is 8/8 (100.0%),
-transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
+transforms are 7/7 (100.0%), mocks are 15/15 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
 Expect is 12/12 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
@@ -177,6 +177,10 @@ CommonJS `deepUnmock` propagates actual-module decisions through dependencies
 and cycles while retaining explicit-factory priority and ordinary-parent mocks.
 `jest.replaceProperty` covers prototype lookup, repeated handles, descriptor
 validation, symbol/number keys, and restoration alongside spies.
+Mock functions expose Jest's `withImplementation` contract for synchronous,
+asynchronous, and nested temporary implementations. Each layer isolates its
+queued once-values and restores them after fulfillment; like Jest, a thrown or
+rejected callback leaves the temporary implementation active.
 Configured `restoreMocks` restores setup- and test-created spies/properties
 before each test while retaining standalone mock state.
 Configured `resetMocks` clears mock calls and implementations before each test,
