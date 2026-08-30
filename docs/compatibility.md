@@ -7,11 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 135/135 (100.0%) across its explicitly listed
+The current generated matrix is 136/136 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 30/30 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 10/10 (100.0%), and environments are 7/7
+Expect is 7/7 (100.0%), CLI is 11/11 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -103,6 +103,10 @@ selects the partition before bounded Rust worker scheduling.
 dispatch between files according to Jest's cumulative failed-test threshold.
 Parallel bail atomically stops queued work and terminates in-flight Node workers;
 the result that reaches the threshold is retained, while later results are not.
+After sharding, bail-enabled project matrices are sequenced as one combined test
+set using Jest's uncached larger-file-first fallback while retaining each file's
+own project configuration. Persisted Jest performance-cache ordering and custom
+sequencers are not implemented yet.
 New and mismatched inline snapshots rewrite the original matcher callsite in
 update modes. V8 stack locations are remapped through transformer source maps,
 then Babel parses and regenerates only the matched call expression. The

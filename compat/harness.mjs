@@ -533,6 +533,14 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-projects-bail',
+    category: 'CLI',
+    expectedExit: 1,
+    bail: true,
+    compareExecutionMarkers: true,
+    useFixtureConfig: true,
+  },
+  {
     name: 'gap-bail',
     category: 'CLI',
     expectedExit: 1,

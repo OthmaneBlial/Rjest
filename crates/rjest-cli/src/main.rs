@@ -307,6 +307,9 @@ fn run() -> Result<bool> {
     if let Some(shard) = cli.shard {
         shard_project_runs(&mut project_runs, shard);
     }
+    if config.bail != 0 {
+        project_runs = sequence_project_runs_for_bail(project_runs);
+    }
     let test_count = project_runs
         .iter()
         .map(|run| run.tests.len())
@@ -642,6 +645,48 @@ fn shard_project_runs(project_runs: &mut [ProjectRun<'_>], shard: Shard) {
     for (_, project_index, test) in flattened.into_iter().skip(start).take(size) {
         project_runs[project_index].tests.push(test);
     }
+}
+
+fn sequence_project_runs_for_bail(project_runs: Vec<ProjectRun<'_>>) -> Vec<ProjectRun<'_>> {
+    if project_runs
+        .iter()
+        .filter(|run| !run.tests.is_empty())
+        .count()
+        <= 1
+    {
+        return project_runs;
+    }
+
+    let mut sequenced = project_runs
+        .into_iter()
+        .flat_map(|run| {
+            run.tests.into_iter().map(move |test| {
+                let file_size = std::fs::metadata(&test.path).map_or(0, |metadata| metadata.len());
+                (file_size, run.config, test)
+            })
+        })
+        .collect::<Vec<_>>();
+
+    // Jest's default sequencer runs previously failing and slow suites first
+    // when performance cache data exists. Rjest does not persist that cache
+    // yet, so mirror Jest's uncached fallback: larger test files first. The
+    // stable sort preserves discovery order when files have the same size.
+    sequenced.sort_by(|(left_size, _, _), (right_size, _, _)| right_size.cmp(left_size));
+
+    let mut ordered: Vec<ProjectRun<'_>> = Vec::new();
+    for (_, config, test) in sequenced {
+        if let Some(previous) = ordered.last_mut()
+            && std::ptr::eq(previous.config, config)
+        {
+            previous.tests.push(test);
+        } else {
+            ordered.push(ProjectRun {
+                config,
+                tests: vec![test],
+            });
+        }
+    }
+    ordered
 }
 
 fn validate_seed(value: i64) -> Result<i32> {
@@ -1017,8 +1062,8 @@ mod tests {
     use rjest_core::TestFile;
 
     use super::{
-        Cli, Shard, filter_projects, parse_max_workers, shard_tests,
-        uses_modern_branches_true_summary, validate_seed,
+        Cli, ProjectRun, Shard, filter_projects, parse_max_workers, sequence_project_runs_for_bail,
+        shard_tests, uses_modern_branches_true_summary, validate_seed,
     };
 
     #[test]
@@ -1195,6 +1240,43 @@ mod tests {
             path: root.join(name),
         });
         assert!(shard_tests(files.into(), &root, Shard { index: 5, count: 5 }).is_empty());
+    }
+
+    #[test]
+    fn sequences_bail_across_project_roots_by_uncached_file_size() {
+        let temp = tempdir().expect("temp dir");
+        let alpha_root = temp.path().join("alpha");
+        let beta_root = temp.path().join("beta");
+        fs::create_dir_all(&alpha_root).expect("alpha root");
+        fs::create_dir_all(&beta_root).expect("beta root");
+        let alpha_path = alpha_root.join("alpha.test.cjs");
+        let beta_path = beta_root.join("beta.test.cjs");
+        fs::write(&alpha_path, "test('alpha', () => {});").expect("alpha test");
+        fs::write(&beta_path, "x".repeat(4_096)).expect("beta test");
+        let alpha = ProjectConfig::defaults(&alpha_root).expect("alpha config");
+        let beta = ProjectConfig::defaults(&beta_root).expect("beta config");
+
+        let ordered = sequence_project_runs_for_bail(vec![
+            ProjectRun {
+                config: &alpha,
+                tests: vec![TestFile { path: alpha_path }],
+            },
+            ProjectRun {
+                config: &beta,
+                tests: vec![TestFile { path: beta_path }],
+            },
+        ]);
+
+        assert_eq!(ordered.len(), 2);
+        assert_eq!(ordered[0].config.root_dir, beta.root_dir);
+        assert_eq!(
+            ordered[0].tests[0]
+                .path
+                .file_name()
+                .expect("beta file name"),
+            "beta.test.cjs"
+        );
+        assert_eq!(ordered[1].config.root_dir, alpha.root_dir);
     }
 
     #[test]
