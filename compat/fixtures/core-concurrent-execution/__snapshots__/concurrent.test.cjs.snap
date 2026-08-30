@@ -1,0 +1,7 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`concurrent scheduling honors maxConcurrency 1`] = `"third"`;
+
+exports[`concurrent scheduling runs first 1`] = `"first"`;
+
+exports[`concurrent scheduling runs second 1`] = `"second"`;

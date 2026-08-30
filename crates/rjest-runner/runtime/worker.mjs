@@ -1,4 +1,5 @@
 import {existsSync, readFileSync, writeFileSync} from 'node:fs';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import Module, {createRequire, registerHooks} from 'node:module';
 import * as vm from 'node:vm';
 import {isDeepStrictEqual, format, inspect, promisify} from 'node:util';
@@ -138,7 +139,7 @@ let configuredRetryWait;
 let configuredRetryImmediately;
 let configuredLogErrorsBeforeRetry;
 let processErrorGeneration = 0;
-let activeTest;
+const activeTestStorage = new AsyncLocalStorage();
 let activeModulePath = request.testPath;
 let effectiveTestEnvironment = request.testEnvironment;
 let effectiveTestEnvironmentOptions = request.testEnvironmentOptions ?? {};
@@ -170,6 +171,10 @@ const expectState = {
   suppressedErrors: [],
   testPath: request.testPath,
 };
+
+function currentTestNode() {
+  return activeTestStorage.getStore();
+}
 
 for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
   console[level] = (...values) => {
@@ -1297,7 +1302,7 @@ function markSnapshotsChecked(testName) {
   }
 }
 
-function snapshotAttemptRecord(test = activeTest) {
+function snapshotAttemptRecord(test = currentTestNode()) {
   if (!test) return undefined;
   let record = snapshotState.attempts.get(test);
   if (!record) {
@@ -1457,6 +1462,7 @@ function applySnapshotProperties(received, properties) {
 }
 
 function matchSnapshot(received, hint) {
+  const activeTest = currentTestNode();
   if (!activeTest) {
     throw new Error('toMatchSnapshot must be called while a test is running');
   }
@@ -1916,6 +1922,7 @@ function validateCustomMatcherOutcome(
 }
 
 function recordAssertion() {
+  const activeTest = currentTestNode();
   if (activeTest) {
     activeTest.assertionCalls += 1;
     expectState.assertionCalls = activeTest.assertionCalls;
@@ -1976,6 +1983,7 @@ function printDiffOrStringify(
 }
 
 function customMatcherContext(isNot = false, promiseMode = undefined) {
+  const activeTest = currentTestNode();
   return {
     isNot,
     promise: promiseMode ?? '',
@@ -2197,6 +2205,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
         ? stripInlineSnapshotIndentation(inlineArgument)
         : undefined;
     const evaluate = received => {
+      const activeTest = currentTestNode();
       const snapshotReceived = hasProperties
         ? applySnapshotProperties(received, properties)
         : received;
@@ -2292,6 +2301,7 @@ expect.assertions = expected => {
       'The expected assertion count must be a non-negative integer.',
     );
   }
+  const activeTest = currentTestNode();
   if (!activeTest) {
     throw new Error('expect.assertions() must be called from within a test.');
   }
@@ -2299,6 +2309,7 @@ expect.assertions = expected => {
   expectState.expectedAssertionsNumber = expected;
 };
 expect.hasAssertions = () => {
+  const activeTest = currentTestNode();
   if (!activeTest) {
     throw new Error('expect.hasAssertions() must be called from within a test.');
   }
@@ -5925,7 +5936,7 @@ async function setupCustomTestEnvironment() {
 function customEnvironmentState() {
   return {
     currentDescribeBlock: currentSuite,
-    currentlyRunningTest: activeTest,
+    currentlyRunningTest: currentTestNode(),
     hasFocusedTests: hasOnly(rootSuite),
     hasStarted: definitionComplete,
     rootDescribeBlock: rootSuite,
@@ -7643,7 +7654,25 @@ function skippedResults(node, status = 'skipped') {
   return node.children.flatMap(child => skippedResults(child, status));
 }
 
-async function runTest(
+function runTest(
+  node,
+  focusExists,
+  selected,
+  skipped,
+  beforeAllError,
+) {
+  return activeTestStorage.run(
+    node,
+    runTestWithContext,
+    node,
+    focusExists,
+    selected,
+    skipped,
+    beforeAllError,
+  );
+}
+
+async function runTestWithContext(
   node,
   focusExists,
   selected,
@@ -7686,7 +7715,6 @@ async function runTest(
     await dispatchCustomEnvironmentEvent({name: 'test_skip', test: node});
     return result;
   }
-  activeTest = node;
   await dispatchCustomEnvironmentEvent({name: 'test_started', test: node});
   await emitTestCaseStart(node, result.startedAt);
   node.assertionCalls = 0;
@@ -7714,7 +7742,7 @@ async function runTest(
       }
     }
     if (request.restoreMocks) jest.restoreAllMocks();
-    for (const hook of hookChain(node, 'beforeEach')) {
+    for (const hook of node.concurrent ? [] : hookChain(node, 'beforeEach')) {
       try {
         await callEnvironmentHook(hook, 'beforeEach hook', {test: node});
       } catch (error) {
@@ -7762,7 +7790,7 @@ async function runTest(
         }
       }
     }
-    for (const hook of hookChain(node, 'afterEach')) {
+    for (const hook of node.concurrent ? [] : hookChain(node, 'afterEach')) {
       try {
         await callEnvironmentHook(hook, 'afterEach hook', {test: node});
       } catch (error) {
@@ -7802,7 +7830,6 @@ async function runTest(
   result.numPassingAsserts = node.assertionCalls;
   await dispatchCustomEnvironmentEvent({name: 'test_done', test: node});
   await emitTestCaseResult(result);
-  activeTest = undefined;
   expectState.testFailing = false;
   return result;
 }
@@ -7846,6 +7873,24 @@ function testsUnderSuite(suite) {
     }
   }
   return tests;
+}
+
+async function mapWithConcurrency(values, limit, callback) {
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await callback(values[index], index);
+    }
+  };
+  const workerCount = Math.min(
+    values.length,
+    Math.max(1, Math.trunc(Number(limit)) || 1),
+  );
+  await Promise.all(Array.from({length: workerCount}, worker));
+  return results;
 }
 
 async function runSuite(
@@ -7946,6 +7991,46 @@ async function runSuiteOnce(
       }
     }
   }
+  const executeTest = async child => {
+    let result = await runTest(
+      child,
+      focusExists,
+      selected,
+      skipped,
+      beforeAllError,
+    );
+    const shouldRetry =
+      !insideDescribeRetry &&
+      !beforeAllError &&
+      retryOptions.attempts > 0 &&
+      result.status === 'failed';
+    if (shouldRetry && retryOptions.immediately) {
+      result = await retryTest(
+        child,
+        result,
+        retryOptions,
+        focusExists,
+        selected,
+        skipped,
+      );
+    }
+    return {child, deferRetry: shouldRetry && !retryOptions.immediately, result};
+  };
+  const appendTestOutcome = outcome => {
+    const resultIndex = results.length;
+    results.push(outcome.result);
+    if (outcome.deferRetry) {
+      deferredRetries.push({
+        node: outcome.child,
+        result: outcome.result,
+        resultIndex,
+      });
+    }
+  };
+  const concurrentTests = suite.children.filter(
+    child => child.type === 'test' && child.concurrent,
+  );
+  let ranConcurrentTests = false;
   for (const child of suite.children) {
     if (child.type === 'suite') {
       results.push(
@@ -7958,34 +8043,27 @@ async function runSuiteOnce(
           insideDescribeRetry,
         )),
       );
-    } else {
-      const resultIndex = results.length;
-      let result = await runTest(
-        child,
-        focusExists,
-        selected,
-        skipped,
-        beforeAllError,
+    } else if (child.concurrent) {
+      if (ranConcurrentTests) continue;
+      ranConcurrentTests = true;
+      await dispatchCustomEnvironmentEvent({
+        describeBlock: suite,
+        name: 'concurrent_tests_start',
+        tests: concurrentTests,
+      });
+      const outcomes = await mapWithConcurrency(
+        concurrentTests,
+        request.maxConcurrency ?? 5,
+        executeTest,
       );
-      results.push(result);
-      const shouldRetry =
-        !insideDescribeRetry &&
-        !beforeAllError &&
-        retryOptions.attempts > 0 &&
-        result.status === 'failed';
-      if (shouldRetry && retryOptions.immediately) {
-        result = await retryTest(
-          child,
-          result,
-          retryOptions,
-          focusExists,
-          selected,
-          skipped,
-        );
-        results[resultIndex] = result;
-      } else if (shouldRetry) {
-        deferredRetries.push({node: child, result, resultIndex});
-      }
+      for (const outcome of outcomes) appendTestOutcome(outcome);
+      await dispatchCustomEnvironmentEvent({
+        describeBlock: suite,
+        name: 'concurrent_tests_end',
+        tests: concurrentTests,
+      });
+    } else {
+      appendTestOutcome(await executeTest(child));
     }
   }
   for (const deferred of deferredRetries) {

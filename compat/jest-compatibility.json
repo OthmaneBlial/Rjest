@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 226,
-    "total": 226,
+    "passing": 227,
+    "total": 227,
     "percentage": 100
   },
   "categories": {
@@ -19,8 +19,8 @@
       "percentage": 100
     },
     "Core API": {
-      "passing": 14,
-      "total": 14,
+      "passing": 15,
+      "total": 15,
       "percentage": 100
     },
     "Coverage": {
@@ -478,6 +478,12 @@
     },
     {
       "name": "core-test-failing-pass",
+      "category": "Core API",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "core-concurrent-execution",
       "category": "Core API",
       "compatible": true,
       "differences": []

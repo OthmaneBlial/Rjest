@@ -555,6 +555,12 @@ const cases = [
   },
   {name: 'core-pass', category: 'Core API', expectedExit: 0},
   {name: 'core-test-failing-pass', category: 'Core API', expectedExit: 0},
+  {
+    name: 'core-concurrent-execution',
+    category: 'Core API',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'core-test-failing-failure', category: 'Core API', expectedExit: 1},
   {
     name: 'runtime-environment-torn-down',
