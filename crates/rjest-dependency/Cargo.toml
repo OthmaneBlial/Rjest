@@ -1,0 +1,20 @@
+[package]
+name = "rjest-dependency"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+regex.workspace = true
+rjest-core = { path = "../rjest-core" }
+serde_json.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

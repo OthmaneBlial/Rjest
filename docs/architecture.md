@@ -15,6 +15,9 @@ The architecture follows the boundary recorded in
 - `rjest-core`: stable cross-component data types.
 - `rjest-coverage`: Istanbul source discovery, deterministic worker-map merging,
   reports, and threshold evaluation.
+- `rjest-dependency`: Git working-tree change discovery, project module
+  indexing, Jest-style static dependency extraction, resolver bridging, and
+  inverse transitive affected-test selection.
 - `rjest-runner`: bounded parallel dispatch, Node process isolation, versioned
   request/result validation, thread-safe file lifecycle observation,
   deterministic aggregation, and coverage-counter merging.
@@ -50,8 +53,19 @@ pipeline after each settled filesystem batch. Re-discovery on every cycle is
 deliberate: added and deleted test files cannot be represented by reusing the
 previous file list. Cache, coverage, and JSON output paths are filtered at the
 watch boundary to prevent coordinator-generated files from causing loops.
-Dependency-aware `--watch` needs a source dependency graph and is not currently
-aliased to this all-tests behavior.
+
+`--watch` uses that same native event loop but computes the selected suite set
+from the current Git working tree before every cycle. Rust discovers staged,
+modified, deleted, and untracked paths, then owns inverse transitive traversal
+over a project-local dependency graph. A short-lived Node bridge extracts the
+same static import/require forms used by Jest's haste dependency extractor and
+resolves them through module mappings, configured module directories/paths,
+custom synchronous resolvers, and the packaged resolver engine. Changed test
+files and snapshot files map directly to their owning suites. An async-only
+custom resolver makes selection conservatively fall back to every discovered
+test rather than risk a false negative. Rjest rejects `--watch` outside Git and
+directs the user to `--watchAll`, matching Jest's no-SCM control flow; Mercurial
+and Sapling adapters remain future work.
 
 Test processes run with the invoking user's permissions. Process isolation is a
 reliability boundary, not a security sandbox.

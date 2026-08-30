@@ -30,21 +30,36 @@ const yarnPath = require.resolve('@yarnpkg/cli-dist/bin/yarn.js');
 const reportPath = join(repository, 'compat', 'jest-compatibility.json');
 
 const cases = [
-  {name: 'config-mjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {
+    name: 'config-mjs',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {
     name: 'config-silent',
     category: 'Configuration',
     expectedExit: 0,
     useFixtureConfig: true,
   },
-  {name: 'config-cjs', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {
+    name: 'config-cjs',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {
     name: 'config-undefined-values',
     category: 'Configuration',
     expectedExit: 0,
     useFixtureConfig: true,
   },
-  {name: 'config-ts', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {
+    name: 'config-ts',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {
     name: 'config-ts-esm-native',
     category: 'Configuration',
@@ -57,7 +72,12 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
-  {name: 'config-package', category: 'Configuration', expectedExit: 0, useFixtureConfig: true},
+  {
+    name: 'config-package',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {
     name: 'config-test-regex',
     category: 'Configuration',
@@ -538,7 +558,12 @@ const cases = [
     prepareNodeModules: true,
     useFixtureConfig: true,
   },
-  {name: 'resolution-esm', category: 'ESM', expectedExit: 0, experimentalVmModules: true},
+  {
+    name: 'resolution-esm',
+    category: 'ESM',
+    expectedExit: 0,
+    experimentalVmModules: true,
+  },
   {
     name: 'gap-esm-transform',
     category: 'ESM',
@@ -908,7 +933,12 @@ const cases = [
     prepareNodeModules: true,
   },
   {name: 'timeout', category: 'Core API', expectedExit: 1},
-  {name: 'snapshot', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
+  {
+    name: 'snapshot',
+    category: 'Snapshots',
+    expectedExit: 0,
+    compareSnapshots: true,
+  },
   {
     name: 'snapshot-serializer-modern',
     category: 'Snapshots',
@@ -946,7 +976,12 @@ const cases = [
     expectedExit: 0,
     updateSnapshots: true,
   },
-  {name: 'snapshot-new', category: 'Snapshots', expectedExit: 0, compareSnapshots: true},
+  {
+    name: 'snapshot-new',
+    category: 'Snapshots',
+    expectedExit: 0,
+    compareSnapshots: true,
+  },
   {
     name: 'snapshot-update',
     label: 'snapshot-mismatch',
@@ -984,7 +1019,11 @@ const cases = [
   {name: 'gap-expect-assertions', category: 'Expect', expectedExit: 1},
   {name: 'gap-fake-timers', category: 'Fake timers', expectedExit: 0},
   {name: 'gap-fake-timers-async', category: 'Fake timers', expectedExit: 0},
-  {name: 'gap-fake-timers-performance', category: 'Fake timers', expectedExit: 0},
+  {
+    name: 'gap-fake-timers-performance',
+    category: 'Fake timers',
+    expectedExit: 0,
+  },
   {name: 'gap-fake-timers-hrtime', category: 'Fake timers', expectedExit: 0},
   {
     name: 'gap-fake-timers-frame',
@@ -1086,11 +1125,20 @@ const cases = [
   },
 ];
 
-const watchCases = [{name: 'watch-all-lifecycle', category: 'Watch'}];
+const watchCases = [
+  {name: 'watch-all-lifecycle', category: 'Watch', mode: 'all'},
+  {name: 'watch-related-lifecycle', category: 'Watch', mode: 'related'},
+  {
+    name: 'watch-related-no-scm',
+    fixtureName: 'watch-related-lifecycle',
+    category: 'Watch',
+    mode: 'related-no-scm',
+  },
+];
 
 const outcomes = cases.map(compareCase);
 for (const watchCase of watchCases) {
-  outcomes.push(await compareWatchCase(watchCase));
+  outcomes.push(await compareWatchCompatibilityCase(watchCase));
 }
 writeCompatibilityReport(outcomes);
 const passing = outcomes.filter(outcome => outcome.compatible).length;
@@ -1104,10 +1152,7 @@ function defaultProjectConfig(rootDir) {
     rootDir: realpathSync(rootDir),
     testEnvironment: 'node',
     transform: {
-      '^.+\\.[jt]sx?$': [
-        'babel-jest',
-        {presets: [[typescriptPreset, {allExtensions: true}]]},
-      ],
+      '^.+\\.[jt]sx?$': ['babel-jest', {presets: [[typescriptPreset, {allExtensions: true}]]}],
     },
   };
 }
@@ -1151,9 +1196,7 @@ function compareCase(testCase) {
       : rjestFixture;
     const jestArguments = [
       testCase.jestExecutable ?? jest,
-      testCase.jestMaxWorkers
-        ? `--maxWorkers=${testCase.jestMaxWorkers}`
-        : '--runInBand',
+      testCase.jestMaxWorkers ? `--maxWorkers=${testCase.jestMaxWorkers}` : '--runInBand',
     ];
     if (testCase.projects) {
       jestArguments.push('--projects', ...testCase.projects);
@@ -1205,8 +1248,7 @@ function compareCase(testCase) {
       CI: '',
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
       RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
-      RJEST_COMPAT_PRETTIER_PATH:
-        testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
+      RJEST_COMPAT_PRETTIER_PATH: testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
       NODE_OPTIONS: fixtureNodeOptions(testCase, jestFixture),
     };
     if (testCase.preparePnpmVirtualHoist) {
@@ -1214,24 +1256,18 @@ function compareCase(testCase) {
     }
     if (testCase.unsetNodeEnv) delete jestEnvironment.NODE_ENV;
     if (testCase.primeOnlyFailures) {
-      const primerArguments = jestArguments.filter(
-        argument => argument !== '--onlyFailures',
-      );
+      const primerArguments = jestArguments.filter(argument => argument !== '--onlyFailures');
       if (testCase.primeWithCache) {
         const noCacheIndex = primerArguments.indexOf('--no-cache');
         if (noCacheIndex >= 0) primerArguments.splice(noCacheIndex, 1);
         primerArguments.push('--cache');
       }
       if (testCase.primeWithBail) primerArguments.push('--bail');
-      const primer = spawnSync(
-        process.execPath,
-        primerArguments,
-        {
-          cwd: jestCwd,
-          encoding: 'utf8',
-          env: jestEnvironment,
-        },
-      );
+      const primer = spawnSync(process.execPath, primerArguments, {
+        cwd: jestCwd,
+        encoding: 'utf8',
+        env: jestEnvironment,
+      });
       assertSpawned(primer, `Jest primer (${label})`);
       if (primer.status !== 1) {
         fail(`${label}: Jest primer exit ${primer.status}, expected 1`, primer);
@@ -1263,21 +1299,15 @@ function compareCase(testCase) {
       }
       removeExecutionMarkers(jestFixture);
     }
-    const jestRun = spawnSync(
-      process.execPath,
-      jestArguments,
-      {
-        cwd: jestCwd,
-        encoding: 'utf8',
-        env: jestEnvironment,
-      },
-    );
+    const jestRun = spawnSync(process.execPath, jestArguments, {
+      cwd: jestCwd,
+      encoding: 'utf8',
+      env: jestEnvironment,
+    });
     assertSpawned(jestRun, `Jest (${label})`);
 
     const rjestArguments = [
-      testCase.rjestMaxWorkers
-        ? `--maxWorkers=${testCase.rjestMaxWorkers}`
-        : '--runInBand',
+      testCase.rjestMaxWorkers ? `--maxWorkers=${testCase.rjestMaxWorkers}` : '--runInBand',
     ];
     if (testCase.projects) {
       rjestArguments.push('--projects', ...testCase.projects);
@@ -1335,29 +1365,22 @@ function compareCase(testCase) {
       NODE_OPTIONS: fixtureNodeOptions(testCase, rjestFixture),
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
       RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
-      RJEST_COMPAT_PRETTIER_PATH:
-        testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
+      RJEST_COMPAT_PRETTIER_PATH: testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
     };
     if (testCase.unsetNodeEnv) delete rjestEnvironment.NODE_ENV;
     if (testCase.primeOnlyFailures) {
-      const primerArguments = rjestArguments.filter(
-        argument => argument !== '--onlyFailures',
-      );
+      const primerArguments = rjestArguments.filter(argument => argument !== '--onlyFailures');
       if (testCase.primeWithCache) {
         const noCacheIndex = primerArguments.indexOf('--no-cache');
         if (noCacheIndex >= 0) primerArguments.splice(noCacheIndex, 1);
         primerArguments.push('--cache');
       }
       if (testCase.primeWithBail) primerArguments.push('--bail');
-      const primer = spawnSync(
-        rjest,
-        primerArguments,
-        {
-          cwd: rjestCwd,
-          encoding: 'utf8',
-          env: rjestEnvironment,
-        },
-      );
+      const primer = spawnSync(rjest, primerArguments, {
+        cwd: rjestCwd,
+        encoding: 'utf8',
+        env: rjestEnvironment,
+      });
       assertSpawned(primer, `Rjest primer (${label})`);
       if (primer.status !== 1) {
         fail(`${label}: Rjest primer exit ${primer.status}, expected 1`, primer);
@@ -1451,13 +1474,12 @@ function compareCase(testCase) {
       jestResult = normalizeJest(rawJestResult, testCase);
       try {
         const rawRjestResult = JSON.parse(
-          testCase.rjestOutputFile
-            ? readFileSync(rjestOutput, 'utf8')
-            : rjestRun.stdout,
+          testCase.rjestOutputFile ? readFileSync(rjestOutput, 'utf8') : rjestRun.stdout,
         );
-        rjestResult = testCase.rjestResultFormat === 'jest'
-          ? normalizeJest(rawRjestResult, testCase)
-          : normalizeRjest(rawRjestResult, testCase);
+        rjestResult =
+          testCase.rjestResultFormat === 'jest'
+            ? normalizeJest(rawRjestResult, testCase)
+            : normalizeRjest(rawRjestResult, testCase);
         if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
           differences.push('test results differ');
         }
@@ -1508,10 +1530,7 @@ function compareCase(testCase) {
     const expectedCompatibility = testCase.compatible ?? true;
     if (compatible !== expectedCompatibility) {
       if (compatible) {
-        fail(
-          `${label}: known incompatibility now passes; mark the probe compatible`,
-          rjestRun,
-        );
+        fail(`${label}: known incompatibility now passes; mark the probe compatible`, rjestRun);
       }
       console.error(`Differential mismatch for ${label}: ${differences.join('; ')}`);
       console.error('Jest:', JSON.stringify(jestResult, null, 2));
@@ -1544,13 +1563,7 @@ async function compareWatchCase(testCase) {
     };
     const jestResult = await exerciseWatchProcess({
       command: process.execPath,
-      args: [
-        jest,
-        '--watchAll',
-        '--runInBand',
-        '--no-cache',
-        '--no-watchman',
-      ],
+      args: [jest, '--watchAll', '--runInBand', '--no-cache', '--no-watchman'],
       cwd: jestFixture,
       environment,
       label: `Jest (${testCase.name})`,
@@ -1592,6 +1605,243 @@ async function compareWatchCase(testCase) {
   }
 }
 
+function compareWatchCompatibilityCase(testCase) {
+  switch (testCase.mode) {
+    case 'all':
+      return compareWatchCase(testCase);
+    case 'related':
+      return compareRelatedWatchCase(testCase);
+    case 'related-no-scm':
+      return compareNoScmWatchCase(testCase);
+    default:
+      throw new Error(`Unknown watch compatibility mode: ${testCase.mode}`);
+  }
+}
+
+async function compareRelatedWatchCase(testCase) {
+  const sourceFixture = join(fixtures, testCase.name);
+  const temporary = mkdtempSync(join(tmpdir(), 'rjest-related-watch-compat-'));
+  const jestFixture = join(temporary, 'jest');
+  const rjestFixture = join(temporary, 'rjest');
+  try {
+    cpSync(sourceFixture, jestFixture, {recursive: true});
+    cpSync(sourceFixture, rjestFixture, {recursive: true});
+    initializeGitFixture(jestFixture, `Jest (${testCase.name})`);
+    initializeGitFixture(rjestFixture, `Rjest (${testCase.name})`);
+    const environment = {
+      ...process.env,
+      CI: '',
+      NODE_PATH: join(repository, 'node_modules'),
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, '--experimental-vm-modules']
+        .filter(Boolean)
+        .join(' '),
+    };
+    const jestResult = await exerciseRelatedWatchProcess({
+      command: process.execPath,
+      args: [jest, '--watch', '--runInBand', '--no-cache', '--no-watchman'],
+      cwd: jestFixture,
+      environment,
+      label: `Jest (${testCase.name})`,
+    });
+    const rjestResult = await exerciseRelatedWatchProcess({
+      command: rjest,
+      args: ['--watch', '--runInBand', '--no-cache', '--no-watchman'],
+      cwd: rjestFixture,
+      environment,
+      label: `Rjest (${testCase.name})`,
+    });
+    const differences = [];
+    if (JSON.stringify(jestResult.runs) !== JSON.stringify(rjestResult.runs)) {
+      differences.push('related watch run results differ');
+    }
+    if (rjestResult.extraRuns !== 0) {
+      differences.push(`Rjest emitted ${rjestResult.extraRuns} unexpected rerun(s)`);
+    }
+    if (jestResult.extraRuns !== 0) {
+      fail(
+        `${testCase.name}: Jest oracle emitted ${jestResult.extraRuns} unexpected rerun(s)`,
+        jestResult,
+      );
+    }
+    if (differences.length > 0) {
+      console.error(`Differential mismatch for ${testCase.name}: ${differences.join('; ')}`);
+      console.error('Jest:', JSON.stringify(jestResult.runs, null, 2));
+      console.error('Rjest:', JSON.stringify(rjestResult.runs, null, 2));
+      fail(`${testCase.name}: expected Jest related-watch parity`, rjestResult);
+    }
+    return {
+      name: testCase.name,
+      category: testCase.category,
+      compatible: true,
+      differences,
+    };
+  } finally {
+    rmSync(temporary, {recursive: true, force: true});
+  }
+}
+
+async function compareNoScmWatchCase(testCase) {
+  const sourceFixture = join(fixtures, testCase.fixtureName ?? testCase.name);
+  const temporary = mkdtempSync(join(tmpdir(), 'rjest-no-scm-watch-compat-'));
+  const jestFixture = join(temporary, 'jest');
+  const rjestFixture = join(temporary, 'rjest');
+  try {
+    cpSync(sourceFixture, jestFixture, {recursive: true});
+    cpSync(sourceFixture, rjestFixture, {recursive: true});
+    const environment = {
+      ...process.env,
+      CI: '',
+      NODE_PATH: join(repository, 'node_modules'),
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, '--experimental-vm-modules']
+        .filter(Boolean)
+        .join(' '),
+    };
+    const jestResult = spawnSync(
+      process.execPath,
+      [jest, '--watch', '--runInBand', '--no-cache', '--no-watchman'],
+      {cwd: jestFixture, env: environment, encoding: 'utf8'},
+    );
+    const rjestResult = spawnSync(
+      rjest,
+      ['--watch', '--runInBand', '--no-cache', '--no-watchman'],
+      {cwd: rjestFixture, env: environment, encoding: 'utf8'},
+    );
+    assertSpawned(jestResult, `Jest (${testCase.name})`);
+    assertSpawned(rjestResult, `Rjest (${testCase.name})`);
+    const jestOutput = `${jestResult.stdout}\n${jestResult.stderr}`;
+    const rjestOutput = `${rjestResult.stdout}\n${rjestResult.stderr}`;
+    const differences = [];
+    if (jestResult.status !== rjestResult.status) {
+      differences.push(`exit ${rjestResult.status} != Jest ${jestResult.status}`);
+    }
+    if (
+      !/--watch is not supported without .*git/i.test(jestOutput) ||
+      !/--watch is not supported without .*git/i.test(rjestOutput)
+    ) {
+      differences.push('no-SCM watch warning is missing');
+    }
+    if (!/use --watchAll/i.test(jestOutput) || !/use --watchAll/i.test(rjestOutput)) {
+      differences.push('watchAll recovery guidance is missing');
+    }
+    if (differences.length > 0) {
+      console.error(`Differential mismatch for ${testCase.name}: ${differences.join('; ')}`);
+      console.error('Jest:', jestOutput);
+      console.error('Rjest:', rjestOutput);
+      fail(`${testCase.name}: expected Jest no-SCM watch parity`, rjestResult);
+    }
+    return {
+      name: testCase.name,
+      category: testCase.category,
+      compatible: true,
+      differences,
+    };
+  } finally {
+    rmSync(temporary, {recursive: true, force: true});
+  }
+}
+
+function initializeGitFixture(cwd, label) {
+  for (const args of [
+    ['init', '-b', 'main'],
+    ['config', 'user.email', 'rjest-compat@example.test'],
+    ['config', 'user.name', 'Rjest Compatibility'],
+    ['add', '.'],
+    ['commit', '-m', 'baseline'],
+  ]) {
+    const run = spawnSync('git', args, {cwd, encoding: 'utf8'});
+    assertSpawned(run, `${label} Git ${args[0]}`);
+    if (run.status !== 0) fail(`${label}: Git ${args[0]} exited ${run.status}`, run);
+  }
+}
+
+async function exerciseRelatedWatchProcess({command, args, cwd, environment, label}) {
+  const artifact = join(cwd, 'watch-results.jsonl');
+  const alpha = join(cwd, 'alpha.cjs');
+  const beta = join(cwd, 'beta.mjs');
+  const unrelated = join(cwd, 'unrelated.cjs');
+  const addedTest = join(cwd, 'gamma.test.cjs');
+  writeFileSync(alpha, "module.exports = {value: 'alpha'};\n// changed\n");
+  const child = spawn(command, args, {
+    cwd,
+    env: environment,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  let spawnError;
+  child.stdout.on('data', chunk => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', chunk => {
+    stderr += chunk;
+  });
+  child.on('error', error => {
+    spawnError = error;
+  });
+
+  try {
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 1,
+      label,
+      output: () => ({stdout, stderr}),
+    });
+    writeFileSync(alpha, "module.exports = {value: 'alpha'};\n");
+    writeFileSync(beta, "export const value = 'beta';\n// changed\n");
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 2,
+      label,
+      output: () => ({stdout, stderr}),
+    });
+    writeFileSync(unrelated, "module.exports = {value: 'unrelated'};\n");
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 3,
+      label,
+      output: () => ({stdout, stderr}),
+    });
+    writeFileSync(beta, "export const value = 'beta';\n");
+    writeFileSync(
+      addedTest,
+      "test('newly changed gamma suite', () => {\n" +
+        "  expect(require('./alpha.cjs').value).toBe('alpha');\n" +
+        '});\n',
+    );
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 4,
+      label,
+      output: () => ({stdout, stderr}),
+    });
+    rmSync(addedTest);
+    rmSync(unrelated);
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 5,
+      label,
+      output: () => ({stdout, stderr}),
+    });
+    await delay(800);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGINT');
+    await waitForExit(child);
+  }
+  if (spawnError) fail(`${label} could not start: ${spawnError.message}`, {stdout, stderr});
+  const runs = readWatchRuns(artifact);
+  return {
+    runs: runs.slice(0, 5),
+    extraRuns: Math.max(0, runs.length - 5),
+    stdout,
+    stderr,
+  };
+}
+
 async function exerciseWatchProcess({command, args, cwd, environment, label}) {
   const artifact = join(cwd, 'watch-results.jsonl');
   const shared = join(cwd, 'shared.cjs');
@@ -1615,11 +1865,29 @@ async function exerciseWatchProcess({command, args, cwd, environment, label}) {
   });
 
   try {
-    await waitForWatchRuns({artifact, child, count: 1, label, output: () => ({stdout, stderr})});
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 1,
+      label,
+      output: () => ({stdout, stderr}),
+    });
     writeFileSync(shared, 'module.exports = {value: 2};\n');
-    await waitForWatchRuns({artifact, child, count: 2, label, output: () => ({stdout, stderr})});
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 2,
+      label,
+      output: () => ({stdout, stderr}),
+    });
     writeFileSync(shared, 'module.exports = {value: 1};\n');
-    await waitForWatchRuns({artifact, child, count: 3, label, output: () => ({stdout, stderr})});
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 3,
+      label,
+      output: () => ({stdout, stderr}),
+    });
     writeFileSync(
       addedTest,
       "const {value} = require('./shared.cjs');\n\n" +
@@ -1627,9 +1895,21 @@ async function exerciseWatchProcess({command, args, cwd, environment, label}) {
         '  expect(value).toBe(1);\n' +
         '});\n',
     );
-    await waitForWatchRuns({artifact, child, count: 4, label, output: () => ({stdout, stderr})});
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 4,
+      label,
+      output: () => ({stdout, stderr}),
+    });
     rmSync(addedTest);
-    await waitForWatchRuns({artifact, child, count: 5, label, output: () => ({stdout, stderr})});
+    await waitForWatchRuns({
+      artifact,
+      child,
+      count: 5,
+      label,
+      output: () => ({stdout, stderr}),
+    });
     await delay(800);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGINT');
@@ -1672,10 +1952,7 @@ function readWatchRuns(artifact) {
 async function waitForExit(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise(resolve => child.once('exit', resolve));
-  const timedOut = await Promise.race([
-    exited.then(() => false),
-    delay(3_000).then(() => true),
-  ]);
+  const timedOut = await Promise.race([exited.then(() => false), delay(3_000).then(() => true)]);
   if (!timedOut) return;
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   await Promise.race([exited, delay(2_000)]);
@@ -1691,11 +1968,13 @@ function readOptionalArtifact(fixture, relativePath) {
 }
 
 function normalizeCoverageSummary(summary) {
-  return canonicalize(Object.fromEntries(
-    Object.entries(summary)
-      .map(([path, metrics]) => [path === 'total' ? path : basename(path), metrics])
-      .sort(([left], [right]) => left.localeCompare(right)),
-  ));
+  return canonicalize(
+    Object.fromEntries(
+      Object.entries(summary)
+        .map(([path, metrics]) => [path === 'total' ? path : basename(path), metrics])
+        .sort(([left], [right]) => left.localeCompare(right)),
+    ),
+  );
 }
 
 function canonicalize(value) {
@@ -1717,19 +1996,15 @@ function prepareNodeModule(fixture) {
 }
 
 function preparePnpFixture(fixture) {
-  const installation = spawnSync(
-    process.execPath,
-    [yarnPath, 'install', '--immutable'],
-    {
-      cwd: fixture,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        YARN_ENABLE_GLOBAL_CACHE: 'false',
-        YARN_NODE_LINKER: 'pnp',
-      },
+  const installation = spawnSync(process.execPath, [yarnPath, 'install', '--immutable'], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      YARN_ENABLE_GLOBAL_CACHE: 'false',
+      YARN_NODE_LINKER: 'pnp',
     },
-  );
+  });
   assertSpawned(installation, 'Yarn PnP fixture install');
   if (installation.status !== 0) {
     fail(`Yarn PnP fixture install exited ${installation.status}`, installation);
@@ -1751,11 +2026,7 @@ function preparePnpmVirtualHoist(fixture) {
 function prepareInstalledJest(fixture, packageName) {
   const nodeModules = join(fixture, 'node_modules');
   mkdirSync(nodeModules, {recursive: true});
-  symlinkSync(
-    join(repository, 'node_modules', packageName),
-    join(nodeModules, 'jest'),
-    'junction',
-  );
+  symlinkSync(join(repository, 'node_modules', packageName), join(nodeModules, 'jest'), 'junction');
 }
 
 function prepareContaminatedBabelJest(nodeModules) {
@@ -1834,7 +2105,10 @@ function readSnapshots(root) {
       const child = relative ? `${relative}/${name}` : name;
       if (statSync(absolute).isDirectory()) visit(absolute, child);
       else if (name.endsWith('.snap')) {
-        snapshots.push({path: child, contents: readFileSync(absolute, 'utf8')});
+        snapshots.push({
+          path: child,
+          contents: readFileSync(absolute, 'utf8'),
+        });
       }
     }
   }
@@ -1844,7 +2118,10 @@ function readExecutionMarkers(root) {
   return readdirSync(root)
     .filter(name => name.endsWith('.marker'))
     .sort()
-    .map(name => ({name, contents: readFileSync(join(root, name), 'utf8')}));
+    .map(name => ({
+      name,
+      contents: readFileSync(join(root, name), 'utf8'),
+    }));
 }
 
 function removeExecutionMarkers(root) {

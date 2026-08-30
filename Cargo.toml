@@ -4,6 +4,7 @@ members = [
   "crates/rjest-config",
   "crates/rjest-core",
   "crates/rjest-coverage",
+  "crates/rjest-dependency",
   "crates/rjest-discovery",
   "crates/rjest-runner",
   "crates/rjest-snapshot",

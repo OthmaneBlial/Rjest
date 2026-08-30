@@ -506,6 +506,7 @@ dependencies = [
  "rjest-config",
  "rjest-core",
  "rjest-coverage",
+ "rjest-dependency",
  "rjest-discovery",
  "rjest-runner",
  "rjest-watch",
@@ -546,6 +547,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "walkdir",
+]
+
+[[package]]
+name = "rjest-dependency"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "regex",
+ "rjest-core",
+ "serde_json",
+ "tempfile",
  "walkdir",
 ]
 

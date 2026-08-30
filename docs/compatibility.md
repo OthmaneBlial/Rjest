@@ -9,13 +9,13 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 174/174 (100.0%) across its explicitly listed
+The current generated matrix is 176/176 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 23/23 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%), coverage is 4/4 (100.0%), and custom
-reporters are 6/6 (100.0%), and Watch is 1/1 (100.0%). These
+reporters are 6/6 (100.0%), and Watch is 3/3 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
 
@@ -49,14 +49,20 @@ disables config-enabled coverage with `--no-coverage`. Both runners exit
 successfully, and a custom reporter observes identical `forceExit: true` and
 `collectCoverage: false` global configuration.
 
-The Watch probe starts official Jest and Rjest as long-lived `--watchAll`
-processes over independent fixture copies. It compares the initial suite set,
-a deliberately failing dependency edit, recovery after restoring the source,
-new test-file discovery, deleted test-file removal, and the absence of output
-feedback loops. `watchPathIgnorePatterns`, native event debouncing, generated
-coverage/cache/output ignores, and `--no-watchman` normalization are covered by
-the implementation tests. Dependency-aware `--watch`, interactive keys, stale
-run cancellation, and watch plugins remain outside this score.
+The Watch probes start official Jest and Rjest as independent processes. The
+long-lived `--watchAll` case compares the initial suite set, a deliberately
+failing dependency edit, recovery after restoring the source, new test-file
+discovery, deleted test-file removal, and the absence of output feedback loops.
+The long-lived `--watch` case initializes separate Git repositories and proves
+direct and transitive affected-suite selection across mapped CommonJS and native
+ESM dependencies, modified and unrelated untracked files, newly added tests,
+deleted tests, a clean tree, and stable idle state. A third oracle case proves
+that `--watch` outside source control exits like Jest with `--watchAll`
+guidance. `watchPathIgnorePatterns`, native event debouncing, generated
+coverage/cache/output ignores, Git staged/modified/deleted/untracked discovery,
+snapshot-to-test mapping, and `--no-watchman` normalization are covered by Rust
+and differential tests. Interactive keys, stale-run cancellation, Mercurial and
+Sapling selection, and watch plugins remain outside this score.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous
@@ -269,8 +275,8 @@ partitioned across project roots, so imported and untested sources from a
 multi-project run share one Jest-compatible summary. Manual `__mocks__` lookup,
 virtual CommonJS factories, assertion counts, and transformer/test cache
 isolation are covered. Complete
-resolution/config semantics, V8 coverage, path/glob threshold groups, and
-dependency-aware/interactive watch behavior remain missing, so Rjest
+resolution/config semantics, V8 coverage, path/glob threshold groups,
+interactive watch controls, and non-Git changed-file selection remain missing, so Rjest
 does not claim broad or drop-in Jest compatibility yet.
 
 The modern timer surface includes animation-frame scheduling, cancellation,

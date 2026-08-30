@@ -18,6 +18,7 @@ use rjest_core::{
     TestStatus,
 };
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
+use rjest_dependency::{DependencyGraph, GraphOptions, git_changed_files};
 use rjest_watch::{NativeWatcher, WatchOptions};
 use sha1::{Digest, Sha1};
 
@@ -362,6 +363,11 @@ struct CoverageRunnerSettings {
 struct ProjectRun<'a> {
     config: &'a ProjectConfig,
     tests: Vec<TestFile>,
+}
+
+struct RelatedTestSelection {
+    tests_by_context: Vec<BTreeSet<PathBuf>>,
+    has_scm: bool,
 }
 
 #[derive(Clone)]
@@ -1132,6 +1138,7 @@ fn jest_global_config(
     object.insert("logHeapUsage".into(), cli.log_heap_usage.into());
     object.insert("watch".into(), cli.watch.into());
     object.insert("watchAll".into(), cli.watch_all.into());
+    object.insert("onlyChanged".into(), cli.watch.into());
     object.insert(
         "passWithNoTests".into(),
         (cli.watch_all || config.pass_with_no_tests).into(),
@@ -1329,11 +1336,6 @@ fn run() -> Result<bool> {
     let randomize = cli.randomize || config.randomize;
     let show_seed = randomize || cli.show_seed || config.show_seed;
 
-    if cli.watch {
-        bail!(
-            "dependency-aware `--watch` is not supported yet; use `--watchAll` to rerun every test suite after a change"
-        );
-    }
     if cli.list_tests {
         return run_test_cycle(
             &cli,
@@ -1343,11 +1345,20 @@ fn run() -> Result<bool> {
             randomize,
             show_seed,
             false,
+            None,
         );
     }
-    if cli.watch_all {
+    if cli.watch_all || cli.watch {
+        let related = cli
+            .watch
+            .then(|| related_test_selection(&cli, &config, &project_dir))
+            .transpose()?;
+        if related.as_ref().is_some_and(|selection| !selection.has_scm) {
+            bail!("--watch is not supported without Git; use --watchAll");
+        }
         let options = watch_options(&cli, &config, &project_dir);
         let watcher = NativeWatcher::start(&options)?;
+        write_watch_selection_message(&cli, related.as_ref());
         run_test_cycle(
             &cli,
             &config,
@@ -1356,9 +1367,17 @@ fn run() -> Result<bool> {
             randomize,
             show_seed,
             true,
+            related
+                .as_ref()
+                .map(|selection| selection.tests_by_context.as_slice()),
         )?;
         loop {
             watcher.wait_for_change()?;
+            let related = cli
+                .watch
+                .then(|| related_test_selection(&cli, &config, &project_dir))
+                .transpose()?;
+            write_watch_selection_message(&cli, related.as_ref());
             run_test_cycle(
                 &cli,
                 &config,
@@ -1367,6 +1386,9 @@ fn run() -> Result<bool> {
                 randomize,
                 show_seed,
                 true,
+                related
+                    .as_ref()
+                    .map(|selection| selection.tests_by_context.as_slice()),
             )?;
         }
     }
@@ -1378,6 +1400,7 @@ fn run() -> Result<bool> {
         randomize,
         show_seed,
         false,
+        None,
     )
 }
 
@@ -1390,6 +1413,7 @@ fn run_test_cycle(
     randomize: bool,
     show_seed: bool,
     watch_mode: bool,
+    related_tests: Option<&[BTreeSet<PathBuf>]>,
 ) -> Result<bool> {
     let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, project_dir);
     let all_projects = execution_projects(config);
@@ -1399,9 +1423,17 @@ fn run_test_cycle(
     let project_runs = selected_projects
         .into_iter()
         .map(|project_config| {
+            let mut tests = rjest_discovery::discover(project_config, &test_path_patterns)?;
+            if let Some(related_tests) = related_tests {
+                let context_id = all_projects
+                    .iter()
+                    .position(|config| std::ptr::eq(*config, project_config))
+                    .expect("selected project belongs to the execution config");
+                tests.retain(|test| related_tests[context_id].contains(&test.path));
+            }
             Ok(ProjectRun {
                 config: project_config,
-                tests: rjest_discovery::discover(project_config, &test_path_patterns)?,
+                tests,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -1503,6 +1535,76 @@ fn watch_options(cli: &Cli, config: &ProjectConfig, project_dir: &Path) -> Watch
     options.ignore_patterns = ignore_patterns;
     options.ignored_paths = ignored_paths;
     options
+}
+
+fn related_test_selection(
+    cli: &Cli,
+    config: &ProjectConfig,
+    project_dir: &Path,
+) -> Result<RelatedTestSelection> {
+    let all_projects = execution_projects(config);
+    let selected_projects =
+        filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
+    let roots = selected_projects
+        .iter()
+        .flat_map(|project| project.roots.iter().cloned())
+        .collect::<Vec<_>>();
+    let changed = git_changed_files(&roots)?;
+    let mut tests_by_context = vec![BTreeSet::new(); all_projects.len()];
+    if changed.repositories.is_empty() || changed.files.is_empty() {
+        return Ok(RelatedTestSelection {
+            tests_by_context,
+            has_scm: !changed.repositories.is_empty(),
+        });
+    }
+    let resolver_engine_path = internal_node_module_path("unrs-resolver")
+        .context("Rjest's internal unrs-resolver package is unavailable")?;
+    let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, project_dir);
+    for project in selected_projects {
+        let context_id = all_projects
+            .iter()
+            .position(|config| std::ptr::eq(*config, project))
+            .expect("selected project belongs to the execution config");
+        let tests = rjest_discovery::discover(project, &test_path_patterns)?;
+        let project_changes = changed
+            .files
+            .iter()
+            .filter(|path| project.roots.iter().any(|root| path.starts_with(root)))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if project_changes.is_empty() {
+            continue;
+        }
+        let graph = DependencyGraph::build(&GraphOptions {
+            root_dir: &project.root_dir,
+            roots: &project.roots,
+            module_file_extensions: &project.module_file_extensions,
+            module_path_ignore_patterns: &project.module_path_ignore_patterns,
+            module_name_mapper: &project.module_name_mapper,
+            module_directories: &project.module_directories,
+            module_paths: &project.module_paths,
+            resolver: project.resolver.as_deref(),
+            resolver_engine_path: &resolver_engine_path,
+            haste: &project.haste,
+        })?;
+        tests_by_context[context_id] = graph.related_tests(&project_changes, &tests);
+    }
+    Ok(RelatedTestSelection {
+        tests_by_context,
+        has_scm: true,
+    })
+}
+
+fn write_watch_selection_message(cli: &Cli, selection: Option<&RelatedTestSelection>) {
+    if !cli.watch {
+        return;
+    }
+    let Some(selection) = selection else {
+        return;
+    };
+    if selection.tests_by_context.iter().all(BTreeSet::is_empty) {
+        eprintln!("No tests found related to files changed since last commit.");
+    }
 }
 
 fn finish_empty_run(

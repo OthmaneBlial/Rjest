@@ -16,6 +16,7 @@ clap.workspace = true
 rjest-config = { path = "../rjest-config" }
 rjest-core = { path = "../rjest-core" }
 rjest-coverage = { path = "../rjest-coverage" }
+rjest-dependency = { path = "../rjest-dependency" }
 rjest-discovery = { path = "../rjest-discovery" }
 rjest-runner = { path = "../rjest-runner" }
 rjest-watch = { path = "../rjest-watch" }

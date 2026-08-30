@@ -19,9 +19,17 @@ process; failing runs also remain alive for the next edit. Existing
 `watchPathIgnorePatterns` are normalized, and Rjest automatically excludes its
 cache, coverage, and configured JSON output paths from feedback events.
 `--no-watchman` is accepted, although Rjest always uses its native Rust watcher.
-Do not substitute Rjest yet for projects that depend on Jest's dependency-aware
-`--watch`, interactive keys, watch plugins, or cancellation of a still-running
-stale cycle; those behaviors remain explicit migration boundaries.
+
+`rjest --watch` selects suites related to staged, modified, deleted, and
+untracked Git files. The graph follows direct and transitive static CommonJS and
+ESM dependencies, ordered `moduleNameMapper` aliases, configured module
+directories/paths, synchronous custom resolvers, changed test files, and Jest
+snapshot paths. It is rebuilt after each settled change so newly added and
+deleted suites participate immediately. Outside a Git repository Rjest exits
+with guidance to use `--watchAll`; Jest's Mercurial and Sapling adapters are not
+implemented yet. Do not substitute Rjest for workflows that require interactive
+watch keys/plugins or cancellation of a still-running stale cycle; those remain
+explicit migration boundaries.
 
 Rjest reads existing Jest snapshot files without rewriting them when values
 match and loads configured snapshot serializers. Existing inline snapshots are
