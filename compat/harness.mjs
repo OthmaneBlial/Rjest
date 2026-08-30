@@ -1232,6 +1232,11 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'fake-timers-clear-contracts',
+    category: 'Fake timers',
+    expectedExit: 0,
+  },
+  {
     name: 'gap-fake-timers-performance',
     category: 'Fake timers',
     expectedExit: 0,

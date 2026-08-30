@@ -25,6 +25,7 @@ const nativeClearTimeout = globalThis.clearTimeout;
 const nativeSetInterval = globalThis.setInterval;
 const nativeClearInterval = globalThis.clearInterval;
 const nativeSetImmediate = globalThis.setImmediate;
+const nativeClearImmediate = globalThis.clearImmediate;
 const nativeQueueMicrotask = globalThis.queueMicrotask;
 const NativeDate = globalThis.Date;
 const NativeFunction = globalThis.Function;
@@ -6181,6 +6182,8 @@ async function loadRuntimeModule(path) {
   return import(`${pathToFileURL(path).href}?rjest=${Date.now()}`);
 }
 
+const modernFakeTimerIdStart = 1e12;
+
 function createFakeTimerState(nextId = 1, nextOrder = 1) {
   return {
     now: 0,
@@ -6195,7 +6198,7 @@ function createFakeTimerState(nextId = 1, nextOrder = 1) {
 }
 
 const fakeTimerStates = {
-  modern: createFakeTimerState(1e12, 0),
+  modern: createFakeTimerState(modernFakeTimerIdStart, 0),
   legacy: createFakeTimerState(),
 };
 
@@ -6435,6 +6438,52 @@ function timerReferenceId(reference) {
   return Number(reference);
 }
 
+function nativeTimerClearHandler(type, reference) {
+  if (jsdomEnvironment && typeof reference === 'number') {
+    const windowHandler =
+      type === 'interval'
+        ? nativeWindowTimers?.clearInterval
+        : type === 'timeout'
+          ? nativeWindowTimers?.clearTimeout
+          : undefined;
+    if (typeof windowHandler === 'function') {
+      windowHandler.call(jsdomEnvironment.window, reference);
+      return;
+    }
+  }
+  const nativeHandler =
+    type === 'interval'
+      ? nativeClearInterval
+      : type === 'immediate'
+        ? nativeClearImmediate
+        : nativeClearTimeout;
+  if (typeof nativeHandler === 'function') nativeHandler(reference);
+}
+
+function timerApiName(prefix, type) {
+  return `${prefix}${type[0].toUpperCase()}${type.slice(1)}`;
+}
+
+function clearFakeTimer(type, reference) {
+  if (!reference) return;
+  const id = Number(reference);
+  if (Number.isNaN(id) || id < modernFakeTimerIdStart) {
+    nativeTimerClearHandler(type, reference);
+    return;
+  }
+  const timer = fakeTimers.timers.get(id);
+  if (!timer) return;
+  const interchangeable =
+    (timer.type === 'timeout' && type === 'interval') ||
+    (timer.type === 'interval' && type === 'timeout');
+  if (timer.type !== type && !interchangeable) {
+    throw new Error(
+      `Cannot clear timer: timer created with ${timerApiName('set', timer.type)}() but cleared with ${timerApiName('clear', type)}()`,
+    );
+  }
+  fakeTimers.timers.delete(id);
+}
+
 function nextFakeTimer(limit = Number.POSITIVE_INFINITY, allowedIds) {
   let selected;
   for (const timer of fakeTimers.timers.values()) {
@@ -6637,7 +6686,7 @@ function installFakeTimers(options = {}) {
   const fakeSetTimeout = (callback, delay, ...args) =>
     scheduleFakeTimer('timeout', callback, delay, args);
   fakeSetTimeout.clock = fakeTimers;
-  const fakeClearTimeout = id => fakeTimers.timers.delete(timerReferenceId(id));
+  const fakeClearTimeout = id => clearFakeTimer('timeout', id);
   if (!doNotFake.has('setTimeout')) {
     globalThis.setTimeout = fakeSetTimeout;
     if (jsdomEnvironment) {
@@ -6653,7 +6702,7 @@ function installFakeTimers(options = {}) {
   const fakeSetInterval = (callback, delay, ...args) =>
     scheduleFakeTimer('interval', callback, delay, args);
   fakeSetInterval.clock = fakeTimers;
-  const fakeClearInterval = id => fakeTimers.timers.delete(timerReferenceId(id));
+  const fakeClearInterval = id => clearFakeTimer('interval', id);
   if (!doNotFake.has('setInterval')) {
     globalThis.setInterval = fakeSetInterval;
     if (jsdomEnvironment) {
@@ -6668,8 +6717,7 @@ function installFakeTimers(options = {}) {
   }
   const fakeSetImmediate = (callback, ...args) =>
     scheduleFakeTimer('immediate', callback, 0, args);
-  const fakeClearImmediate = id =>
-    fakeTimers.timers.delete(timerReferenceId(id));
+  const fakeClearImmediate = id => clearFakeTimer('immediate', id);
   if (
     !doNotFake.has('setImmediate') &&
     fakeTimers.realImmediateDescriptors.set &&
