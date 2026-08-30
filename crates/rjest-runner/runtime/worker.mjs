@@ -5153,6 +5153,27 @@ function projectCustomEnvironmentGlobals() {
       // Custom environments can expose host properties protected by Node.
     }
   }
+  for (const key of [
+    'addEventListener',
+    'removeEventListener',
+    'dispatchEvent',
+  ]) {
+    if (typeof environmentGlobal[key] !== 'function') continue;
+    const current = Object.getOwnPropertyDescriptor(globalThis, key);
+    if (current && !current.configurable) continue;
+    try {
+      Object.defineProperty(globalThis, key, {
+        configurable: true,
+        enumerable: false,
+        value(...args) {
+          return Reflect.apply(environmentGlobal[key], environmentGlobal, args);
+        },
+        writable: true,
+      });
+    } catch {
+      // Preserve a protected host binding when Node refuses projection.
+    }
+  }
 }
 
 async function configureCustomTestEnvironment() {

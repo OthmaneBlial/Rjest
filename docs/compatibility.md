@@ -144,6 +144,9 @@ projecting JSDOM's same-named functions into that shared realm makes JSDOM call
 itself recursively; the environment's `window` functions remain available.
 Exact custom VM-context identity and every mutable circus state field remain
 outside this bounded claim.
+Bespoke JSDOM environment globals preserve `window === globalThis` while
+forwarding Window event-target methods to the environment realm, including
+listener registration, removal, and dispatch.
 Bespoke equality functions registered through `expect.addEqualityTesters`
 participate recursively in equality-based matchers and receive Jest's matcher
 context. Setup modules that extend the installed `expect` package share the

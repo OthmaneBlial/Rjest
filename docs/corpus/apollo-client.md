@@ -125,6 +125,7 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `streamGraphQL17Alpha9.test.tsx` | React 18 / 19 | 36 / 36 passed | 36 / 36 passed |
 | `useFragment.test.tsx` | React 17 / 18 / 19 | 99 passed, 6 skipped | 99 passed, 6 skipped |
 | `useQuery.test.tsx` | React 17 / 18 / 19 | 477 / 477 passed | 476 / 477 passed |
+| `onlineSource.test.ts` + `windowFocusSource.test.ts` | Core / min-RxJS / GraphQL 16 | 12 / 12 passed | 12 / 12 passed |
 
 These are targeted compatibility results, not a claim for the complete corpus.
 The remaining `useQuery` mismatch is timing-sensitive and has moved between

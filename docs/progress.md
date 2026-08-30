@@ -339,6 +339,10 @@ Last updated: 2026-08-30
   async advancement yields through the native promise queue. This converted
   Apollo's three `useQuery.test.tsx` wall-time failures into 476 passing tests
   and one timing-sensitive mismatch across all 477 registered statuses.
+- Custom JSDOM environments forward `addEventListener`, `removeEventListener`,
+  and `dispatchEvent` through the environment realm while retaining Jest's
+  `window === globalThis` identity. Apollo's unchanged online and visibility
+  refetch-source probes now pass 12/12 tests across the three Core projects.
 
 ## Current work
 
