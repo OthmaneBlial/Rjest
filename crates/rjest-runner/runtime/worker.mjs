@@ -6149,6 +6149,7 @@ function installJsdomEnvironment() {
     });
   }
   nativeWindowTimers = {
+    Date: window.Date,
     setTimeout: window.setTimeout,
     clearTimeout: window.clearTimeout,
     setInterval: window.setInterval,
@@ -6207,6 +6208,7 @@ const fakeTimers = {
   tickMode: 'manual',
   tickModeCounter: 0,
   tickModeDelta: undefined,
+  realDate: undefined,
   realImmediateDescriptors: undefined,
   get now() {
     return fakeTimerStates[this.mode].now;
@@ -6264,7 +6266,56 @@ function timerAdvanceDuration(value) {
     return Number(value.total({unit: 'millisecond'}));
   }
   if (fakeTimers.mode === 'legacy') return Number(value ?? 0);
-  return timerDelay(value);
+  if (typeof value === 'number') {
+    if (value < 0) throw new TypeError('Negative ticks are not supported');
+    return Math.floor(value);
+  }
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    typeof value.total !== 'function'
+  ) {
+    throw new TypeError(
+      'Timer advance duration must be a number or an object with total()',
+    );
+  }
+  const duration = Number(value.total({unit: 'millisecond'}));
+  if (duration < 0) throw new TypeError('Negative ticks are not supported');
+  return Math.floor(duration);
+}
+
+function timerEpoch(value) {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value?.getTime === 'function') return value.getTime();
+  if (typeof value?.epochMilliseconds === 'number') {
+    return value.epochMilliseconds;
+  }
+  throw new TypeError('now should be milliseconds since UNIX epoch');
+}
+
+function createFakeDateConstructor(RealDate) {
+  class ClockDate extends RealDate {
+    constructor(...args) {
+      super(...(args.length === 0 ? [fakeTimers.now] : args));
+      Object.defineProperty(this, 'constructor', {
+        configurable: true,
+        value: RealDate,
+      });
+    }
+
+    static [Symbol.hasInstance](instance) {
+      return instance instanceof RealDate;
+    }
+  }
+  ClockDate.isFake = true;
+  ClockDate.now = () => fakeTimers.now;
+  ClockDate.toString = () => RealDate.toString();
+  return new Proxy(ClockDate, {
+    apply() {
+      return new RealDate(fakeTimers.now).toString();
+    },
+  });
 }
 
 function timeToNextFrame() {
@@ -6502,6 +6553,7 @@ function installFakeTimers(options = {}) {
     mode === 'modern' && Number(options.timerLimit) > 0
       ? Number(options.timerLimit)
       : 100_000;
+  fakeTimers.realDate = globalThis.Date;
   fakeTimers.realImmediateDescriptors = {
     clear: Object.getOwnPropertyDescriptor(globalThis, 'clearImmediate'),
     set: Object.getOwnPropertyDescriptor(globalThis, 'setImmediate'),
@@ -6515,9 +6567,9 @@ function installFakeTimers(options = {}) {
     return jest;
   }
   fakeTimers.now =
-    options?.now === undefined
+    options?.now === undefined || options?.now === null
       ? NativeDate.now()
-      : new NativeDate(options.now).getTime();
+      : timerEpoch(options.now);
   fakeTimers.monotonicNow = 0;
   fakeTimers.nextId = 1;
   fakeTimers.timers.clear();
@@ -6626,17 +6678,9 @@ function installFakeTimers(options = {}) {
     }
   }
   if (!doNotFake.has('Date')) {
-    globalThis.Date = class FakeDate extends NativeDate {
-      static isFake = true;
-
-      constructor(...args) {
-        super(...(args.length === 0 ? [fakeTimers.now] : args));
-      }
-
-      static now() {
-        return fakeTimers.now;
-      }
-    };
+    const FakeDate = createFakeDateConstructor(fakeTimers.realDate);
+    globalThis.Date = FakeDate;
+    if (jsdomEnvironment) jsdomEnvironment.window.Date = FakeDate;
   }
   if (!doNotFake.has('performance')) {
     Object.defineProperty(nativePerformance, 'now', {
@@ -6857,7 +6901,7 @@ function restoreRealTimers() {
     else delete globalThis[key];
   }
   globalThis.queueMicrotask = nativeQueueMicrotask;
-  globalThis.Date = NativeDate;
+  globalThis.Date = fakeTimers.realDate ?? NativeDate;
   globalThis.performance = nativePerformance;
   if (nativePerformanceNowDescriptor) {
     Object.defineProperty(
@@ -7135,7 +7179,7 @@ const jest = {
         '`jest.advanceTimersByTimeAsync()` is not available when using legacy fake timers.',
       );
     }
-    const duration = timerDelay(milliseconds);
+    const duration = timerAdvanceDuration(milliseconds);
     return withPausedNextAsyncMode(async () => {
       await runTimersUntilAsync(fakeTimers.now + duration);
       return jest;
@@ -7188,7 +7232,7 @@ const jest = {
         '`jest.setSystemTime()` is not available when using legacy fake timers.',
       );
     }
-    const next = new NativeDate(value ?? NativeDate.now()).getTime();
+    const next = timerEpoch(value);
     const difference = next - fakeTimers.now;
     fakeTimers.now = next;
     for (const timer of fakeTimers.timers.values()) {
