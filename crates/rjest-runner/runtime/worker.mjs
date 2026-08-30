@@ -1522,6 +1522,15 @@ function matchSnapshot(received, hint) {
   };
 }
 
+function ensureNumberOrBigInt(received, expected) {
+  if (typeof expected !== 'number' && typeof expected !== 'bigint') {
+    throw new TypeError('Expected value must be a number or bigint');
+  }
+  if (typeof received !== 'number' && typeof received !== 'bigint') {
+    throw new TypeError('Received value must be a number or bigint');
+  }
+}
+
 const matchers = {
   toBe: (received, expected) => Object.is(received, expected),
   toEqual: (received, expected) => deepEqual(received, expected),
@@ -1532,37 +1541,117 @@ const matchers = {
   toBeUndefined: received => received === undefined,
   toBeDefined: received => received !== undefined,
   toBeNaN: received => Number.isNaN(received),
-  toContain: (received, expected) =>
-    typeof received === 'string'
-      ? received.includes(expected)
-      : received != null &&
-        [...received].some(value => Object.is(value, expected)),
-  toContainEqual: (received, expected) =>
-    received != null &&
-    [...received].some(value => deepEqual(value, expected)),
-  toHaveLength: (received, expected) =>
-    received != null && received.length === expected,
+  toContain: (received, expected) => {
+    if (received === null || received === undefined) {
+      throw new Error('Received value must not be null nor undefined');
+    }
+    if (typeof received === 'string') {
+      if (typeof expected !== 'string') {
+        throw new TypeError(
+          'Expected value must be a string if received value is a string',
+        );
+      }
+      return received.includes(expected);
+    }
+    return [...received].some(value => Object.is(value, expected));
+  },
+  toContainEqual: (received, expected) => {
+    if (received === null || received === undefined) {
+      throw new Error('Received value must not be null nor undefined');
+    }
+    return [...received].some(value => deepEqual(value, expected));
+  },
+  toHaveLength: (received, expected) => {
+    if (typeof received?.length !== 'number') {
+      throw new TypeError(
+        'Received value must have a length property whose value must be a number',
+      );
+    }
+    if (!Number.isSafeInteger(expected) || expected < 0) {
+      throw new TypeError('Expected value must be a non-negative integer');
+    }
+    return received.length === expected;
+  },
   toHaveProperty: (received, path, expected, expectedProvided) => {
+    if (received === null || received === undefined) {
+      throw new Error('Received value must not be null nor undefined');
+    }
+    if (typeof path !== 'string' && !Array.isArray(path)) {
+      throw new Error('Expected path must be a string or array');
+    }
+    if (Array.isArray(path) && path.length === 0) {
+      throw new Error('Expected path must not be an empty array');
+    }
     const property = resolveProperty(received, path);
     return (
       property.found &&
       (!expectedProvided || deepEqual(property.value, expected))
     );
   },
-  toMatch: (received, expected) =>
-    typeof received === 'string' &&
-    (expected instanceof RegExp
-      ? expected.test(received)
-      : received.includes(String(expected))),
-  toMatchObject: (received, expected) => subsetEqual(received, expected),
-  toBeInstanceOf: (received, expected) =>
-    typeof expected === 'function' && received instanceof expected,
-  toBeGreaterThan: (received, expected) => received > expected,
-  toBeGreaterThanOrEqual: (received, expected) => received >= expected,
-  toBeLessThan: (received, expected) => received < expected,
-  toBeLessThanOrEqual: (received, expected) => received <= expected,
-  toBeCloseTo: (received, expected, digits = 2) =>
-    Math.abs(received - expected) < Math.pow(10, -digits) / 2,
+  toMatch: (received, expected) => {
+    if (typeof received !== 'string') {
+      throw new TypeError('Received value must be a string');
+    }
+    if (
+      typeof expected !== 'string' &&
+      !(expected && typeof expected.test === 'function')
+    ) {
+      throw new Error(
+        'Expected value must be a string or regular expression',
+      );
+    }
+    return typeof expected === 'string'
+      ? received.includes(expected)
+      : new RegExp(expected).test(received);
+  },
+  toMatchObject: (received, expected) => {
+    if (typeof received !== 'object' || received === null) {
+      throw new Error('Received value must be a non-null object');
+    }
+    if (typeof expected !== 'object' || expected === null) {
+      throw new Error('Expected value must be a non-null object');
+    }
+    return subsetEqual(received, expected);
+  },
+  toBeInstanceOf: (received, expected) => {
+    if (typeof expected !== 'function') {
+      throw new TypeError('Expected value must be a function');
+    }
+    return received instanceof expected;
+  },
+  toBeGreaterThan: (received, expected) => {
+    ensureNumberOrBigInt(received, expected);
+    return received > expected;
+  },
+  toBeGreaterThanOrEqual: (received, expected) => {
+    ensureNumberOrBigInt(received, expected);
+    return received >= expected;
+  },
+  toBeLessThan: (received, expected) => {
+    ensureNumberOrBigInt(received, expected);
+    return received < expected;
+  },
+  toBeLessThanOrEqual: (received, expected) => {
+    ensureNumberOrBigInt(received, expected);
+    return received <= expected;
+  },
+  toBeCloseTo: (received, expected, digits = 2) => {
+    if (typeof expected !== 'number') {
+      throw new TypeError('Expected value must be a number');
+    }
+    if (typeof received !== 'number') {
+      throw new TypeError('Received value must be a number');
+    }
+    if (
+      (received === Number.POSITIVE_INFINITY &&
+        expected === Number.POSITIVE_INFINITY) ||
+      (received === Number.NEGATIVE_INFINITY &&
+        expected === Number.NEGATIVE_INFINITY)
+    ) {
+      return true;
+    }
+    return Math.abs(received - expected) < Math.pow(10, -digits) / 2;
+  },
   toThrow: (received, expected) => {
     if (typeof received !== 'function') {
       throw new TypeError('Received value must be a function');
