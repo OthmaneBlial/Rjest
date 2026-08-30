@@ -301,6 +301,15 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-force-exit-no-coverage',
+    category: 'CLI',
+    compareArtifacts: ['cli-overrides.json'],
+    expectedExit: 0,
+    forceExit: true,
+    noCoverage: true,
+    useFixtureConfig: true,
+  },
+  {
     name: 'reporters-custom-lifecycle',
     category: 'Reporters',
     compareArtifacts: ['reporter-events.json'],
@@ -1172,6 +1181,8 @@ function compareCase(testCase) {
     if (testCase.bail === false) jestArguments.push('--no-bail');
     if (testCase.cache) jestArguments.push('--cache');
     if (testCase.noCache) jestArguments.push('--no-cache');
+    if (testCase.forceExit) jestArguments.push('--forceExit');
+    if (testCase.noCoverage) jestArguments.push('--no-coverage');
     if (testCase.clearCache) jestArguments.push('--clearCache');
     if (testCase.onlyFailures) jestArguments.push('--onlyFailures');
     if (testCase.coverage) {
@@ -1297,6 +1308,8 @@ function compareCase(testCase) {
     if (testCase.bail === false) rjestArguments.push('--no-bail');
     if (testCase.cache) rjestArguments.push('--cache');
     if (testCase.noCache) rjestArguments.push('--no-cache');
+    if (testCase.forceExit) rjestArguments.push('--forceExit');
+    if (testCase.noCoverage) rjestArguments.push('--no-coverage');
     if (testCase.clearCache) rjestArguments.push('--clearCache');
     if (testCase.onlyFailures) rjestArguments.push('--onlyFailures');
     if (testCase.coverage) {

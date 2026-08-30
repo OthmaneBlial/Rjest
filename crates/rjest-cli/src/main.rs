@@ -202,6 +202,14 @@ struct Cli {
     )]
     log_heap_usage: bool,
 
+    /// Force the runner to exit after all tests have completed.
+    #[arg(
+        long = "forceExit",
+        visible_alias = "force-exit",
+        action = ArgAction::SetTrue
+    )]
+    force_exit: bool,
+
     /// Only run tests whose full names match this regular expression.
     #[arg(
         long = "testNamePattern",
@@ -237,6 +245,14 @@ struct Cli {
         action = ArgAction::SetTrue
     )]
     coverage: bool,
+
+    /// Disable coverage enabled by configuration.
+    #[arg(
+        long = "no-coverage",
+        action = ArgAction::SetTrue,
+        conflicts_with = "coverage"
+    )]
+    no_coverage: bool,
 
     /// Directory where coverage reports are written.
     #[arg(
@@ -1473,7 +1489,20 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
         ));
     }
     config.only_failures |= cli.only_failures;
+    apply_global_execution_overrides(config, cli);
     apply_cache_overrides(config, cli);
+}
+
+fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if cli.force_exit {
+        config.force_exit = true;
+    }
+    if cli.no_coverage {
+        config.collect_coverage = false;
+    }
+    for project in &mut config.projects {
+        apply_global_execution_overrides(project, cli);
+    }
 }
 
 fn apply_cache_overrides(config: &mut ProjectConfig, cli: &Cli) {
@@ -2471,6 +2500,28 @@ mod tests {
             .expect("Jest-compatible flags");
         assert_eq!(cli.max_workers.as_deref(), Some("1"));
         assert!(cli.log_heap_usage);
+    }
+
+    #[test]
+    fn accepts_jest_force_exit_and_coverage_negation() {
+        let cli = Cli::try_parse_from(["rjest", "--forceExit", "--no-coverage"])
+            .expect("Jest runtime override flags");
+        assert!(cli.force_exit);
+        assert!(cli.no_coverage);
+        assert!(Cli::try_parse_from(["rjest", "--coverage", "--no-coverage"]).is_err());
+
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config.collect_coverage = true;
+        let mut project = ProjectConfig::defaults(temp.path()).expect("project config");
+        project.collect_coverage = true;
+        config.projects.push(project);
+
+        super::apply_global_execution_overrides(&mut config, &cli);
+        assert!(config.force_exit);
+        assert!(!config.collect_coverage);
+        assert!(config.projects[0].force_exit);
+        assert!(!config.projects[0].collect_coverage);
     }
 
     #[test]

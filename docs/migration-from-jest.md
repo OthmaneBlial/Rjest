@@ -100,7 +100,9 @@ boolean 20 ms default and numeric cadence.
 phases. Rjest also accepts Jest's `-w` worker alias and reports per-file heap
 usage with `--logHeapUsage`; its fresh-process-per-file architecture makes
 `workerIdleMemoryLimit` a normalized no-reuse threshold rather than a recycled
-worker trigger.
+worker trigger. `--forceExit` is accepted and forwarded to extension hooks;
+isolated test workers already terminate after returning their result, so leaked
+file-local handles cannot keep the coordinator alive.
 
 Test-file docblocks may override the configured Node or JSDOM environment with
 `@jest-environment`. JSON supplied through `@jest-environment-options` is
@@ -136,6 +138,9 @@ positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
 JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global
 positive-percentage and negative-uncovered thresholds. Global coverage globs
 also include imported and untested files across covered inline project roots.
+`rjest --no-coverage` overrides config-enabled collection, including across a
+multi-project matrix, and is reported to custom extensions through Jest's
+`globalConfig.collectCoverage` field.
 Keep Jest as the coverage gate when using the V8 provider, custom Istanbul
 reporters, or path/glob-specific and cross-project threshold groups.
 
