@@ -1531,16 +1531,77 @@ function ensureNumberOrBigInt(received, expected) {
   }
 }
 
+function ensureNoExpected(expected) {
+  if (expected !== undefined) {
+    throw new Error('This matcher must not have an expected argument');
+  }
+}
+
+function ensureNonNegativeInteger(expected) {
+  if (!Number.isSafeInteger(expected) || expected < 0) {
+    throw new Error('Expected value must be a non-negative integer');
+  }
+}
+
+function isSpy(received) {
+  return Boolean(
+    received &&
+      received.calls &&
+      typeof received.calls.all === 'function' &&
+      typeof received.calls.count === 'function',
+  );
+}
+
+function ensureMockOrSpy(received) {
+  if (!isMock(received) && !isSpy(received)) {
+    throw new Error('Received value must be a mock or spy function');
+  }
+}
+
+function ensureMock(received) {
+  if (!isMock(received)) {
+    throw new Error('Received value must be a mock function');
+  }
+}
+
+function receivedCalls(received) {
+  return isSpy(received)
+    ? received.calls.all().map(call => call.args)
+    : received.mock.calls;
+}
+
+function receivedCallCount(received) {
+  return isSpy(received) ? received.calls.count() : received.mock.calls.length;
+}
+
 const matchers = {
   toBe: (received, expected) => Object.is(received, expected),
   toEqual: (received, expected) => deepEqual(received, expected),
   toStrictEqual: (received, expected) => deepEqual(received, expected, true),
-  toBeTruthy: received => Boolean(received),
-  toBeFalsy: received => !received,
-  toBeNull: received => received === null,
-  toBeUndefined: received => received === undefined,
-  toBeDefined: received => received !== undefined,
-  toBeNaN: received => Number.isNaN(received),
+  toBeTruthy: (received, expected) => {
+    ensureNoExpected(expected);
+    return Boolean(received);
+  },
+  toBeFalsy: (received, expected) => {
+    ensureNoExpected(expected);
+    return !received;
+  },
+  toBeNull: (received, expected) => {
+    ensureNoExpected(expected);
+    return received === null;
+  },
+  toBeUndefined: (received, expected) => {
+    ensureNoExpected(expected);
+    return received === undefined;
+  },
+  toBeDefined: (received, expected) => {
+    ensureNoExpected(expected);
+    return received !== undefined;
+  },
+  toBeNaN: (received, expected) => {
+    ensureNoExpected(expected);
+    return Number.isNaN(received);
+  },
   toContain: (received, expected) => {
     if (received === null || received === undefined) {
       throw new Error('Received value must not be null nor undefined');
@@ -1678,52 +1739,60 @@ const matchers = {
     }
     return false;
   },
-  toHaveBeenCalled: received =>
-    isMock(received) && received.mock.calls.length > 0,
-  toHaveBeenCalledTimes: (received, expected) =>
-    isMock(received) && received.mock.calls.length === expected,
-  toHaveBeenCalledWith: (received, ...expected) =>
-    isMock(received) &&
-    received.mock.calls.some(call => deepEqual(call, expected)),
-  toHaveBeenLastCalledWith: (received, ...expected) =>
-    isMock(received) &&
-    received.mock.calls.length > 0 &&
-    deepEqual(received.mock.calls.at(-1), expected),
-  toHaveBeenNthCalledWith: (received, nth, ...expected) =>
-    (() => {
-      if (!isMock(received)) return false;
-      if (!Number.isSafeInteger(nth) || nth < 1) {
-        throw new Error('n must be a positive integer');
-      }
-      return (
-        received.mock.calls.length >= nth &&
-        deepEqual(received.mock.calls[nth - 1], expected)
-      );
-    })(),
-  toHaveReturned: received =>
-    isMock(received) &&
-    received.mock.results.some(result => result.type === 'return'),
-  toHaveReturnedTimes: (received, expected) =>
-    isMock(received) &&
-    received.mock.results.filter(result => result.type === 'return').length ===
-      expected,
-  toHaveReturnedWith: (received, expected) =>
-    isMock(received) &&
-    received.mock.results.some(
-      result => result.type === 'return' && deepEqual(result.value, expected),
-    ),
-  toHaveLastReturnedWith: (received, expected) => {
-    if (!isMock(received)) {
-      throw new TypeError('Received value must be a mock function');
+  toHaveBeenCalled: (received, expected) => {
+    ensureNoExpected(expected);
+    ensureMockOrSpy(received);
+    return receivedCallCount(received) > 0;
+  },
+  toHaveBeenCalledTimes: (received, expected) => {
+    ensureNonNegativeInteger(expected);
+    ensureMockOrSpy(received);
+    return receivedCallCount(received) === expected;
+  },
+  toHaveBeenCalledWith: (received, ...expected) => {
+    ensureMockOrSpy(received);
+    return receivedCalls(received).some(call => deepEqual(call, expected));
+  },
+  toHaveBeenLastCalledWith: (received, ...expected) => {
+    ensureMockOrSpy(received);
+    const calls = receivedCalls(received);
+    return calls.length > 0 && deepEqual(calls.at(-1), expected);
+  },
+  toHaveBeenNthCalledWith: (received, nth, ...expected) => {
+    ensureMockOrSpy(received);
+    if (!Number.isSafeInteger(nth) || nth < 1) {
+      throw new Error('n must be a positive integer');
     }
+    const calls = receivedCalls(received);
+    return calls.length >= nth && deepEqual(calls[nth - 1], expected);
+  },
+  toHaveReturned: (received, expected) => {
+    ensureNoExpected(expected);
+    ensureMock(received);
+    return received.mock.results.some(result => result.type === 'return');
+  },
+  toHaveReturnedTimes: (received, expected) => {
+    ensureNonNegativeInteger(expected);
+    ensureMock(received);
+    return (
+      received.mock.results.filter(result => result.type === 'return').length ===
+      expected
+    );
+  },
+  toHaveReturnedWith: (received, expected) => {
+    ensureMock(received);
+    return received.mock.results.some(
+      result => result.type === 'return' && deepEqual(result.value, expected),
+    );
+  },
+  toHaveLastReturnedWith: (received, expected) => {
+    ensureMock(received);
     if (received.mock.results.length === 0) return false;
     const result = received.mock.results.at(-1);
     return result.type === 'return' && deepEqual(result.value, expected);
   },
   toHaveNthReturnedWith: (received, nth, expected) => {
-    if (!isMock(received)) {
-      throw new TypeError('Received value must be a mock function');
-    }
+    ensureMock(received);
     if (!Number.isSafeInteger(nth) || nth < 1) {
       throw new Error('n must be a positive integer');
     }
