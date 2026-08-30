@@ -514,6 +514,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'snapshot-mock-function',
+    category: 'Snapshots',
+    compareSnapshots: true,
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'snapshot-test-failing',
     category: 'Snapshots',
     compareSnapshots: true,

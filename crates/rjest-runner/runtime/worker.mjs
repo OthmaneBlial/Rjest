@@ -748,6 +748,16 @@ function prettyFormat(value, indentation = '', stack = []) {
   if (typeof value === 'number') return Object.is(value, -0) ? '-0' : String(value);
   if (typeof value === 'bigint') return `${value}n`;
   if (typeof value === 'string') return `"${value}"`;
+  if (typeof value === 'function' && isMock(value)) {
+    const name = value.getMockName?.();
+    const label = `[MockFunction${name && name !== 'jest.fn()' ? ` ${name}` : ''}]`;
+    if (value.mock.calls.length === 0) return label;
+    return `${label} ${prettyFormat(
+      {calls: value.mock.calls, results: value.mock.results},
+      indentation,
+      stack,
+    )}`;
+  }
   if (typeof value === 'function') return '[Function]';
   if (typeof value === 'symbol') return String(value).replace(/\)(.*)$/, ')');
   if (stack.includes(value)) return '[Circular]';
@@ -827,6 +837,37 @@ function formatSnapshot(
     : prettyFormat(value);
   return serialized.includes('\n') ? `\n${serialized}\n` : serialized;
 }
+
+const mockSnapshotSerializer = {
+  test: value => Boolean(value?._isMockFunction),
+  serialize(value, config, indentation, depth, refs, printer) {
+    const name = value.getMockName?.();
+    const label = `[MockFunction${name && name !== 'jest.fn()' ? ` ${name}` : ''}]`;
+    if (value.mock.calls.length === 0) return label;
+
+    const nextIndentation = indentation + config.indent;
+    const entries = [
+      ['calls', value.mock.calls],
+      ['results', value.mock.results],
+    ].map(([key, entry]) => {
+      const serialized = printer(
+        entry,
+        config,
+        nextIndentation,
+        depth,
+        refs,
+      );
+      return `"${key}": ${serialized}${config.min ? '' : ','}`;
+    });
+    const separator = config.min
+      ? ', '
+      : `${config.spacingOuter}${nextIndentation}`;
+    return (
+      `${label} {${config.spacingOuter}${nextIndentation}` +
+      `${entries.join(separator)}${config.spacingOuter}${indentation}}`
+    );
+  },
+};
 
 function stripInlineSnapshotIndentation(inlineSnapshot) {
   const match = inlineSnapshot.match(/^([^\S\n]*)\S/m);
@@ -4490,12 +4531,13 @@ function configureSnapshotFormat() {
       runtimePrettyFormatSupportsBasicPrototype = false;
     }
     runtimePrettyFormatPlugins = [
-      loaded.plugins.AsymmetricMatcher,
-      loaded.plugins.DOMCollection,
-      loaded.plugins.DOMElement,
-      loaded.plugins.Immutable,
-      loaded.plugins.ReactElement,
       loaded.plugins.ReactTestComponent,
+      loaded.plugins.ReactElement,
+      loaded.plugins.DOMElement,
+      loaded.plugins.DOMCollection,
+      loaded.plugins.Immutable,
+      mockSnapshotSerializer,
+      loaded.plugins.AsymmetricMatcher,
     ].filter(Boolean);
   } catch {
     runtimePrettyFormatter = undefined;

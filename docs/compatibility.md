@@ -7,10 +7,10 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 121/121 (100.0%) across its explicitly listed
+The current generated matrix is 122/122 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-26/26 (100.0%). Resolution is 12/12 (100.0%), snapshots are 12/12 (100.0%),
+26/26 (100.0%). Resolution is 12/12 (100.0%), snapshots are 13/13 (100.0%),
 Expect is 7/7 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -104,6 +104,9 @@ byte-compared with official Jest.
 External snapshot serialization also honors the supported
 `snapshotFormat.escapeString` and `printBasicPrototype` options. The fixture
 consumes the snapshot produced by official Jest byte-for-byte.
+Jest mock functions and spies use the snapshot mock serializer, including a
+custom mock name and non-empty `calls` and `results` metadata. The serializer
+precedes the asymmetric matcher plugin in Jest's default pretty-format order.
 Configured `moduleDirectories` preserve Jest's ordered absolute roots and
 ancestor-relative directory names. The Rust-backed resolver applies CommonJS
 and native-ESM export conditions, configured extensions, `require.resolve`,
@@ -333,9 +336,10 @@ React 17, 18, and 19. A third probe matches 30/30 response-stream assertions and
 all suite/test identities across the three Core variants after repairing
 `test.failing` and custom asymmetric matchers. `ObservableQuery.ts` adds exact
 parity for another 435 registered statuses (411 passed and 24 skipped) after
-completing Apollo's matcher-context utilities. The full result is still being
-captured, so these probes are progress evidence rather than a corpus-wide parity
-claim.
+completing Apollo's matcher-context utilities. `ApolloClient.ts` then matches
+all 243 statuses (225 passed and 18 skipped) and 60/60 snapshots after adding
+mock-function snapshot serialization. The full result is still being captured,
+so these probes are progress evidence rather than a corpus-wide parity claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

@@ -1,0 +1,20 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`serializes a called spy with Jest mock metadata 1`] = `
+[MockFunction] {
+  "calls": Array [
+    Array [
+      "warning",
+      Object {
+        "id": 1,
+      },
+    ],
+  ],
+  "results": Array [
+    Object {
+      "type": "return",
+      "value": undefined,
+    },
+  ],
+}
+`;

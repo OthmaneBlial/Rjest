@@ -90,6 +90,7 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `useMutation.test.tsx` | React 17 / 18 / 19 | 123 / 123 passed | 123 / 123 passed |
 | `responseIterator.ts` | Core / min-RxJS / GraphQL 16 | 30 / 30 passed | 30 / 30 passed |
 | `ObservableQuery.ts` | Core / min-RxJS / GraphQL 16 | 411 passed, 24 skipped | 411 passed, 24 skipped |
+| `ApolloClient.ts` | Core / min-RxJS / GraphQL 16 | 225 passed, 18 skipped, 60 snapshots | 225 passed, 18 skipped, 60 snapshots |
 
 These are targeted compatibility results, not a claim for the complete corpus.
 The full 563-suite Rjest JSON capture and strict comparison remain in progress;
@@ -108,6 +109,6 @@ The pinned suite combines:
 - nearly ten thousand registered tests under repeated dependency variants;
 - forced garbage collection and a roughly 3 GB official-Jest peak RSS.
 
-This report records an authoritative baseline, exact discovery, and four
+This report records an authoritative baseline, exact discovery, and five
 repaired multi-project execution slices. It does not yet claim Apollo Client can
 switch to Rjest.
