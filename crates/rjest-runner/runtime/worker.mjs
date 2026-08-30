@@ -6405,21 +6405,37 @@ function nextFakeTimer(limit = Number.POSITIVE_INFINITY, allowedIds) {
   return selected;
 }
 
+function modernInfiniteLoopError() {
+  return new Error(
+    `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop!`,
+  );
+}
+
+function legacyInfiniteLoopError(kind) {
+  return new Error(
+    `Ran ${fakeTimers.maxRuns} ${kind}, and there are still more! Assuming we've hit an infinite recursion and bailing out...`,
+  );
+}
+
 function runAllTicks() {
   if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
-  let runs = 0;
+  let index = 0;
   while (fakeTimers.ticks.length > 0) {
-    if (++runs > fakeTimers.maxRuns) {
-      throw new Error(
-        `Aborting after running ${fakeTimers.maxRuns} ticks, assuming an infinite loop`,
-      );
+    if (fakeTimers.mode === 'legacy' && index >= fakeTimers.maxRuns) {
+      throw legacyInfiniteLoopError('ticks');
     }
     const tick = fakeTimers.ticks.shift();
     if (fakeTimers.mode === 'legacy') {
       runLegacyTick(tick);
     } else {
       tick.callback(...tick.args);
+      // Sinon checks `i > loopLimit` after running each queued job. Preserve
+      // that observable boundary even though it executes limit + 2 callbacks.
+      if (fakeTimers.maxRuns && index > fakeTimers.maxRuns) {
+        throw modernInfiniteLoopError();
+      }
     }
+    index += 1;
   }
 }
 
@@ -6466,9 +6482,7 @@ function runAllLegacyImmediates() {
   let runs = 0;
   while (fakeTimers.immediates.length > 0) {
     if (++runs > fakeTimers.maxRuns) {
-      throw new Error(
-        `Ran ${fakeTimers.maxRuns} immediates, and there are still more! Assuming we've hit an infinite recursion and bailing out...`,
-      );
+      throw legacyInfiniteLoopError('immediates');
     }
     runLegacyImmediate(fakeTimers.immediates[0]);
   }
@@ -6500,10 +6514,8 @@ function runTimersUntil(target, allowedIds) {
     let runs = 0;
     let timer;
     while ((timer = nextFakeTimer(target, allowedIds))) {
-      if (++runs > fakeTimers.maxRuns) {
-        throw new Error(
-          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
-        );
+      if (fakeTimers.mode === 'legacy' && ++runs > fakeTimers.maxRuns) {
+        throw legacyInfiniteLoopError('timers');
       }
       runTimer(timer);
     }
@@ -6519,14 +6531,8 @@ async function runTimersUntilAsync(target) {
   const previousDuringTick = fakeTimers.duringTick;
   fakeTimers.duringTick = true;
   try {
-    let runs = 0;
     let timer;
     while ((timer = nextFakeTimer(target))) {
-      if (++runs > fakeTimers.maxRuns) {
-        throw new Error(
-          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
-        );
-      }
       runTimer(timer);
       await new Promise(resolve => nativeSetTimeout(resolve, 0));
     }
@@ -7082,9 +7088,9 @@ const jest = {
     let timer;
     while ((timer = nextFakeTimer())) {
       if (++runs > fakeTimers.maxRuns) {
-        throw new Error(
-          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
-        );
+        throw fakeTimers.mode === 'legacy'
+          ? legacyInfiniteLoopError('timers')
+          : modernInfiniteLoopError();
       }
       runTimer(timer);
       if (fakeTimers.mode === 'legacy') {
@@ -7108,9 +7114,7 @@ const jest = {
         const timer = nextFakeTimer();
         if (!timer) break;
         if (++runs > fakeTimers.maxRuns) {
-          throw new Error(
-            `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
-          );
+          throw modernInfiniteLoopError();
         }
         runTimer(timer);
       }

@@ -1221,6 +1221,12 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'fake-timers-limit',
+    category: 'Fake timers',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'gap-fake-timers-performance',
     category: 'Fake timers',
     expectedExit: 0,
