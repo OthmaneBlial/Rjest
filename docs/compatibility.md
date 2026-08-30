@@ -9,11 +9,11 @@ output differences. Oracle fixtures run from fresh copies with Jest's cache
 disabled, so stale haste/performance data cannot alter a differential unless a
 scenario explicitly tests caching.
 
-The current generated matrix is 140/140 (100.0%) across its explicitly listed
+The current generated matrix is 146/146 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 32/32 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 13/13 (100.0%), and environments are 7/7
+Expect is 7/7 (100.0%), CLI is 19/19 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -105,10 +105,11 @@ selects the partition before bounded Rust worker scheduling.
 dispatch between files according to Jest's cumulative failed-test threshold.
 Parallel bail atomically stops queued work and terminates in-flight Node workers;
 the result that reaches the threshold is retained, while later results are not.
-After sharding, bail-enabled project matrices are sequenced as one combined test
-set using Jest's uncached larger-file-first fallback while retaining each file's
-own project configuration. Rjest does not yet persist performance data for its
-native default sequencer.
+After sharding, project matrices are sequenced as one combined test set while
+retaining each file's own project configuration. The native default sequencer
+persists failure and duration data, then orders cached failures first, uncached
+files before timed files, longer cached files first, and larger uncached files
+first. Malformed or missing cache files safely behave as cold caches.
 Configured CommonJS and native-ESM `testSequencer` classes now run in a
 persistent Node bridge. One instance receives Jest-shaped `contexts` and
 `globalConfig`, synchronous or asynchronous `shard` runs before `sort`, returned
@@ -116,8 +117,13 @@ test identity preserves project ownership, and `cacheResults` receives the
 executed aggregate after the run. Differentials cover seed-sensitive reverse
 ordering, custom shard membership, inherited `@jest/test-sequencer` caching,
 and native ESM loading. CLI `--testSequencer` precedence and project-root path
-normalization are also covered. `--onlyFailures`/`allFailedTests` and sequencer
-resolution through a configured custom resolver remain unsupported.
+normalization are also covered. `--onlyFailures`/`-f` runs the sequencer's
+synchronous or asynchronous `allFailedTests` hook after shard and sort. The
+native implementation filters its persisted cache, preserves a previous
+failure when a later suite execution is fully skipped, and records assertion
+failures and file-level execution errors. Differentials cover warm, cold,
+post-bail, skipped-suite, and file-error lifecycles. Sequencer resolution
+through a configured custom resolver remains unsupported.
 New and mismatched inline snapshots rewrite the original matcher callsite in
 update modes. V8 stack locations are remapped through transformer source maps,
 then Babel parses and regenerates only the matched call expression. The

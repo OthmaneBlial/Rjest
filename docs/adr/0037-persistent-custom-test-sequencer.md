@@ -26,10 +26,11 @@ and project-context pair.
 
 Instantiate CommonJS or native-ESM sequencer classes once. Await optional
 `shard` before required `sort`, validate that returned tests came from the input
-matrix, and rebuild adjacent Rust project runs without losing ownership. Keep
-the bridge process alive until execution ends, then call `cacheResults` on the
-same instance with a Jest-shaped aggregate. Close without caching for list-only,
-empty, or threshold-bailed runs, following Jest's control flow.
+matrix, and when `onlyFailures` is enabled await required `allFailedTests` after
+sorting. Rebuild adjacent Rust project runs without losing ownership. Keep the
+bridge process alive until execution ends, then call `cacheResults` on the same
+instance with a Jest-shaped aggregate. Close without caching for list-only,
+empty, or threshold-bailed runs, following Jest's observed CLI control flow.
 
 Accept Jest's `--testSequencer` CLI option and normalize its path from the
 selected project root after configuration loading. The CLI-selected module
@@ -41,6 +42,8 @@ replaces the configured class before discovery and session startup.
 - Custom shard implementations replace the default SHA-1 shard selection and
   still run before sort.
 - CommonJS, native ESM, synchronous, and asynchronous hooks are supported.
+- Synchronous or asynchronous `allFailedTests` selection runs after shard and
+  sort under `--onlyFailures`/`-f`.
 - CLI override precedence is marker-tested with a class whose order and cache
   output differ from the configured sequencer.
 - Classes inheriting `@jest/test-sequencer` can use size sorting and persist
@@ -48,5 +51,5 @@ replaces the configured class before discovery and session startup.
 - Duplicate physical paths in separate projects retain distinct identities.
 - Malformed results, missing hooks, module-load failures, and cache failures
   become explicit coordinator errors; no shell is involved.
-- `--onlyFailures`/`allFailedTests` and resolving a sequencer through a
-  configured custom resolver remain future compatibility work.
+- Resolving a sequencer through a configured custom resolver remains future
+  compatibility work.

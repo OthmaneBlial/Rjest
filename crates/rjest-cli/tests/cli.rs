@@ -168,7 +168,10 @@ fn bail_stops_serial_dispatch_and_exits_before_json_serialization() {
     let output_path = temp.path().join("result.json");
     fs::write(
         temp.path().join("a-failure.test.cjs"),
-        "test('fails', () => expect('received').toBe('expected'));",
+        format!(
+            "// {}\ntest('fails', () => expect('received').toBe('expected'));",
+            "failure fixture padding ".repeat(32)
+        ),
     )
     .expect("write failure");
     fs::write(

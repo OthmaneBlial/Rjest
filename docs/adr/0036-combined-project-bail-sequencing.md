@@ -3,6 +3,9 @@
 - Status: accepted
 - Date: 2026-08-30
 
+ADR 0038 generalizes this uncached bail-only ordering into the persisted native
+default sequencer used by every ordinary run.
+
 ## Context
 
 Jest collects tests from every selected project context, applies sharding, and
@@ -38,6 +41,5 @@ transform, environment, setup, snapshot, coverage, and display-name settings.
   transitions between project contexts remain coordinator boundaries.
 - A permanent execution-marker differential proves the previous extra-file
   execution and the repaired behavior.
-- Rjest does not yet persist Jest's failure/duration performance cache or execute
-  custom test sequencers; those ordering modes remain explicit compatibility
-  work.
+- Persisted failure/duration ordering and custom test sequencers are specified
+  by ADRs 0038 and 0037 respectively.

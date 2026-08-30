@@ -570,6 +570,70 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-test-sequencer',
+    label: 'cli-only-failures-custom-sequencer',
+    category: 'CLI',
+    expectedExit: 0,
+    compareExecutionMarkers: true,
+    onlyFailures: true,
+    seed: 17,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'only-failures-cache',
+    category: 'CLI',
+    expectedExit: 1,
+    compareExecutionMarkers: true,
+    onlyFailures: true,
+    primeOnlyFailures: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
+    name: 'only-failures-cache',
+    label: 'cli-only-failures-after-bail',
+    category: 'CLI',
+    expectedExit: 1,
+    compareExecutionMarkers: true,
+    onlyFailures: true,
+    primeOnlyFailures: true,
+    primeWithBail: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
+    name: 'only-failures-cache',
+    label: 'cli-only-failures-cold-cache',
+    category: 'CLI',
+    expectedExit: 1,
+    compareExecutionMarkers: true,
+    onlyFailures: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
+    name: 'only-failures-cache',
+    label: 'cli-only-failures-retains-skipped-cache',
+    category: 'CLI',
+    expectedExit: 1,
+    compareExecutionMarkers: true,
+    onlyFailures: true,
+    primeOnlyFailures: true,
+    primeThenSkip: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
+    name: 'only-failures-file-error',
+    category: 'CLI',
+    expectedExit: 1,
+    compareExecutionMarkers: true,
+    onlyFailures: true,
+    primeOnlyFailures: true,
+    useFixtureConfig: true,
+    useJestCache: true,
+  },
+  {
     name: 'config-test-sequencer-esm',
     category: 'Configuration',
     expectedExit: 0,
@@ -854,7 +918,7 @@ function compareCase(testCase) {
     if (testCase.testSequencer) {
       jestArguments.push(`--testSequencer=${testCase.testSequencer}`);
     }
-    jestArguments.push('--no-cache');
+    if (!testCase.useJestCache) jestArguments.push('--no-cache');
     if (!testCase.compareExecutionMarkers) {
       jestArguments.push('--json', `--outputFile=${jestOutput}`);
     }
@@ -868,6 +932,7 @@ function compareCase(testCase) {
     if (testCase.shard) jestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.bail === true) jestArguments.push('--bail');
     if (testCase.bail === false) jestArguments.push('--no-bail');
+    if (testCase.onlyFailures) jestArguments.push('--onlyFailures');
     if (testCase.coverage) {
       jestArguments.push(
         '--coverage',
@@ -891,6 +956,38 @@ function compareCase(testCase) {
       jestEnvironment.NODE_PATH = pnpmVirtualHoistPath(jestFixture);
     }
     if (testCase.unsetNodeEnv) delete jestEnvironment.NODE_ENV;
+    if (testCase.primeOnlyFailures) {
+      const primerArguments = jestArguments.filter(
+        argument => argument !== '--onlyFailures',
+      );
+      if (testCase.primeWithBail) primerArguments.push('--bail');
+      const primer = spawnSync(
+        process.execPath,
+        primerArguments,
+        {
+          cwd: jestCwd,
+          encoding: 'utf8',
+          env: jestEnvironment,
+        },
+      );
+      assertSpawned(primer, `Jest primer (${label})`);
+      if (primer.status !== 1) {
+        fail(`${label}: Jest primer exit ${primer.status}, expected 1`, primer);
+      }
+      removeExecutionMarkers(jestFixture);
+      if (testCase.primeThenSkip) {
+        const skipPrimer = spawnSync(process.execPath, primerArguments, {
+          cwd: jestCwd,
+          encoding: 'utf8',
+          env: {...jestEnvironment, ONLY_FAILURES_SKIP_PRIMER: '1'},
+        });
+        assertSpawned(skipPrimer, `Jest skip primer (${label})`);
+        if (skipPrimer.status !== 0) {
+          fail(`${label}: Jest skip primer exit ${skipPrimer.status}, expected 0`, skipPrimer);
+        }
+        removeExecutionMarkers(jestFixture);
+      }
+    }
     const jestRun = spawnSync(
       process.execPath,
       jestArguments,
@@ -930,6 +1027,7 @@ function compareCase(testCase) {
     if (testCase.shard) rjestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.bail === true) rjestArguments.push('--bail');
     if (testCase.bail === false) rjestArguments.push('--no-bail');
+    if (testCase.onlyFailures) rjestArguments.push('--onlyFailures');
     if (testCase.coverage) {
       rjestArguments.push(
         '--coverage',
@@ -952,6 +1050,38 @@ function compareCase(testCase) {
         testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
     };
     if (testCase.unsetNodeEnv) delete rjestEnvironment.NODE_ENV;
+    if (testCase.primeOnlyFailures) {
+      const primerArguments = rjestArguments.filter(
+        argument => argument !== '--onlyFailures',
+      );
+      if (testCase.primeWithBail) primerArguments.push('--bail');
+      const primer = spawnSync(
+        rjest,
+        primerArguments,
+        {
+          cwd: rjestCwd,
+          encoding: 'utf8',
+          env: rjestEnvironment,
+        },
+      );
+      assertSpawned(primer, `Rjest primer (${label})`);
+      if (primer.status !== 1) {
+        fail(`${label}: Rjest primer exit ${primer.status}, expected 1`, primer);
+      }
+      removeExecutionMarkers(rjestFixture);
+      if (testCase.primeThenSkip) {
+        const skipPrimer = spawnSync(rjest, primerArguments, {
+          cwd: rjestCwd,
+          encoding: 'utf8',
+          env: {...rjestEnvironment, ONLY_FAILURES_SKIP_PRIMER: '1'},
+        });
+        assertSpawned(skipPrimer, `Rjest skip primer (${label})`);
+        if (skipPrimer.status !== 0) {
+          fail(`${label}: Rjest skip primer exit ${skipPrimer.status}, expected 0`, skipPrimer);
+        }
+        removeExecutionMarkers(rjestFixture);
+      }
+    }
     const rjestRun = spawnSync(rjest, rjestArguments, {
       cwd: rjestCwd,
       encoding: 'utf8',
@@ -1205,6 +1335,12 @@ function readExecutionMarkers(root) {
     .filter(name => name.endsWith('.marker'))
     .sort()
     .map(name => ({name, contents: readFileSync(join(root, name), 'utf8')}));
+}
+
+function removeExecutionMarkers(root) {
+  for (const marker of readExecutionMarkers(root)) {
+    rmSync(join(root, marker.name));
+  }
 }
 
 function readTestSources(root) {

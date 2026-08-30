@@ -29,6 +29,11 @@ module.exports = class SeedAwareSequencer extends Sequencer {
     return [...tests].sort((left, right) => right.path.localeCompare(left.path));
   }
 
+  async allFailedTests(tests) {
+    await Promise.resolve();
+    return tests.filter(test => test.path.endsWith('b.test.cjs'));
+  }
+
   cacheResults(tests, results) {
     super.cacheResults(tests, results);
     writeFileSync('cache.marker', `${tests.length}:${results.numFailedTests}`);

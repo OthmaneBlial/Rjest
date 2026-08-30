@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
+    fs,
     io::{BufRead, BufReader, Write as IoWrite},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
@@ -82,6 +83,10 @@ struct Cli {
         value_name = "PATH"
     )]
     test_sequencer: Option<String>,
+
+    /// Run only test files that failed in the previous execution.
+    #[arg(short = 'f', long = "onlyFailures", visible_alias = "only-failures", action = ArgAction::SetTrue)]
+    only_failures: bool,
 
     /// Project directories or config files to run in one Jest invocation.
     #[arg(long, value_name = "PATH", num_args = 1.., action = ArgAction::Append)]
@@ -274,6 +279,112 @@ struct SequencerUnit<'a> {
     test: TestFile,
 }
 
+type NativePerformanceEntries = BTreeMap<String, BTreeMap<String, (bool, u64)>>;
+
+struct NativeSequencerOwner {
+    key: String,
+    root_dir: PathBuf,
+    display_name: Option<String>,
+}
+
+struct NativeSequencerCache {
+    path: PathBuf,
+    entries: NativePerformanceEntries,
+    owners: Vec<NativeSequencerOwner>,
+}
+
+impl NativeSequencerCache {
+    fn load(global_config: &ProjectConfig, project_runs: &[ProjectRun<'_>]) -> Result<Self> {
+        let root_hash = Sha1::digest(global_config.root_dir.to_string_lossy().as_bytes());
+        let path = std::env::temp_dir()
+            .join("rjest-test-sequencer-cache")
+            .join(format!("native-{root_hash:x}.json"));
+        let entries = fs::read_to_string(&path)
+            .ok()
+            .and_then(|source| serde_json::from_str(&source).ok())
+            .unwrap_or_default();
+        let owners = project_runs
+            .iter()
+            .map(|run| {
+                Ok(NativeSequencerOwner {
+                    key: native_context_key(run.config)?,
+                    root_dir: run.config.root_dir.clone(),
+                    display_name: run
+                        .config
+                        .display_name
+                        .as_ref()
+                        .map(|display_name| display_name.name.clone()),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            path,
+            entries,
+            owners,
+        })
+    }
+
+    fn performance(&self, context_key: &str, path: &Path) -> Option<(bool, u64)> {
+        self.entries
+            .get(context_key)
+            .and_then(|context| context.get(path.to_string_lossy().as_ref()))
+            .copied()
+    }
+
+    fn record(&mut self, result: &AggregatedResult) {
+        for file in &result.test_results {
+            if file.errors.is_empty()
+                && file
+                    .tests
+                    .iter()
+                    .all(|test| test.status == TestStatus::Skipped)
+            {
+                continue;
+            }
+            let failed = !file.is_success();
+            for owner in &self.owners {
+                if file.test_path.starts_with(&owner.root_dir)
+                    && file.project_display_name == owner.display_name
+                {
+                    self.entries.entry(owner.key.clone()).or_default().insert(
+                        file.test_path.to_string_lossy().into_owned(),
+                        (failed, file.duration_ms),
+                    );
+                }
+            }
+        }
+    }
+
+    fn save(&self) -> Result<()> {
+        let parent = self
+            .path
+            .parent()
+            .context("native test sequencer cache has no parent directory")?;
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "cannot create native test sequencer cache directory `{}`",
+                parent.display()
+            )
+        })?;
+        fs::write(&self.path, serde_json::to_vec(&self.entries)?).with_context(|| {
+            format!(
+                "cannot write native test sequencer cache `{}`",
+                self.path.display()
+            )
+        })?;
+        Ok(())
+    }
+}
+
+fn native_context_key(config: &ProjectConfig) -> Result<String> {
+    let mut normalized = config.clone();
+    // `onlyFailures` is run-wide in Jest and does not alter the project config
+    // id used for the sequencer performance cache.
+    normalized.only_failures = false;
+    let encoded = serde_json::to_vec(&normalized)?;
+    Ok(format!("{:x}", Sha1::digest(encoded)))
+}
+
 struct CustomTestSequencerSession {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -396,6 +507,21 @@ impl Drop for CustomTestSequencerSession {
     }
 }
 
+fn finish_test_sequencers(
+    custom: &mut Option<CustomTestSequencerSession>,
+    native: &mut Option<NativeSequencerCache>,
+    result: Option<&AggregatedResult>,
+) -> Result<()> {
+    if let Some(session) = custom.as_mut() {
+        session.finish(result)?;
+    }
+    if let (Some(cache), Some(result)) = (native.as_mut(), result) {
+        cache.record(result);
+        cache.save()?;
+    }
+    Ok(())
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct ReportSettings {
     silent: bool,
@@ -446,7 +572,7 @@ fn run() -> Result<bool> {
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    let (project_runs, mut sequencer_session) =
+    let (project_runs, mut sequencer_session, mut native_sequencer_cache) =
         order_project_runs(project_runs, &config, seed, randomize, cli.shard)?;
     let test_count = project_runs
         .iter()
@@ -454,27 +580,26 @@ fn run() -> Result<bool> {
         .sum::<usize>();
     let pass_with_no_tests = cli.pass_with_no_tests || config.pass_with_no_tests;
     if cli.list_tests {
-        let unique_tests = unique_test_paths(&project_runs, config.test_sequencer.is_some());
-        for path in &unique_tests {
-            println!("{}", path.display());
-        }
-        if let Some(session) = sequencer_session.as_mut() {
-            session.finish(None)?;
-        }
-        return if unique_tests.is_empty() && cli.shard.is_none() && !pass_with_no_tests {
-            bail!("No tests found");
-        } else {
-            Ok(true)
-        };
+        return emit_test_list(
+            &cli,
+            &config,
+            &project_runs,
+            pass_with_no_tests,
+            &mut sequencer_session,
+            &mut native_sequencer_cache,
+        );
     }
 
     if test_count == 0 {
+        if config.only_failures {
+            finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
+            println!("No failed test found.");
+            return Ok(pass_with_no_tests);
+        }
         if !pass_with_no_tests {
             bail!("No tests found");
         }
-        if let Some(session) = sequencer_session.as_mut() {
-            session.finish(None)?;
-        }
+        finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
         emit_results(
             &cli,
             &config,
@@ -499,9 +624,11 @@ fn run() -> Result<bool> {
         ExecutionOrderConfig { seed, randomize },
     )?;
     let bail_reached = config.bail != 0 && result.count(TestStatus::Failed) >= config.bail;
-    if let Some(session) = sequencer_session.as_mut() {
-        session.finish((!bail_reached).then_some(&result))?;
-    }
+    finish_test_sequencers(
+        &mut sequencer_session,
+        &mut native_sequencer_cache,
+        (!bail_reached).then_some(&result),
+    )?;
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
     if !bail_reached || !cli.json {
         emit_results(
@@ -531,6 +658,7 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
             &config.root_dir,
         ));
     }
+    config.only_failures |= cli.only_failures;
 }
 
 fn order_project_runs<'a>(
@@ -539,19 +667,22 @@ fn order_project_runs<'a>(
     seed: i32,
     randomize: bool,
     shard: Option<Shard>,
-) -> Result<(Vec<ProjectRun<'a>>, Option<CustomTestSequencerSession>)> {
+) -> Result<(
+    Vec<ProjectRun<'a>>,
+    Option<CustomTestSequencerSession>,
+    Option<NativeSequencerCache>,
+)> {
     if config.test_sequencer.is_some() {
         let (sequenced, session) =
             sequence_project_runs_with_custom(project_runs, config, seed, randomize, shard)?;
-        return Ok((sequenced, Some(session)));
+        return Ok((sequenced, Some(session), None));
     }
     if let Some(shard) = shard {
         shard_project_runs(&mut project_runs, shard);
     }
-    if config.bail != 0 {
-        project_runs = sequence_project_runs_for_bail(project_runs);
-    }
-    Ok((project_runs, None))
+    let cache = NativeSequencerCache::load(config, &project_runs)?;
+    project_runs = sequence_project_runs_with_native(project_runs, &cache, config.only_failures)?;
+    Ok((project_runs, None, Some(cache)))
 }
 
 fn unique_test_paths(project_runs: &[ProjectRun<'_>], preserve_order: bool) -> Vec<PathBuf> {
@@ -573,6 +704,29 @@ fn unique_test_paths(project_runs: &[ProjectRun<'_>], preserve_order: bool) -> V
             unique_paths.insert(path.clone()).then_some(path)
         })
         .collect()
+}
+
+fn emit_test_list(
+    cli: &Cli,
+    config: &ProjectConfig,
+    project_runs: &[ProjectRun<'_>],
+    pass_with_no_tests: bool,
+    custom: &mut Option<CustomTestSequencerSession>,
+    native: &mut Option<NativeSequencerCache>,
+) -> Result<bool> {
+    let unique_tests = unique_test_paths(project_runs, config.test_sequencer.is_some());
+    for path in &unique_tests {
+        println!("{}", path.display());
+    }
+    finish_test_sequencers(custom, native, None)?;
+    if unique_tests.is_empty()
+        && cli.shard.is_none()
+        && !config.only_failures
+        && !pass_with_no_tests
+    {
+        bail!("No tests found");
+    }
+    Ok(true)
 }
 
 fn normalize_test_path_patterns(patterns: &[PathBuf], project_dir: &Path) -> Vec<PathBuf> {
@@ -898,6 +1052,7 @@ fn sequence_project_runs_with_custom<'a>(
         "rootDir": global_config.root_dir,
         "seed": seed,
         "randomize": randomize,
+        "onlyFailures": global_config.only_failures,
         "bail": global_config.bail,
         "shard": shard,
         "contexts": contexts,
@@ -924,46 +1079,66 @@ fn sequence_project_runs_with_custom<'a>(
     Ok((ordered, session))
 }
 
-fn sequence_project_runs_for_bail(project_runs: Vec<ProjectRun<'_>>) -> Vec<ProjectRun<'_>> {
-    if project_runs
-        .iter()
-        .filter(|run| !run.tests.is_empty())
-        .count()
-        <= 1
-    {
-        return project_runs;
+fn sequence_project_runs_with_native<'a>(
+    project_runs: Vec<ProjectRun<'a>>,
+    cache: &NativeSequencerCache,
+    only_failures: bool,
+) -> Result<Vec<ProjectRun<'a>>> {
+    let mut sequenced = Vec::new();
+    for run in project_runs {
+        let context_key = native_context_key(run.config)?;
+        for test in run.tests {
+            let performance = cache.performance(&context_key, &test.path);
+            let file_size = fs::metadata(&test.path).map_or(0, |metadata| metadata.len());
+            sequenced.push((
+                performance,
+                file_size,
+                SequencerUnit {
+                    config: run.config,
+                    test,
+                },
+            ));
+        }
     }
 
-    let mut sequenced = project_runs
-        .into_iter()
-        .flat_map(|run| {
-            run.tests.into_iter().map(move |test| {
-                let file_size = std::fs::metadata(&test.path).map_or(0, |metadata| metadata.len());
-                (file_size, run.config, test)
-            })
-        })
-        .collect::<Vec<_>>();
+    // Match Jest's default TestSequencer: cached failures first, uncached files
+    // before timed files, longer durations first, then larger files when no
+    // timing exists. Stable ties retain discovery order.
+    sequenced.sort_by(
+        |(left_performance, left_size, _), (right_performance, right_size, _)| {
+            let left_failed = left_performance.is_some_and(|(failed, _)| failed);
+            let right_failed = right_performance.is_some_and(|(failed, _)| failed);
+            if left_failed != right_failed {
+                return right_failed.cmp(&left_failed);
+            }
+            match (left_performance, right_performance) {
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (Some((_, left_duration)), Some((_, right_duration))) => {
+                    right_duration.cmp(left_duration)
+                }
+                (None, None) => right_size.cmp(left_size),
+            }
+        },
+    );
+    if only_failures {
+        sequenced.retain(|(performance, _, _)| performance.is_some_and(|(failed, _)| failed));
+    }
 
-    // Jest's default sequencer runs previously failing and slow suites first
-    // when performance cache data exists. Rjest does not persist that cache
-    // yet, so mirror Jest's uncached fallback: larger test files first. The
-    // stable sort preserves discovery order when files have the same size.
-    sequenced.sort_by(|(left_size, _, _), (right_size, _, _)| right_size.cmp(left_size));
-
-    let mut ordered: Vec<ProjectRun<'_>> = Vec::new();
-    for (_, config, test) in sequenced {
+    let mut ordered: Vec<ProjectRun<'a>> = Vec::new();
+    for (_, _, unit) in sequenced {
         if let Some(previous) = ordered.last_mut()
-            && std::ptr::eq(previous.config, config)
+            && std::ptr::eq(previous.config, unit.config)
         {
-            previous.tests.push(test);
+            previous.tests.push(unit.test);
         } else {
             ordered.push(ProjectRun {
-                config,
-                tests: vec![test],
+                config: unit.config,
+                tests: vec![unit.test],
             });
         }
     }
-    ordered
+    Ok(ordered)
 }
 
 fn validate_seed(value: i64) -> Result<i32> {
@@ -1336,11 +1511,15 @@ mod tests {
     use clap::Parser;
 
     use rjest_config::{ProjectConfig, ProjectDisplayName};
-    use rjest_core::TestFile;
+    use rjest_core::{
+        AggregatedResult, SnapshotResult, TestCaseResult, TestFile, TestFileResult, TestStatus,
+        WORKER_PROTOCOL_VERSION,
+    };
 
     use super::{
-        Cli, ProjectRun, Shard, filter_projects, parse_max_workers, sequence_project_runs_for_bail,
-        shard_tests, uses_modern_branches_true_summary, validate_seed,
+        Cli, NativeSequencerCache, ProjectRun, Shard, filter_projects, native_context_key,
+        parse_max_workers, sequence_project_runs_with_native, shard_tests,
+        uses_modern_branches_true_summary, validate_seed,
     };
 
     #[test]
@@ -1383,6 +1562,15 @@ mod tests {
 
         assert_eq!(cli.test_sequencer.as_deref(), Some("./tools/sequencer.cjs"));
         assert!(cli.run_in_band);
+    }
+
+    #[test]
+    fn accepts_jest_only_failures_flags() {
+        let long = Cli::try_parse_from(["rjest", "--onlyFailures"]).expect("long flag");
+        assert!(long.only_failures);
+
+        let short = Cli::try_parse_from(["rjest", "-f"]).expect("short flag");
+        assert!(short.only_failures);
     }
 
     #[test]
@@ -1533,7 +1721,7 @@ mod tests {
     }
 
     #[test]
-    fn sequences_bail_across_project_roots_by_uncached_file_size() {
+    fn sequences_default_runs_across_project_roots_by_uncached_file_size() {
         let temp = tempdir().expect("temp dir");
         let alpha_root = temp.path().join("alpha");
         let beta_root = temp.path().join("beta");
@@ -1546,16 +1734,23 @@ mod tests {
         let alpha = ProjectConfig::defaults(&alpha_root).expect("alpha config");
         let beta = ProjectConfig::defaults(&beta_root).expect("beta config");
 
-        let ordered = sequence_project_runs_for_bail(vec![
+        let project_runs = vec![
             ProjectRun {
                 config: &alpha,
-                tests: vec![TestFile { path: alpha_path }],
+                tests: vec![TestFile {
+                    path: alpha_path.clone(),
+                }],
             },
             ProjectRun {
                 config: &beta,
-                tests: vec![TestFile { path: beta_path }],
+                tests: vec![TestFile {
+                    path: beta_path.clone(),
+                }],
             },
-        ]);
+        ];
+        let cache = NativeSequencerCache::load(&alpha, &project_runs).expect("sequencer cache");
+        let ordered = sequence_project_runs_with_native(project_runs, &cache, false)
+            .expect("native sequence");
 
         assert_eq!(ordered.len(), 2);
         assert_eq!(ordered[0].config.root_dir, beta.root_dir);
@@ -1567,6 +1762,188 @@ mod tests {
             "beta.test.cjs"
         );
         assert_eq!(ordered[1].config.root_dir, alpha.root_dir);
+    }
+
+    #[test]
+    fn sequences_cached_failures_then_uncached_and_slow_files() {
+        let temp = tempdir().expect("temp dir");
+        let names = [
+            "failed.test.cjs",
+            "uncached.test.cjs",
+            "slow.test.cjs",
+            "fast.test.cjs",
+        ];
+        for name in names {
+            fs::write(
+                temp.path().join(name),
+                format!("test('{name}', () => {{}});"),
+            )
+            .expect("test source");
+        }
+        let config = ProjectConfig::defaults(temp.path()).expect("config");
+        let project_runs = vec![ProjectRun {
+            config: &config,
+            tests: names
+                .into_iter()
+                .map(|name| TestFile {
+                    path: temp.path().join(name),
+                })
+                .collect(),
+        }];
+        let mut cache =
+            NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
+        let context_key = native_context_key(&config).expect("context key");
+        let entries = cache.entries.entry(context_key).or_default();
+        entries.insert(
+            temp.path()
+                .join("failed.test.cjs")
+                .to_string_lossy()
+                .into_owned(),
+            (true, 1),
+        );
+        entries.insert(
+            temp.path()
+                .join("slow.test.cjs")
+                .to_string_lossy()
+                .into_owned(),
+            (false, 50),
+        );
+        entries.insert(
+            temp.path()
+                .join("fast.test.cjs")
+                .to_string_lossy()
+                .into_owned(),
+            (false, 5),
+        );
+
+        let ordered = sequence_project_runs_with_native(project_runs, &cache, false)
+            .expect("native sequence");
+        let ordered_names = ordered
+            .iter()
+            .flat_map(|run| &run.tests)
+            .map(|test| {
+                test.path
+                    .file_name()
+                    .expect("test file name")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            ordered_names,
+            [
+                "failed.test.cjs",
+                "uncached.test.cjs",
+                "slow.test.cjs",
+                "fast.test.cjs",
+            ]
+        );
+    }
+
+    #[test]
+    fn native_only_failures_selects_cached_failed_files() {
+        let temp = tempdir().expect("temp dir");
+        let passing_path = temp.path().join("passing.test.cjs");
+        let failing_path = temp.path().join("failing.test.cjs");
+        fs::write(&passing_path, "test('passing', () => {});").expect("passing test");
+        fs::write(&failing_path, "test('failing', () => {});").expect("failing test");
+        let config = ProjectConfig::defaults(temp.path()).expect("config");
+        let project_runs = vec![ProjectRun {
+            config: &config,
+            tests: vec![
+                TestFile { path: passing_path },
+                TestFile {
+                    path: failing_path.clone(),
+                },
+            ],
+        }];
+        let mut cache =
+            NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
+        let context_key = native_context_key(&config).expect("context key");
+        cache
+            .entries
+            .entry(context_key)
+            .or_default()
+            .insert(failing_path.to_string_lossy().into_owned(), (true, 25));
+
+        let selected =
+            sequence_project_runs_with_native(project_runs, &cache, true).expect("failed sequence");
+
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].tests, [TestFile { path: failing_path }]);
+    }
+
+    #[test]
+    fn native_cache_preserves_skips_and_records_file_errors() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("failing.test.cjs");
+        fs::write(&test_path, "test.skip('failing', () => {});").expect("skipped test");
+        let config = ProjectConfig::defaults(temp.path()).expect("config");
+        let project_runs = vec![ProjectRun {
+            config: &config,
+            tests: vec![TestFile {
+                path: test_path.clone(),
+            }],
+        }];
+        let mut cache =
+            NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
+        let context_key = native_context_key(&config).expect("context key");
+        cache
+            .entries
+            .entry(context_key.clone())
+            .or_default()
+            .insert(test_path.to_string_lossy().into_owned(), (true, 25));
+        let file_result = |status| TestFileResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            test_path: test_path.clone(),
+            project_display_name: None,
+            tests: vec![TestCaseResult {
+                name: "failing".into(),
+                full_name: "failing".into(),
+                status,
+                duration_ms: 0,
+                failure_message: None,
+                invocations: 1,
+                retry_reasons: Vec::new(),
+            }],
+            errors: Vec::new(),
+            console: Vec::new(),
+            duration_ms: 10,
+            heap_used_bytes: None,
+            snapshot: SnapshotResult::default(),
+            coverage: std::collections::BTreeMap::new(),
+        };
+
+        cache.record(&AggregatedResult {
+            test_results: vec![file_result(TestStatus::Skipped)],
+            ..AggregatedResult::default()
+        });
+        assert_eq!(
+            cache.performance(&context_key, &test_path),
+            Some((true, 25))
+        );
+
+        cache.record(&AggregatedResult {
+            test_results: vec![file_result(TestStatus::Passed)],
+            ..AggregatedResult::default()
+        });
+        assert_eq!(
+            cache.performance(&context_key, &test_path),
+            Some((false, 10))
+        );
+
+        let mut error_result = file_result(TestStatus::Passed);
+        error_result.tests.clear();
+        error_result.errors.push("module execution failed".into());
+        cache.record(&AggregatedResult {
+            test_results: vec![error_result],
+            ..AggregatedResult::default()
+        });
+        assert_eq!(
+            cache.performance(&context_key, &test_path),
+            Some((true, 10))
+        );
     }
 
     #[test]

@@ -39,6 +39,14 @@ exclusion rules. Keep Jest as the gate for unmeasured cross-project coverage,
 bail, reporter combinations, or custom test sequencer sharding. Default
 multi-project sharding uses each test's own project root in the covered case.
 
+Configured CommonJS and native-ESM `testSequencer` classes can shard and sort
+the complete selected matrix, receive `cacheResults` on the same instance, and
+select failures through `allFailedTests`. The default native sequencer persists
+failure/duration history across processes, so `rjest --onlyFailures` and
+`rjest -f` rerun previously failing assertion or file-error suites. Fully
+skipped reruns preserve earlier failure state. Keep Jest as the gate for
+custom-resolver sequencer lookup and explicit cache-control options.
+
 The `fakeTimers` configuration supports global modern or legacy activation,
 `advanceTimers`, `doNotFake`, `now`, and `timerLimit`. Explicit
 `jest.useFakeTimers({legacyFakeTimers: true})` retains Jest's zero-based legacy

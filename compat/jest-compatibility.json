@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 140,
-    "total": 140,
+    "passing": 146,
+    "total": 146,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 13,
-      "total": 13,
+      "passing": 19,
+      "total": 19,
       "percentage": 100
     },
     "Configuration": {
@@ -660,6 +660,42 @@
     },
     {
       "name": "cli-test-sequencer-override",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-only-failures-custom-sequencer",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "only-failures-cache",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-only-failures-after-bail",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-only-failures-cold-cache",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-only-failures-retains-skipped-cache",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "only-failures-file-error",
       "category": "CLI",
       "compatible": true,
       "differences": []

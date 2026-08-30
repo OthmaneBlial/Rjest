@@ -94,6 +94,7 @@ async function startSession(request) {
   });
   const globalConfig = {
     bail: request.bail,
+    onlyFailures: request.onlyFailures,
     randomize: request.randomize,
     rootDir: request.rootDir,
     seed: request.seed,
@@ -117,6 +118,15 @@ async function startSession(request) {
   }
   orderedTests = await sequencer.sort(orderedTests);
   assertTestArray(orderedTests, 'sort');
+  if (request.onlyFailures) {
+    if (typeof sequencer.allFailedTests !== 'function') {
+      throw new TypeError(
+        `Test sequencer ${Sequencer.name} in ${modulePath} has no allFailedTests method.`,
+      );
+    }
+    orderedTests = await sequencer.allFailedTests(orderedTests);
+    assertTestArray(orderedTests, 'allFailedTests');
+  }
   const order = orderedTests.map(test => {
     const id = identity.get(test);
     if (id === undefined) {
