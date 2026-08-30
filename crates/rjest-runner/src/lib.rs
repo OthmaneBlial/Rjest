@@ -63,6 +63,7 @@ pub struct RunnerOptions {
     pub collect_coverage: bool,
     pub coverage_path_ignore_patterns: Vec<String>,
     pub coverage_filter: Option<Vec<PathBuf>>,
+    pub coverage_sources: Vec<PathBuf>,
     /// Environment changes made by Jest `globalSetup`, applied to workers.
     pub environment: BTreeMap<String, Option<String>>,
     pub file_timeout_ms: u64,
@@ -107,6 +108,7 @@ impl Default for RunnerOptions {
             collect_coverage: false,
             coverage_path_ignore_patterns: vec!["/node_modules/".into()],
             coverage_filter: None,
+            coverage_sources: Vec::new(),
             environment: BTreeMap::new(),
             file_timeout_ms: 120_000,
         }
@@ -545,7 +547,7 @@ fn run_file(
         coverage_path_ignore_patterns: options.coverage_path_ignore_patterns.clone(),
         coverage_filter: options.coverage_filter.clone(),
         coverage_sources: if collect_uncovered_sources {
-            options.coverage_filter.clone().unwrap_or_default()
+            options.coverage_sources.clone()
         } else {
             Vec::new()
         },

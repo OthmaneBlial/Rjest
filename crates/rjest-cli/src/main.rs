@@ -401,15 +401,18 @@ struct CoverageRunnerSettings {
     enabled: bool,
     path_ignore_patterns: Vec<String>,
     filter: Option<Vec<PathBuf>>,
+    sources: Vec<PathBuf>,
 }
 
 struct ProjectRun<'a> {
     config: &'a ProjectConfig,
     tests: Vec<TestFile>,
+    changed_coverage_filter: Option<Vec<PathBuf>>,
 }
 
 struct RelatedTestSelection {
     tests_by_context: Vec<BTreeSet<PathBuf>>,
+    coverage_by_context: Vec<Option<BTreeSet<PathBuf>>>,
     has_scm: bool,
 }
 
@@ -417,6 +420,7 @@ struct RelatedTestSelection {
 struct SequencerUnit<'a> {
     config: &'a ProjectConfig,
     test: TestFile,
+    changed_coverage_filter: Option<Vec<PathBuf>>,
 }
 
 type NativePerformanceEntries = BTreeMap<String, BTreeMap<String, (bool, u64)>>;
@@ -1405,9 +1409,7 @@ fn run() -> Result<bool> {
             randomize,
             show_seed,
             false,
-            related
-                .as_ref()
-                .map(|selection| selection.tests_by_context.as_slice()),
+            related.as_ref(),
         );
     }
     if cli.watch_all || cli.watch {
@@ -1429,9 +1431,7 @@ fn run() -> Result<bool> {
             randomize,
             show_seed,
             true,
-            related
-                .as_ref()
-                .map(|selection| selection.tests_by_context.as_slice()),
+            related.as_ref(),
         )?;
         loop {
             watcher.wait_for_change()?;
@@ -1448,9 +1448,7 @@ fn run() -> Result<bool> {
                 randomize,
                 show_seed,
                 true,
-                related
-                    .as_ref()
-                    .map(|selection| selection.tests_by_context.as_slice()),
+                related.as_ref(),
             )?;
         }
     }
@@ -1466,9 +1464,7 @@ fn run() -> Result<bool> {
         randomize,
         show_seed,
         false,
-        related
-            .as_ref()
-            .map(|selection| selection.tests_by_context.as_slice()),
+        related.as_ref(),
     )
 }
 
@@ -1481,7 +1477,7 @@ fn run_test_cycle(
     randomize: bool,
     show_seed: bool,
     watch_mode: bool,
-    related_tests: Option<&[BTreeSet<PathBuf>]>,
+    related_selection: Option<&RelatedTestSelection>,
 ) -> Result<bool> {
     let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, project_dir);
     let all_projects = execution_projects(config);
@@ -1491,18 +1487,12 @@ fn run_test_cycle(
     let project_runs = selected_projects
         .into_iter()
         .map(|project_config| {
-            let mut tests = rjest_discovery::discover(project_config, &test_path_patterns)?;
-            if let Some(related_tests) = related_tests {
-                let context_id = all_projects
-                    .iter()
-                    .position(|config| std::ptr::eq(*config, project_config))
-                    .expect("selected project belongs to the execution config");
-                tests.retain(|test| related_tests[context_id].contains(&test.path));
-            }
-            Ok(ProjectRun {
-                config: project_config,
-                tests,
-            })
+            selected_project_run(
+                project_config,
+                &all_projects,
+                &test_path_patterns,
+                related_selection,
+            )
         })
         .collect::<Result<Vec<_>>>()?;
     let (project_runs, mut sequencer_session, mut native_sequencer_cache) =
@@ -1512,7 +1502,7 @@ fn run_test_cycle(
         .map(|run| run.tests.len())
         .sum::<usize>();
     let pass_with_no_tests = watch_mode
-        || related_tests.is_some()
+        || related_selection.is_some()
         || cli.pass_with_no_tests
         || config.pass_with_no_tests;
     if cli.list_tests {
@@ -1582,6 +1572,32 @@ fn run_test_cycle(
     Ok(final_success)
 }
 
+fn selected_project_run<'a>(
+    project_config: &'a ProjectConfig,
+    all_projects: &[&ProjectConfig],
+    test_path_patterns: &[PathBuf],
+    related_selection: Option<&RelatedTestSelection>,
+) -> Result<ProjectRun<'a>> {
+    let mut tests = rjest_discovery::discover(project_config, test_path_patterns)?;
+    let context_id = all_projects
+        .iter()
+        .position(|config| std::ptr::eq(*config, project_config))
+        .expect("selected project belongs to the execution config");
+    let changed_coverage_filter = related_selection.and_then(|selection| {
+        selection.coverage_by_context[context_id]
+            .as_ref()
+            .map(|paths| paths.iter().cloned().collect())
+    });
+    if let Some(selection) = related_selection {
+        tests.retain(|test| selection.tests_by_context[context_id].contains(&test.path));
+    }
+    Ok(ProjectRun {
+        config: project_config,
+        tests,
+        changed_coverage_filter,
+    })
+}
+
 fn watch_options(cli: &Cli, config: &ProjectConfig, project_dir: &Path) -> WatchOptions {
     let all_projects = execution_projects(config);
     let selected_projects =
@@ -1629,9 +1645,11 @@ fn related_test_selection(
         },
     )?;
     let mut tests_by_context = vec![BTreeSet::new(); all_projects.len()];
+    let mut coverage_by_context = vec![None; all_projects.len()];
     if changed.repositories.is_empty() || changed.files.is_empty() {
         return Ok(RelatedTestSelection {
             tests_by_context,
+            coverage_by_context,
             has_scm: !changed.repositories.is_empty(),
         });
     }
@@ -1666,9 +1684,11 @@ fn related_test_selection(
             haste: &project.haste,
         })?;
         tests_by_context[context_id] = graph.related_tests(&project_changes, &tests);
+        coverage_by_context[context_id] = graph.changed_coverage_paths(&project_changes, &tests);
     }
     Ok(RelatedTestSelection {
         tests_by_context,
+        coverage_by_context,
         has_scm: true,
     })
 }
@@ -2005,62 +2025,22 @@ fn execute_project_runs(
         if global_config.bail != 0 && failed >= global_config.bail {
             break;
         }
-        let CoverageRunnerSettings {
-            enabled: project_collect_coverage,
-            path_ignore_patterns: coverage_path_ignore_patterns,
-            filter: coverage_filter,
-        } = coverage_runner_settings(cli, global_config, run.config)?;
-        collect_coverage |= project_collect_coverage;
-        let options = rjest_runner::RunnerOptions {
+        let coverage_settings = coverage_runner_settings(
+            cli,
+            global_config,
+            run.config,
+            run.changed_coverage_filter.as_deref(),
+        )?;
+        collect_coverage |= coverage_settings.enabled;
+        let options = runner_options(
+            cli,
+            &run,
             max_workers,
-            bail: global_config.bail.saturating_sub(failed),
+            global_config.bail.saturating_sub(failed),
             execution_order,
-            test_name_pattern: cli.test_name_pattern.clone(),
-            default_timeout_ms: run.config.test_timeout,
-            root_dir: run.config.root_dir.clone(),
-            module_file_extensions: run.config.module_file_extensions.clone(),
-            extensions_to_treat_as_esm: run.config.extensions_to_treat_as_esm.clone(),
-            module_name_mapper: run.config.module_name_mapper.clone(),
-            module_directories: run.config.module_directories.clone(),
-            module_paths: run.config.module_paths.clone(),
-            resolver: run.config.resolver.clone(),
-            resolver_engine_path: internal_node_module_path("unrs-resolver"),
-            runtime_tool_paths: internal_node_module_paths(&[
-                "@babel/core",
-                "@babel/generator",
-                "@jridgewell/trace-mapping",
-                "babel-plugin-istanbul",
-                "convert-source-map",
-                "pretty-format",
-            ]),
-            automock: run.config.automock,
-            reset_modules: run.config.reset_modules,
-            mock_lifecycle: run.config.mock_lifecycle.clone(),
-            fake_timers: run.config.fake_timers.clone(),
-            globals: run.config.globals.clone(),
-            haste: run.config.haste.clone(),
-            global_execution: GlobalExecutionConfig {
-                detect_open_handles: run.config.detect_open_handles,
-                force_exit: run.config.force_exit,
-                max_concurrency: run.config.max_concurrency,
-                pass_with_no_tests: run.config.pass_with_no_tests,
-            },
-            test_environment: run.config.test_environment.clone(),
-            test_environment_options: run.config.test_environment_options.clone(),
-            setup_files: run.config.setup_files.clone(),
-            setup_files_after_env: run.config.setup_files_after_env.clone(),
-            snapshot_serializers: run.config.snapshot_serializers.clone(),
-            snapshot_format: run.config.snapshot_format,
-            prettier_path: run.config.prettier_path.clone(),
-            transform: run.config.transform.clone(),
-            transform_ignore_patterns: run.config.transform_ignore_patterns.clone(),
-            collect_coverage: project_collect_coverage,
-            coverage_path_ignore_patterns,
-            coverage_filter,
-            environment: environment.clone(),
-            snapshot_update: snapshot_update(cli),
-            ..rjest_runner::RunnerOptions::default()
-        };
+            environment,
+            coverage_settings,
+        );
         let context_id = execution_projects(global_config)
             .iter()
             .position(|config| std::ptr::eq(*config, run.config))
@@ -2095,6 +2075,68 @@ fn execute_project_runs(
     result.duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     result.coverage_map = rjest_runner::merge_coverage_maps(&result.test_results)?;
     Ok((result, collect_coverage))
+}
+
+fn runner_options(
+    cli: &Cli,
+    run: &ProjectRun<'_>,
+    max_workers: usize,
+    bail: usize,
+    execution_order: ExecutionOrderConfig,
+    environment: &EnvironmentDelta,
+    coverage: CoverageRunnerSettings,
+) -> rjest_runner::RunnerOptions {
+    rjest_runner::RunnerOptions {
+        max_workers,
+        bail,
+        execution_order,
+        test_name_pattern: cli.test_name_pattern.clone(),
+        default_timeout_ms: run.config.test_timeout,
+        root_dir: run.config.root_dir.clone(),
+        module_file_extensions: run.config.module_file_extensions.clone(),
+        extensions_to_treat_as_esm: run.config.extensions_to_treat_as_esm.clone(),
+        module_name_mapper: run.config.module_name_mapper.clone(),
+        module_directories: run.config.module_directories.clone(),
+        module_paths: run.config.module_paths.clone(),
+        resolver: run.config.resolver.clone(),
+        resolver_engine_path: internal_node_module_path("unrs-resolver"),
+        runtime_tool_paths: internal_node_module_paths(&[
+            "@babel/core",
+            "@babel/generator",
+            "@jridgewell/trace-mapping",
+            "babel-plugin-istanbul",
+            "convert-source-map",
+            "pretty-format",
+        ]),
+        automock: run.config.automock,
+        reset_modules: run.config.reset_modules,
+        mock_lifecycle: run.config.mock_lifecycle.clone(),
+        fake_timers: run.config.fake_timers.clone(),
+        globals: run.config.globals.clone(),
+        haste: run.config.haste.clone(),
+        global_execution: GlobalExecutionConfig {
+            detect_open_handles: run.config.detect_open_handles,
+            force_exit: run.config.force_exit,
+            max_concurrency: run.config.max_concurrency,
+            pass_with_no_tests: run.config.pass_with_no_tests,
+        },
+        test_environment: run.config.test_environment.clone(),
+        test_environment_options: run.config.test_environment_options.clone(),
+        setup_files: run.config.setup_files.clone(),
+        setup_files_after_env: run.config.setup_files_after_env.clone(),
+        snapshot_serializers: run.config.snapshot_serializers.clone(),
+        snapshot_format: run.config.snapshot_format,
+        prettier_path: run.config.prettier_path.clone(),
+        transform: run.config.transform.clone(),
+        transform_ignore_patterns: run.config.transform_ignore_patterns.clone(),
+        collect_coverage: coverage.enabled,
+        coverage_path_ignore_patterns: coverage.path_ignore_patterns,
+        coverage_filter: coverage.filter,
+        coverage_sources: coverage.sources,
+        environment: environment.clone(),
+        snapshot_update: snapshot_update(cli),
+        ..rjest_runner::RunnerOptions::default()
+    }
 }
 
 fn execution_projects(config: &ProjectConfig) -> Vec<&ProjectConfig> {
@@ -2282,11 +2324,17 @@ fn sequence_project_runs_with_custom<'a>(
         .into_iter()
         .enumerate()
         .flat_map(|(context_id, run)| {
-            run.tests
+            let ProjectRun {
+                config,
+                tests,
+                changed_coverage_filter,
+            } = run;
+            tests
                 .into_iter()
                 .map(move |test| SequencerUnit {
-                    config: run.config,
+                    config,
                     test,
+                    changed_coverage_filter: changed_coverage_filter.clone(),
                 })
                 .map(move |unit| (context_id, unit))
         })
@@ -2339,6 +2387,7 @@ fn sequence_project_runs_with_custom<'a>(
             ordered.push(ProjectRun {
                 config: unit.config,
                 tests: vec![unit.test],
+                changed_coverage_filter: unit.changed_coverage_filter,
             });
         }
     }
@@ -2353,6 +2402,7 @@ fn sequence_project_runs_with_native<'a>(
     let mut sequenced = Vec::new();
     for run in project_runs {
         let context_key = native_context_key(run.config)?;
+        let changed_coverage_filter = run.changed_coverage_filter;
         for test in run.tests {
             let performance = cache.performance(&context_key, &test.path);
             let file_size = fs::metadata(&test.path).map_or(0, |metadata| metadata.len());
@@ -2362,6 +2412,7 @@ fn sequence_project_runs_with_native<'a>(
                 SequencerUnit {
                     config: run.config,
                     test,
+                    changed_coverage_filter: changed_coverage_filter.clone(),
                 },
             ));
         }
@@ -2401,6 +2452,7 @@ fn sequence_project_runs_with_native<'a>(
             ordered.push(ProjectRun {
                 config: unit.config,
                 tests: vec![unit.test],
+                changed_coverage_filter: unit.changed_coverage_filter,
             });
         }
     }
@@ -2458,6 +2510,7 @@ fn coverage_runner_settings(
     cli: &Cli,
     global_config: &ProjectConfig,
     project_config: &ProjectConfig,
+    changed_filter: Option<&[PathBuf]>,
 ) -> Result<CoverageRunnerSettings> {
     let enabled = cli.coverage || global_config.collect_coverage;
     let provider = cli
@@ -2479,7 +2532,7 @@ fn coverage_runner_settings(
     } else {
         cli.coverage_path_ignore_patterns.clone()
     };
-    let filter = if enabled && !collect_from.is_empty() {
+    let configured_filter = if enabled && !collect_from.is_empty() {
         let mut excluded_paths = rjest_discovery::discover(project_config, &[])?
             .into_iter()
             .map(|test| test.path)
@@ -2498,14 +2551,49 @@ fn coverage_runner_settings(
             &excluded_paths,
         )?;
         sources.retain(|source| project_roots.iter().any(|root| source.starts_with(root)));
-        Some(sources)
+        Some(sources.into_iter().collect::<BTreeSet<_>>())
     } else {
         None
+    };
+    let test_paths = if enabled && changed_filter.is_some() {
+        rjest_discovery::discover(project_config, &[])?
+            .into_iter()
+            .map(|test| test.path)
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
+    let changed_filter = if enabled {
+        changed_filter.map(|paths| {
+            paths
+                .iter()
+                .filter(|path| !test_paths.contains(*path))
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        })
+    } else {
+        None
+    };
+    let (filter, sources) = match (configured_filter, changed_filter) {
+        (Some(configured), Some(changed)) => {
+            let selected = configured
+                .intersection(&changed)
+                .cloned()
+                .collect::<Vec<_>>();
+            (Some(selected.clone()), selected)
+        }
+        (Some(configured), None) => {
+            let selected = configured.into_iter().collect::<Vec<_>>();
+            (Some(selected.clone()), selected)
+        }
+        (None, Some(changed)) => (Some(changed.into_iter().collect()), Vec::new()),
+        (None, None) => (None, Vec::new()),
     };
     Ok(CoverageRunnerSettings {
         enabled,
         path_ignore_patterns,
         filter,
+        sources,
     })
 }
 
@@ -2822,9 +2910,10 @@ mod tests {
 
     use super::{
         Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard,
-        changed_selection_enabled, clear_configured_caches, filter_projects, native_context_key,
-        native_reporter_mode, parse_max_workers, sequence_project_runs_with_native, shard_tests,
-        uses_modern_branches_true_summary, validate_seed, watch_options,
+        changed_selection_enabled, clear_configured_caches, coverage_runner_settings,
+        filter_projects, native_context_key, native_reporter_mode, parse_max_workers,
+        sequence_project_runs_with_native, shard_tests, uses_modern_branches_true_summary,
+        validate_seed, watch_options,
     };
 
     #[test]
@@ -3218,12 +3307,14 @@ mod tests {
                 tests: vec![TestFile {
                     path: alpha_path.clone(),
                 }],
+                changed_coverage_filter: None,
             },
             ProjectRun {
                 config: &beta,
                 tests: vec![TestFile {
                     path: beta_path.clone(),
                 }],
+                changed_coverage_filter: None,
             },
         ];
         let cache = NativeSequencerCache::load(&alpha, &project_runs).expect("sequencer cache");
@@ -3267,6 +3358,7 @@ mod tests {
                     path: temp.path().join(name),
                 })
                 .collect(),
+            changed_coverage_filter: None,
         }];
         let mut cache =
             NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
@@ -3335,6 +3427,7 @@ mod tests {
                     path: failing_path.clone(),
                 },
             ],
+            changed_coverage_filter: None,
         }];
         let mut cache =
             NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
@@ -3364,6 +3457,7 @@ mod tests {
             tests: vec![TestFile {
                 path: test_path.clone(),
             }],
+            changed_coverage_filter: None,
         }];
         let mut cache =
             NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
@@ -3382,6 +3476,7 @@ mod tests {
         let disabled_runs = vec![ProjectRun {
             config: &disabled,
             tests: vec![TestFile { path: test_path }],
+            changed_coverage_filter: None,
         }];
         let mut reset =
             NativeSequencerCache::load(&disabled, &disabled_runs).expect("reset sequencer cache");
@@ -3406,6 +3501,7 @@ mod tests {
         let enabled_runs = vec![ProjectRun {
             config: &config,
             tests: vec![disabled_runs[0].tests[0].clone()],
+            changed_coverage_filter: None,
         }];
         let reloaded =
             NativeSequencerCache::load(&config, &enabled_runs).expect("reload fresh cache");
@@ -3427,6 +3523,7 @@ mod tests {
             tests: vec![TestFile {
                 path: test_path.clone(),
             }],
+            changed_coverage_filter: None,
         }];
         let mut cache =
             NativeSequencerCache::load(&config, &project_runs).expect("sequencer cache");
@@ -3508,5 +3605,35 @@ mod tests {
         )
         .expect("modern Jest metadata");
         assert!(uses_modern_branches_true_summary(temp.path()));
+    }
+
+    #[test]
+    fn separates_changed_coverage_filtering_from_unloaded_source_collection() {
+        let temp = tempdir().expect("temp dir");
+        for (name, source) in [
+            ("a.js", "module.exports = 'a';"),
+            ("b.js", "module.exports = 'b';"),
+            ("a.test.js", "test('a', () => {});"),
+        ] {
+            fs::write(temp.path().join(name), source).expect("fixture source");
+        }
+        let config = ProjectConfig::defaults(temp.path()).expect("config");
+        let a = fs::canonicalize(temp.path().join("a.js")).expect("a source");
+        let b = fs::canonicalize(temp.path().join("b.js")).expect("b source");
+        let test = fs::canonicalize(temp.path().join("a.test.js")).expect("test source");
+        let changed = vec![a.clone(), b.clone(), test];
+
+        let cli = Cli::try_parse_from(["rjest", "--coverage"]).expect("coverage CLI");
+        let dynamic = coverage_runner_settings(&cli, &config, &config, Some(&changed))
+            .expect("dynamic coverage settings");
+        assert_eq!(dynamic.filter, Some(vec![a.clone(), b]));
+        assert!(dynamic.sources.is_empty());
+
+        let cli = Cli::try_parse_from(["rjest", "--coverage", "--collectCoverageFrom=a.js"])
+            .expect("collectCoverageFrom CLI");
+        let configured = coverage_runner_settings(&cli, &config, &config, Some(&changed))
+            .expect("configured coverage settings");
+        assert_eq!(configured.filter, Some(vec![a.clone()]));
+        assert_eq!(configured.sources, vec![a]);
     }
 }

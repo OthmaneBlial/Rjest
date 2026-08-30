@@ -144,6 +144,37 @@ impl DependencyGraph {
         }
         related
     }
+
+    /// Returns the source paths Jest allows coverage instrumentation for during
+    /// changed-file selection.
+    ///
+    /// Changed files themselves are eligible, as are direct dependencies of a
+    /// changed test file. An incomplete graph returns `None` so callers can
+    /// conservatively avoid filtering coverage and hiding data.
+    pub fn changed_coverage_paths(
+        &self,
+        changed_paths: &BTreeSet<PathBuf>,
+        tests: &[TestFile],
+    ) -> Option<BTreeSet<PathBuf>> {
+        if !self.complete {
+            return None;
+        }
+        let tests = tests
+            .iter()
+            .map(|test| test.path.clone())
+            .collect::<BTreeSet<_>>();
+        let changed = changed_paths
+            .iter()
+            .map(|path| normalize_absolute_path(path))
+            .collect::<BTreeSet<_>>();
+        let mut coverage = changed.clone();
+        for test in changed.intersection(&tests) {
+            if let Some(dependencies) = self.modules.get(test) {
+                coverage.extend(dependencies.iter().cloned());
+            }
+        }
+        Some(coverage)
+    }
 }
 
 /// Git working-tree state across one or more Jest roots.
@@ -465,7 +496,7 @@ mod tests {
         let graph = DependencyGraph {
             modules: BTreeMap::from([
                 (helper.clone(), [source.clone()].into()),
-                (alpha.clone(), [helper].into()),
+                (alpha.clone(), [helper.clone()].into()),
                 (beta.clone(), BTreeSet::new()),
             ]),
             complete: true,
@@ -478,12 +509,20 @@ mod tests {
         ];
 
         assert_eq!(
-            graph.related_tests(&[source].into(), &tests),
+            graph.related_tests(&[source.clone()].into(), &tests),
             [alpha.clone()].into()
         );
         assert_eq!(
             graph.related_tests(&[snapshot].into(), &tests),
-            [alpha].into()
+            [alpha.clone()].into()
+        );
+        assert_eq!(
+            graph.changed_coverage_paths(&[source.clone()].into(), &tests),
+            Some([source].into())
+        );
+        assert_eq!(
+            graph.changed_coverage_paths(&[alpha.clone()].into(), &tests),
+            Some([alpha, helper].into())
         );
     }
 
@@ -507,6 +546,11 @@ mod tests {
                 PathBuf::from("beta.test.js")
             ]
             .into()
+        );
+        assert_eq!(
+            DependencyGraph::default()
+                .changed_coverage_paths(&[PathBuf::from("source.js")].into(), &tests),
+            None
         );
     }
 

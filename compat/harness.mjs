@@ -1193,6 +1193,15 @@ const cases = [
     experimentalVmModules: true,
     useFixtureConfig: true,
   },
+  {
+    name: 'changed-selection-coverage',
+    category: 'Coverage',
+    changedSelectionArgs: ['-o'],
+    compareCoverage: true,
+    coverage: true,
+    expectedExit: 0,
+    prepareChangedGit: 'coverage-working',
+  },
 ];
 
 const watchCases = [
@@ -1851,6 +1860,10 @@ function prepareChangedSelectionFixture(cwd, scenario, label) {
 
   if (scenario === 'working' || scenario === 'config-working') {
     appendFileSync(join(cwd, 'alpha.cjs'), '\n// working tree change\n');
+    return;
+  }
+  if (scenario === 'coverage-working') {
+    appendFileSync(join(cwd, 'a.js'), '\n// working tree change\n');
     return;
   }
   if (scenario === 'history') {
