@@ -26,6 +26,8 @@ const CUSTOM_REPORTER_BRIDGE: &str = include_str!("../runtime/custom-reporters.m
 const CUSTOM_REPORTER_PREFIX: &str = "__RJEST_REPORTER__";
 const GLOBAL_HOOK_BRIDGE: &str = include_str!("../runtime/global-hooks.mjs");
 const GLOBAL_HOOK_PREFIX: &str = "__RJEST_GLOBAL_HOOK__";
+const TEST_RESULTS_PROCESSOR_BRIDGE: &str = include_str!("../runtime/test-results-processor.mjs");
+const TEST_RESULTS_PROCESSOR_PREFIX: &str = "__RJEST_RESULTS_PROCESSOR__";
 
 type EnvironmentDelta = BTreeMap<String, Option<String>>;
 
@@ -130,6 +132,14 @@ struct Cli {
         value_name = "PATH"
     )]
     global_teardown: Option<String>,
+
+    /// Module that receives and may transform Jest's final aggregated result.
+    #[arg(
+        long = "testResultsProcessor",
+        visible_alias = "test-results-processor",
+        value_name = "PATH"
+    )]
+    test_results_processor: Option<String>,
 
     /// Run only test files that failed in the previous execution.
     #[arg(short = 'f', long = "onlyFailures", visible_alias = "only-failures", action = ArgAction::SetTrue)]
@@ -805,6 +815,117 @@ fn apply_environment_delta(command: &mut Command, environment: &EnvironmentDelta
     }
 }
 
+struct ProcessedTestResults {
+    json: serde_json::Value,
+    success: bool,
+}
+
+fn process_test_results(
+    config: &ProjectConfig,
+    result: &AggregatedResult,
+    environment: &EnvironmentDelta,
+    success: bool,
+) -> Result<Option<ProcessedTestResults>> {
+    let Some(module_path) = config.test_results_processor.as_deref() else {
+        return Ok(None);
+    };
+    let coverage = result
+        .test_results
+        .iter()
+        .map(|file| &file.coverage)
+        .collect::<Vec<_>>();
+    let request = serde_json::json!({
+        "coverage": coverage,
+        "modulePath": module_path,
+        "projectConfig": config,
+        "result": result,
+        "rootDir": config.root_dir,
+        "success": success,
+    });
+
+    let mut command = Command::new("node");
+    apply_environment_delta(&mut command, environment);
+    let mut child = command
+        .arg("--input-type=module")
+        .arg("--eval")
+        .arg(TEST_RESULTS_PROCESSOR_BRIDGE)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("cannot start the configured Jest testResultsProcessor")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("testResultsProcessor stdin is unavailable")?;
+    writeln!(stdin, "{}", serde_json::to_string(&request)?)
+        .context("cannot send results to the configured Jest testResultsProcessor")?;
+    stdin
+        .flush()
+        .context("cannot flush the configured Jest testResultsProcessor request")?;
+    drop(stdin);
+
+    let stdout = child
+        .stdout
+        .take()
+        .context("testResultsProcessor stdout is unavailable")?;
+    let mut stdout = BufReader::new(stdout);
+    let mut response = None;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if stdout
+            .read_line(&mut line)
+            .context("cannot read the configured Jest testResultsProcessor response")?
+            == 0
+        {
+            break;
+        }
+        let Some(marker) = line.find(TEST_RESULTS_PROCESSOR_PREFIX) else {
+            print!("{line}");
+            std::io::stdout()
+                .flush()
+                .context("cannot forward configured Jest testResultsProcessor output")?;
+            continue;
+        };
+        if marker > 0 {
+            print!("{}", &line[..marker]);
+            std::io::stdout()
+                .flush()
+                .context("cannot forward configured Jest testResultsProcessor output")?;
+        }
+        let payload = line[marker + TEST_RESULTS_PROCESSOR_PREFIX.len()..].trim_end();
+        response = Some(
+            serde_json::from_str::<serde_json::Value>(payload)
+                .context("configured Jest testResultsProcessor returned invalid JSON")?,
+        );
+    }
+    let status = child
+        .wait()
+        .context("cannot wait for the configured Jest testResultsProcessor")?;
+    ensure!(
+        status.success(),
+        "configured Jest testResultsProcessor exited with {status}"
+    );
+    let response = response.context("configured Jest testResultsProcessor returned no result")?;
+    if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        let message = response
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown testResultsProcessor error");
+        bail!("configured Jest testResultsProcessor failed: {message}");
+    }
+    let json = response
+        .get("result")
+        .cloned()
+        .context("configured Jest testResultsProcessor returned no result")?;
+    let success = response
+        .get("success")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    Ok(Some(ProcessedTestResults { json, success }))
+}
+
 struct CustomReporterProcess {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -1203,21 +1324,13 @@ fn run() -> Result<bool> {
         if config.only_failures {
             finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
             println!("No failed test found.");
-            return Ok(pass_with_no_tests);
+            return finish_empty_run(&cli, &config, pass_with_no_tests, seed, show_seed);
         }
         if !pass_with_no_tests {
             bail!("No tests found");
         }
         finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
-        emit_results(
-            &cli,
-            &config,
-            &AggregatedResult::default(),
-            None,
-            seed,
-            show_seed,
-        )?;
-        return Ok(true);
+        return finish_empty_run(&cli, &config, true, seed, show_seed);
     }
 
     let (result, collect_coverage, reporter_session, mut global_hook_session) =
@@ -1235,21 +1348,56 @@ fn run() -> Result<bool> {
         session.finish()?;
     }
     let coverage_report = coverage_report(&cli, &config, &result, collect_coverage)?;
+    let base_success = result.is_success()
+        && reporters_succeeded
+        && coverage_report
+            .as_ref()
+            .is_none_or(|report| report.threshold_failures.is_empty());
+    let empty_environment = BTreeMap::new();
+    let processor_environment = global_hook_session
+        .as_ref()
+        .map_or(&empty_environment, GlobalHookSession::environment);
+    let processed_result =
+        process_test_results(&config, &result, processor_environment, base_success)?;
+    let final_success = processed_result
+        .as_ref()
+        .map_or(base_success, |processed| processed.success);
     if !bail_reached || !cli.json {
         emit_results(
             &cli,
             &config,
             &result,
             coverage_report.as_ref(),
+            processed_result.as_ref().map(|processed| &processed.json),
             seed,
             show_seed,
         )?;
     }
-    Ok(result.is_success()
-        && reporters_succeeded
-        && coverage_report
-            .as_ref()
-            .is_none_or(|report| report.threshold_failures.is_empty()))
+    Ok(final_success)
+}
+
+fn finish_empty_run(
+    cli: &Cli,
+    config: &ProjectConfig,
+    base_success: bool,
+    seed: i32,
+    show_seed: bool,
+) -> Result<bool> {
+    let result = AggregatedResult::default();
+    let environment = BTreeMap::new();
+    let processed_result = process_test_results(config, &result, &environment, base_success)?;
+    emit_results(
+        cli,
+        config,
+        &result,
+        None,
+        processed_result.as_ref().map(|processed| &processed.json),
+        seed,
+        show_seed,
+    )?;
+    Ok(processed_result
+        .as_ref()
+        .map_or(base_success, |processed| processed.success))
 }
 
 fn execute_selected_runs(
@@ -1315,6 +1463,12 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
     if let Some(global_teardown) = cli.global_teardown.as_deref() {
         config.global_teardown = Some(rjest_config::normalize_module_reference(
             global_teardown,
+            &config.root_dir,
+        ));
+    }
+    if let Some(test_results_processor) = cli.test_results_processor.as_deref() {
+        config.test_results_processor = Some(rjest_config::normalize_module_reference(
+            test_results_processor,
             &config.root_dir,
         ));
     }
@@ -2060,10 +2214,12 @@ fn emit_results(
     config: &ProjectConfig,
     result: &AggregatedResult,
     coverage_report: Option<&CoverageReport>,
+    processed_result: Option<&serde_json::Value>,
     seed: i32,
     show_seed: bool,
 ) -> Result<()> {
-    let serialized = serde_json::to_string(&result)?;
+    let serialized =
+        processed_result.map_or_else(|| serde_json::to_string(result), serde_json::to_string)?;
     if let Some(ref output_file) = cli.output_file {
         std::fs::write(output_file, &serialized)
             .with_context(|| format!("cannot write JSON result to `{}`", output_file.display()))?;
@@ -2362,6 +2518,22 @@ mod tests {
 
         assert_eq!(cli.global_setup.as_deref(), Some("./tools/setup.cjs"));
         assert_eq!(cli.global_teardown.as_deref(), Some("fixture-teardown"));
+    }
+
+    #[test]
+    fn accepts_a_jest_test_results_processor_override() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--testResultsProcessor=./tools/results.mjs",
+            "--runInBand",
+        ])
+        .expect("Jest test results processor override");
+
+        assert_eq!(
+            cli.test_results_processor.as_deref(),
+            Some("./tools/results.mjs")
+        );
+        assert!(cli.run_in_band);
     }
 
     #[test]

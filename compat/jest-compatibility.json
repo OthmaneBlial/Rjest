@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 166,
-    "total": 166,
+    "passing": 171,
+    "total": 171,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 42,
-      "total": 42,
+      "passing": 47,
+      "total": 47,
       "percentage": 100
     },
     "Core API": {
@@ -281,6 +281,36 @@
     },
     {
       "name": "config-verbose",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-results-processor",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-results-processor-esm",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-results-processor-error",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-results-processor-success",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-results-processor-empty",
       "category": "Configuration",
       "compatible": true,
       "differences": []

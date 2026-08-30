@@ -113,6 +113,7 @@ pub struct ProjectConfig {
     pub resolver: Option<String>,
     pub global_setup: Option<String>,
     pub global_teardown: Option<String>,
+    pub test_results_processor: Option<String>,
     pub automock: bool,
     pub reset_modules: bool,
     #[serde(flatten)]
@@ -190,6 +191,7 @@ struct RawProjectConfig {
     resolver: Option<String>,
     global_setup: Option<String>,
     global_teardown: Option<String>,
+    test_results_processor: Option<String>,
     automock: Option<bool>,
     reset_modules: Option<bool>,
     clear_mocks: Option<bool>,
@@ -375,6 +377,7 @@ impl ProjectConfig {
             resolver: None,
             global_setup: None,
             global_teardown: None,
+            test_results_processor: None,
             automock: false,
             reset_modules: false,
             mock_lifecycle: MockLifecycleConfig::default(),
@@ -696,6 +699,7 @@ fn merge_preset(
         resolver,
         global_setup,
         global_teardown,
+        test_results_processor,
         automock,
         reset_modules,
         clear_mocks,
@@ -878,6 +882,9 @@ fn normalize(
     let global_teardown = raw
         .global_teardown
         .map(|value| normalize_module_reference(&value, &root_dir));
+    let test_results_processor = raw
+        .test_results_processor
+        .map(|value| normalize_module_reference(&value, &root_dir));
     let test_sequencer = raw
         .test_sequencer
         .map(|value| normalize_module_reference(&value, &root_dir));
@@ -974,6 +981,7 @@ fn normalize(
         resolver,
         global_setup,
         global_teardown,
+        test_results_processor,
         automock: raw.automock.unwrap_or(defaults.automock),
         reset_modules: raw.reset_modules.unwrap_or(defaults.reset_modules),
         mock_lifecycle,
@@ -2135,6 +2143,43 @@ mod tests {
 
         let defaults = load_inline_json(temp.path(), "{}").expect("default config");
         assert!(!defaults.transform_configured);
+    }
+
+    #[test]
+    fn normalizes_test_results_processor_module_references() {
+        let temp = tempdir().expect("temp dir");
+        let rooted = load_inline_json(
+            temp.path(),
+            r#"{"testResultsProcessor":"<rootDir>/tools/results.cjs"}"#,
+        )
+        .expect("rooted test results processor");
+        assert_eq!(
+            rooted.test_results_processor,
+            Some(
+                temp.path()
+                    .join("tools/results.cjs")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+        let serialized = serde_json::to_value(&rooted).expect("serialized config");
+        assert_eq!(
+            serialized["testResultsProcessor"],
+            temp.path()
+                .join("tools/results.cjs")
+                .to_string_lossy()
+                .as_ref()
+        );
+
+        let package = load_inline_json(
+            temp.path(),
+            r#"{"testResultsProcessor":"fixture-processor"}"#,
+        )
+        .expect("package test results processor");
+        assert_eq!(
+            package.test_results_processor.as_deref(),
+            Some("fixture-processor")
+        );
     }
 
     #[test]

@@ -250,6 +250,51 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-test-results-processor',
+    category: 'Configuration',
+    compareArtifacts: ['processor-observation.json'],
+    compareResultFields: ['processed'],
+    expectedExit: 0,
+    rjestOutputFile: true,
+    rjestResultFormat: 'jest',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-test-results-processor-esm',
+    category: 'Configuration',
+    compareArtifacts: ['esm-processor-observation.json'],
+    compareResultFields: ['processed'],
+    expectedExit: 0,
+    rjestResultFormat: 'jest',
+    testResultsProcessor: './processor.mjs',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-test-results-processor-error',
+    category: 'Configuration',
+    compareArtifacts: ['processor-started.json'],
+    expectedExit: 1,
+    skipResultComparison: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-test-results-processor-success',
+    category: 'Configuration',
+    compareResultFields: ['processed', 'success'],
+    expectedExit: 1,
+    rjestResultFormat: 'jest',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'config-test-results-processor-empty',
+    category: 'Configuration',
+    compareArtifacts: ['empty-processor-observation.json'],
+    compareResultFields: ['processed'],
+    expectedExit: 0,
+    rjestResultFormat: 'jest',
+    useFixtureConfig: true,
+  },
+  {
     name: 'reporters-custom-lifecycle',
     category: 'Reporters',
     compareArtifacts: ['reporter-events.json'],
@@ -1052,6 +1097,7 @@ function compareCase(testCase) {
   const sourceFixture = join(fixtures, testCase.fixtureName ?? testCase.name);
   const temporary = mkdtempSync(join(tmpdir(), 'rjest-compat-'));
   const jestOutput = join(temporary, 'jest-result.json');
+  const rjestOutput = join(temporary, 'rjest-result.json');
   const jestFixture = join(temporary, 'jest');
   const rjestFixture = join(temporary, 'rjest');
   const contaminatedNodeModules = join(temporary, 'runner-node-modules');
@@ -1100,6 +1146,9 @@ function compareCase(testCase) {
     }
     if (testCase.testSequencer) {
       jestArguments.push(`--testSequencer=${testCase.testSequencer}`);
+    }
+    if (testCase.testResultsProcessor) {
+      jestArguments.push(`--testResultsProcessor=${testCase.testResultsProcessor}`);
     }
     if (!testCase.useJestCache) jestArguments.push('--no-cache');
     if (!testCase.compareExecutionMarkers && !testCase.compareOutput) {
@@ -1220,9 +1269,15 @@ function compareCase(testCase) {
     if (testCase.testSequencer) {
       rjestArguments.push(`--testSequencer=${testCase.testSequencer}`);
     }
+    if (testCase.testResultsProcessor) {
+      rjestArguments.push(`--testResultsProcessor=${testCase.testResultsProcessor}`);
+    }
     if (!testCase.useJestCache) rjestArguments.push('--no-cache');
     if (!testCase.compareExecutionMarkers && !testCase.compareOutput) {
       rjestArguments.push('--json');
+      if (testCase.rjestOutputFile) {
+        rjestArguments.push(`--outputFile=${rjestOutput}`);
+      }
     }
     if (!testCase.useFixtureConfig) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
@@ -1368,14 +1423,27 @@ function compareCase(testCase) {
         differences.push('executed test files differ');
       }
     } else {
-      jestResult = normalizeJest(
-        JSON.parse(readFileSync(jestOutput, 'utf8')),
-        testCase,
-      );
+      const rawJestResult = JSON.parse(readFileSync(jestOutput, 'utf8'));
+      jestResult = normalizeJest(rawJestResult, testCase);
       try {
-        rjestResult = normalizeRjest(JSON.parse(rjestRun.stdout), testCase);
+        const rawRjestResult = JSON.parse(
+          testCase.rjestOutputFile
+            ? readFileSync(rjestOutput, 'utf8')
+            : rjestRun.stdout,
+        );
+        rjestResult = testCase.rjestResultFormat === 'jest'
+          ? normalizeJest(rawRjestResult, testCase)
+          : normalizeRjest(rawRjestResult, testCase);
         if (JSON.stringify(jestResult) !== JSON.stringify(rjestResult)) {
           differences.push('test results differ');
+        }
+        for (const field of testCase.compareResultFields ?? []) {
+          if (
+            JSON.stringify(canonicalize(rawJestResult[field])) !==
+            JSON.stringify(canonicalize(rawRjestResult[field]))
+          ) {
+            differences.push(`result field differs: ${field}`);
+          }
         }
       } catch (error) {
         differences.push(`Rjest JSON unavailable: ${error.message}`);

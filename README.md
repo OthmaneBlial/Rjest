@@ -9,7 +9,7 @@ An independent Jest-compatible test runner with a Rust coordinator and isolated 
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 ![Status](https://img.shields.io/badge/status-alpha-f4b942?style=flat-square)
-![Differential scenarios](https://img.shields.io/badge/differential_scenarios-166%2F166-c8ff3d?style=flat-square)
+![Differential scenarios](https://img.shields.io/badge/differential_scenarios-171%2F171-c8ff3d?style=flat-square)
 ![Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=flat-square&logo=rust)
 ![Node](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=flat-square&logo=nodedotjs)
 ![License](https://img.shields.io/badge/license-MIT-111511?style=flat-square)
@@ -35,14 +35,14 @@ tied to an executable differential fixture or a pinned real-world corpus.
 
 | Proof | Official Jest | Rjest |
 | --- | ---: | ---: |
-| Versioned differential matrix | 166 / 166 scenarios | 166 / 166 scenarios |
+| Versioned differential matrix | 171 / 171 scenarios | 171 / 171 scenarios |
 | Downshift | 92 suites · 1,110 tests · 49 snapshots | exact parity |
 | styled-components web | 59 suites · 1,465 tests · 749 snapshots | exact parity |
 | React Navigation | 81 suites · 1,303 identities · 169 snapshots | exact parity, including the same 2 upstream failures |
 | AWS Amplify Auth | 101 suites · 1,150 tests | exact identity, status, and coverage parity |
 | Apollo Client | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
 
-The 166/166 result is **100% of the versioned scenarios currently in the
+The 171/171 result is **100% of the versioned scenarios currently in the
 matrix**, not 100% of the entire Jest API. The repository also contains 24
 documented corpus reports spanning React, React Native, TypeScript, JSDOM,
 CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play.
@@ -67,6 +67,9 @@ CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play.
 - CommonJS, ESM, and transformed TypeScript `globalSetup`/`globalTeardown`,
   including async hooks, CLI overrides, setup environment propagation,
   multi-project selection/deduplication, and teardown after test failures.
+- Awaited CommonJS and ESM `testResultsProcessor` modules from configuration or
+  CLI, with Jest-shaped aggregate data, post-teardown ordering, processed JSON,
+  and processor-controlled exit status.
 - Stateful CommonJS and ESM custom reporters with awaited run/file/case hooks,
   legacy hook fallbacks, multi-project contexts, and `getLastError()` exits.
 - Istanbul/Babel coverage with JSON, text, LCOV/HTML, Clover, source-map
@@ -112,6 +115,7 @@ rjest --randomize --seed=1234
 rjest --testSequencer=./tools/sequencer.cjs
 rjest --globalSetup=./tools/setup.cjs
 rjest --globalTeardown=./tools/teardown.mjs
+rjest --testResultsProcessor=./tools/process-results.mjs
 rjest --onlyFailures
 rjest --no-cache
 rjest --clearCache

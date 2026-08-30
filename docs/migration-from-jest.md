@@ -45,6 +45,15 @@ are not copied into test workers, so keep Jest as the gate if a suite relies on
 that undocumented cross-realm identity rather than environment or external
 resources.
 
+Configured `testResultsProcessor` modules and the
+`--testResultsProcessor=./path/to/processor` CLI form run after global teardown.
+CommonJS, native ESM default exports, synchronous returns, and promises are
+covered. The processor receives Jest-shaped aggregate/test results, can add or
+replace JSON fields, and its returned `success` value controls Rjest's exit
+status. Setup and teardown environment changes are forwarded into the
+processor process. Keep Jest as the gate for processors that depend on exact
+live open-handle objects or undocumented in-process object identity.
+
 Root `projects` arrays may contain inline objects, project directories,
 supported config-file paths, and standard path globs. The variadic
 `rjest --projects project-a project-b` form also runs several project

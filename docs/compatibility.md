@@ -9,10 +9,10 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 166/166 (100.0%) across its explicitly listed
+The current generated matrix is 171/171 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
-42/42 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
+47/47 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 22/22 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%), coverage is 4/4 (100.0%), and custom
 reporters are 6/6 (100.0%). These
@@ -28,6 +28,14 @@ normalization as configuration. Arbitrary non-environment values created on
 the setup process's global object are retained for teardown but are not copied
 into isolated test workers; exact host-global identity remains outside this
 bounded claim.
+
+The test-results-processor probes cover an awaited CommonJS module selected by
+configuration, an awaited ESM default export selected by
+`--testResultsProcessor`, Jest-shaped suite/test/snapshot counts, setup and
+teardown environment visibility, execution after global teardown, custom
+fields in formatted JSON output, and processor-thrown exit failures. Exact
+live open-handle and V8 error-object identity remains outside this bounded
+claim.
 
 The reporter probes cover CommonJS and ESM class loading, constructor context
 and options, awaited run/file/case hooks, legacy file-hook fallbacks,
