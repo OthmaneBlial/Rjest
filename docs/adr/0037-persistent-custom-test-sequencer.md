@@ -51,5 +51,5 @@ replaces the configured class before discovery and session startup.
 - Duplicate physical paths in separate projects retain distinct identities.
 - Malformed results, missing hooks, module-load failures, and cache failures
   become explicit coordinator errors; no shell is involved.
-- Resolving a sequencer through a configured custom resolver remains future
-  compatibility work.
+- Configured synchronous CommonJS and top-level-await ESM resolvers now
+  participate in sequencer lookup as recorded in ADR 0040.

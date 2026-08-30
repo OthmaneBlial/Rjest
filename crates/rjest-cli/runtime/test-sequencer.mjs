@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {existsSync, mkdirSync, rmSync, statSync} from 'node:fs';
 import {createRequire} from 'node:module';
-import {isAbsolute, resolve} from 'node:path';
+import {delimiter, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createInterface} from 'node:readline';
 
@@ -46,7 +46,11 @@ async function main() {
 }
 
 async function startSession(request) {
-  const modulePath = resolveSequencer(request.testSequencer, request.rootDir);
+  const modulePath = await resolveSequencer(
+    request.testSequencer,
+    request.rootDir,
+    request.resolver,
+  );
   const loaded = await loadModule(modulePath, request.rootDir);
   let Sequencer = loaded?.default ?? loaded;
   if (typeof Sequencer !== 'function' && typeof Sequencer?.default === 'function') {
@@ -142,17 +146,44 @@ async function startSession(request) {
   return {order, orderedTests, sequencer};
 }
 
-function resolveSequencer(specifier, rootDir) {
+async function resolveSequencer(specifier, rootDir, resolverSpecifier) {
   const rootRequire = createRequire(resolve(rootDir, 'package.json'));
-  const pathLike =
-    isAbsolute(specifier) ||
-    specifier === '.' ||
-    specifier === '..' ||
-    specifier.startsWith('./') ||
-    specifier.startsWith('../');
-  const candidates = pathLike ? [specifier] : [`jest-sequencer-${specifier}`, specifier];
+  const customResolver = resolverSpecifier
+    ? await loadCustomResolver(resolverSpecifier, rootDir)
+    : undefined;
+  const defaultResolver = (request, options) => {
+    const basedirRequire = createRequire(resolve(options.basedir, 'package.json'));
+    return basedirRequire.resolve(String(request));
+  };
+  const defaultAsyncResolver = async (request, options) => defaultResolver(request, options);
+  const resolverOptions = {
+    basedir: rootDir,
+    conditions: undefined,
+    defaultAsyncResolver,
+    defaultResolver,
+    extensions: undefined,
+    moduleDirectory: undefined,
+    paths: process.env.NODE_PATH
+      ? process.env.NODE_PATH.split(delimiter).filter(Boolean)
+      : undefined,
+    rootDir: undefined,
+  };
+  const candidates = [`jest-sequencer-${specifier}`, specifier];
   let cause;
   for (const candidate of candidates) {
+    if (customResolver) {
+      try {
+        const resolved = customResolver(candidate, resolverOptions);
+        if (resolved && typeof resolved.then === 'function') {
+          throw new TypeError(
+            `Custom resolver returned a promise while resolving ${candidate} synchronously`,
+          );
+        }
+        if (resolved) return resolved;
+      } catch (error) {
+        cause = error;
+      }
+    }
     try {
       return rootRequire.resolve(candidate);
     } catch (error) {
@@ -162,12 +193,35 @@ function resolveSequencer(specifier, rootDir) {
   throw new Error(`Test sequencer ${specifier} cannot be found from ${rootDir}`, {cause});
 }
 
+async function loadCustomResolver(specifier, rootDir) {
+  const rootRequire = createRequire(resolve(rootDir, 'package.json'));
+  const modulePath = rootRequire.resolve(specifier);
+  const loaded = await loadModule(modulePath, rootDir);
+  const exported = loaded?.default ?? loaded;
+  if (typeof exported === 'function') return exported;
+  const sync =
+    typeof exported?.sync === 'function'
+      ? exported.sync
+      : typeof loaded?.sync === 'function'
+      ? loaded.sync
+      : undefined;
+  if (sync) return sync;
+  if (typeof exported?.async === 'function' || typeof loaded?.async === 'function') {
+    return undefined;
+  }
+  throw new TypeError(
+    `Resolver located at ${modulePath} does not export a function or an object with "sync" and "async" props`,
+  );
+}
+
 async function loadModule(modulePath, rootDir) {
   const rootRequire = createRequire(resolve(rootDir, 'package.json'));
   try {
     return rootRequire(modulePath);
   } catch (error) {
-    if (error?.code !== 'ERR_REQUIRE_ESM') throw error;
+    if (error?.code !== 'ERR_REQUIRE_ESM' && error?.code !== 'ERR_REQUIRE_ASYNC_MODULE') {
+      throw error;
+    }
     return import(pathToFileURL(modulePath).href);
   }
 }

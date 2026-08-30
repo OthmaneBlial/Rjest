@@ -9,10 +9,10 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 150/150 (100.0%) across its explicitly listed
+The current generated matrix is 151/151 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
-33/33 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
+34/34 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
 Expect is 7/7 (100.0%), CLI is 22/22 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -122,8 +122,11 @@ synchronous or asynchronous `allFailedTests` hook after shard and sort. The
 native implementation filters its persisted cache, preserves a previous
 failure when a later suite execution is fully skipped, and records assertion
 failures and file-level execution errors. Differentials cover warm, cold,
-post-bail, skipped-suite, and file-error lifecycles. Sequencer resolution
-through a configured custom resolver remains unsupported.
+post-bail, skipped-suite, and file-error lifecycles. A configured synchronous
+CommonJS or top-level-await ESM resolver also participates in Jest's prefixed
+then unprefixed sequencer lookup, receiving the synchronous default callbacks
+and project basedir. Async-only resolver objects retain Jest's default
+synchronous lookup for this configuration boundary.
 `cache` and `cacheDirectory` configuration are normalized for native and custom
 sequencers. CLI `--cache` overrides a disabled project cache; `--no-cache`
 discards previous performance history before selection while a completed run

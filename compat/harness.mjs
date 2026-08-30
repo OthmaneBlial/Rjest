@@ -550,6 +550,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-test-sequencer-custom-resolver',
+    category: 'Configuration',
+    expectedExit: 0,
+    compareExecutionMarkers: true,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-test-sequencer',
     label: 'config-test-sequencer-shard',
     category: 'CLI',

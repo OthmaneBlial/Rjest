@@ -1166,6 +1166,7 @@ fn sequence_project_runs_with_custom<'a>(
         .context("custom test sequencer path is missing")?;
     let request = serde_json::json!({
         "testSequencer": test_sequencer,
+        "resolver": global_config.resolver,
         "rootDir": global_config.root_dir,
         "seed": seed,
         "randomize": randomize,
