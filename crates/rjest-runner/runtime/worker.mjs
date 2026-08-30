@@ -714,6 +714,27 @@ function subsetEqual(received, expected, receivedStack = [], expectedStack = [])
   return result;
 }
 
+function objectContainingEqual(received, sample) {
+  if (typeof sample !== 'object' || sample === null) {
+    throw new TypeError(
+      `You must provide an object to ObjectContaining, not '${typeof sample}'.`,
+    );
+  }
+  if (
+    typeof received !== 'object' ||
+    received === null ||
+    Array.isArray(received)
+  ) {
+    return false;
+  }
+  return Reflect.ownKeys(sample)
+    .filter(key => Object.prototype.propertyIsEnumerable.call(sample, key))
+    .every(
+      key =>
+        key in Object(received) && deepEqual(received[key], sample[key]),
+    );
+}
+
 function propertyPath(path) {
   if (Array.isArray(path)) return path;
   return String(path)
@@ -2031,7 +2052,11 @@ expect.arrayContaining = sample =>
     sample,
   );
 expect.objectContaining = sample =>
-  asymmetric(value => subsetEqual(value, sample), 'ObjectContaining', sample);
+  asymmetric(
+    value => objectContainingEqual(value, sample),
+    'ObjectContaining',
+    sample,
+  );
 expect.stringContaining = sample =>
   asymmetric(
     value => typeof value === 'string' && value.includes(String(sample)),
@@ -2111,7 +2136,7 @@ expect.not = {
     ),
   objectContaining: sample =>
     asymmetric(
-      value => !subsetEqual(value, sample),
+      value => !objectContainingEqual(value, sample),
       'ObjectNotContaining',
       sample,
       true,

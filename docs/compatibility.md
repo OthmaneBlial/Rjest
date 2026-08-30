@@ -151,6 +151,9 @@ Bespoke equality functions registered through `expect.addEqualityTesters`
 participate recursively in equality-based matchers and receive Jest's matcher
 context. Setup modules that extend the installed `expect` package share the
 same matcher registry as the injected global `expect`.
+`expect.objectContaining` requires each requested top-level property while its
+nested values use Jest's loose `toEqual` semantics, including omission of
+properties whose expected value is `undefined`.
 Every custom matcher installed with `expect.extend` also creates positive and
 negative asymmetric factories on `expect`, using the same matcher context and
 custom equality testers as its assertion form.

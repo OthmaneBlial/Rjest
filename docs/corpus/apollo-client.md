@@ -120,6 +120,7 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `responseIterator.ts` | Core / min-RxJS / GraphQL 16 | 30 / 30 passed | 30 / 30 passed |
 | `ObservableQuery.ts` | Core / min-RxJS / GraphQL 16 | 411 passed, 24 skipped | 411 passed, 24 skipped |
 | `ApolloClient.ts` | Core / min-RxJS / GraphQL 16 | 225 passed, 18 skipped, 60 snapshots | 225 passed, 18 skipped, 60 snapshots |
+| `ApolloClient/general.test.ts` | Core / min-RxJS / GraphQL 16 | 423 passed, 24 skipped | 423 passed, 24 skipped |
 | `useLoadableQuery.test.tsx` | React 18 / 19 | 98 / 98 passed | 98 / 98 passed |
 | `useSuspenseFragment.test.tsx` | React 18 / 19 | 52 passed, 28 skipped | 52 passed, 28 skipped |
 | `streamGraphQL17Alpha9.test.tsx` | React 18 / 19 | 36 / 36 passed | 36 / 36 passed |

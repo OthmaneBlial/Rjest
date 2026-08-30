@@ -42,3 +42,11 @@ test('matches object subsets through accessors and circular identities', () => {
     }),
   );
 });
+
+test('uses loose nested equality inside objectContaining', () => {
+  expect({a: {x: 'y'}}).toEqual(
+    expect.objectContaining({a: {b: undefined, x: 'y'}}),
+  );
+  expect({}).not.toEqual(expect.objectContaining({missing: undefined}));
+  expect([1]).not.toEqual(expect.objectContaining({0: 1}));
+});
