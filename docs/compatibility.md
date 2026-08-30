@@ -9,12 +9,12 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 184/184 (100.0%) across its explicitly listed
+The current generated matrix is 192/192 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 30/30 (100.0%), and environments are 7/7
-(100.0%). Fake timers are 10/10 (100.0%), coverage is 5/5 (100.0%), and custom
+Expect is 7/7 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
+(100.0%). Fake timers are 10/10 (100.0%), coverage is 7/7 (100.0%), and custom
 reporters are 6/6 (100.0%), and Watch is 3/3 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -77,6 +77,14 @@ files, while loaded but unchanged sources are excluded. The permanent oracle
 fixture changes `a.js`, selects a test that loads both `a.js` and `b.js`, and
 proves that both runners report only `a.js`. Configured `collectCoverageFrom`
 source collection remains separate from this runtime instrumentation filter.
+
+Explicit `--findRelatedTests` probes treat positional arguments as source
+paths rather than test patterns. They cover direct and transitive inverse
+dependencies, a supplied test path, an unrelated source with and without
+`--passWithNoTests`, the required-path validation error, and coverage narrowed
+to supplied sources. A configured `collectCoverageFrom` set is intersected with
+those paths like Jest, so loading an additional module does not add it to the
+report.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous

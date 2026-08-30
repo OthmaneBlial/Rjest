@@ -31,6 +31,15 @@ implemented yet. Do not substitute Rjest for workflows that require interactive
 watch keys/plugins or cancellation of a still-running stale cycle; those remain
 explicit migration boundaries.
 
+One-shot affected-test workflows can use `rjest --onlyChanged`,
+`--lastCommit`, `--changedSince`, or `--changedFilesWithAncestor`. Pre-commit
+tools can pass their staged source paths unchanged through
+`rjest --findRelatedTests <files...>`; these arguments are source files, not
+test-path filters. Direct, transitive, mapped, CommonJS, and native-ESM static
+dependencies are included. An unrelated source keeps Jest's non-zero no-test
+exit unless `--passWithNoTests` is supplied, and `--coverage` is restricted to
+the explicit source paths.
+
 Rjest reads existing Jest snapshot files without rewriting them when values
 match and loads configured snapshot serializers. Existing inline snapshots are
 matched and counted. New and updated inline snapshots rewrite JavaScript,

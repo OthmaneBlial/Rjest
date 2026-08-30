@@ -1125,6 +1125,87 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'find-related-source',
+    fixtureName: 'find-related',
+    category: 'CLI',
+    expectedExit: 0,
+    findRelatedTests: true,
+    testPathPatterns: ['a.js'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'find-related-transitive-source',
+    fixtureName: 'find-related',
+    category: 'CLI',
+    expectedExit: 0,
+    findRelatedTests: true,
+    testPathPatterns: ['wrapper.js'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'find-related-test-path',
+    fixtureName: 'find-related',
+    category: 'CLI',
+    expectedExit: 0,
+    findRelatedTests: true,
+    testPathPatterns: ['a.test.js'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'find-related-no-tests',
+    fixtureName: 'find-related',
+    category: 'CLI',
+    expectedExit: 1,
+    findRelatedTests: true,
+    requiredOutputPatterns: ['No tests found'],
+    skipResultComparison: true,
+    testPathPatterns: ['orphan.js'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'find-related-pass-with-no-tests',
+    fixtureName: 'find-related',
+    category: 'CLI',
+    expectedExit: 0,
+    findRelatedTests: true,
+    passWithNoTests: true,
+    testPathPatterns: ['orphan.js'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'find-related-requires-files',
+    fixtureName: 'find-related',
+    category: 'CLI',
+    expectedExit: 1,
+    findRelatedTests: true,
+    requiredOutputPatterns: [
+      'The --findRelatedTests option requires file paths to be specified.',
+    ],
+    skipResultComparison: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'find-related-coverage',
+    fixtureName: 'find-related',
+    category: 'Coverage',
+    compareCoverage: true,
+    coverage: true,
+    expectedExit: 0,
+    findRelatedTests: true,
+    testPathPatterns: ['a.js'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'find-related-configured-coverage',
+    category: 'Coverage',
+    compareCoverage: true,
+    coverage: true,
+    expectedExit: 0,
+    findRelatedTests: true,
+    testPathPatterns: ['a.js', 'b.js'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'changed-selection-only-changed',
     fixtureName: 'changed-selection',
     category: 'CLI',
@@ -1324,6 +1405,8 @@ function compareCase(testCase) {
     if (testCase.noCoverage) jestArguments.push('--no-coverage');
     if (testCase.clearCache) jestArguments.push('--clearCache');
     if (testCase.onlyFailures) jestArguments.push('--onlyFailures');
+    if (testCase.findRelatedTests) jestArguments.push('--findRelatedTests');
+    if (testCase.passWithNoTests) jestArguments.push('--passWithNoTests');
     jestArguments.push(...(testCase.changedSelectionArgs ?? []));
     if (testCase.coverage) {
       jestArguments.push(
@@ -1439,6 +1522,8 @@ function compareCase(testCase) {
     if (testCase.noCoverage) rjestArguments.push('--no-coverage');
     if (testCase.clearCache) rjestArguments.push('--clearCache');
     if (testCase.onlyFailures) rjestArguments.push('--onlyFailures');
+    if (testCase.findRelatedTests) rjestArguments.push('--findRelatedTests');
+    if (testCase.passWithNoTests) rjestArguments.push('--passWithNoTests');
     rjestArguments.push(...(testCase.changedSelectionArgs ?? []));
     if (testCase.coverage) {
       rjestArguments.push(
@@ -1518,6 +1603,16 @@ function compareCase(testCase) {
     const differences = [];
     if (rjestRun.status !== jestRun.status) {
       differences.push(`exit Jest=${jestRun.status} Rjest=${rjestRun.status}`);
+    }
+    for (const expectedMessage of testCase.requiredOutputPatterns ?? []) {
+      const jestOutputText = `${jestRun.stdout}\n${jestRun.stderr}`;
+      const rjestOutputText = `${rjestRun.stdout}\n${rjestRun.stderr}`;
+      if (!jestOutputText.includes(expectedMessage)) {
+        fail(`${label}: Jest did not emit ${JSON.stringify(expectedMessage)}`, jestRun);
+      }
+      if (!rjestOutputText.includes(expectedMessage)) {
+        differences.push(`Rjest did not emit ${JSON.stringify(expectedMessage)}`);
+      }
     }
     if (testCase.compareNoFailedMessage) {
       const expectedMessage = 'No failed test found.';

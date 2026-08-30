@@ -9,7 +9,7 @@ An independent Jest-compatible test runner with a Rust coordinator and isolated 
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 ![Status](https://img.shields.io/badge/status-alpha-f4b942?style=flat-square)
-![Differential scenarios](https://img.shields.io/badge/differential_scenarios-184%2F184-c8ff3d?style=flat-square)
+![Differential scenarios](https://img.shields.io/badge/differential_scenarios-192%2F192-c8ff3d?style=flat-square)
 ![Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=flat-square&logo=rust)
 ![Node](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=flat-square&logo=nodedotjs)
 ![License](https://img.shields.io/badge/license-MIT-111511?style=flat-square)
@@ -35,14 +35,14 @@ tied to an executable differential fixture or a pinned real-world corpus.
 
 | Proof | Official Jest | Rjest |
 | --- | ---: | ---: |
-| Versioned differential matrix | 184 / 184 scenarios | 184 / 184 scenarios |
+| Versioned differential matrix | 192 / 192 scenarios | 192 / 192 scenarios |
 | Downshift | 92 suites · 1,110 tests · 49 snapshots | exact parity |
 | styled-components web | 59 suites · 1,465 tests · 749 snapshots | exact parity |
 | React Navigation | 81 suites · 1,303 identities · 169 snapshots | exact parity, including the same 2 upstream failures |
 | AWS Amplify Auth | 101 suites · 1,150 tests | exact identity, status, and coverage parity |
 | Apollo Client | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
 
-The 184/184 result is **100% of the versioned scenarios currently in the
+The 192/192 result is **100% of the versioned scenarios currently in the
 matrix**, not 100% of the entire Jest API. The repository also contains 24
 documented corpus reports spanning React, React Native, TypeScript, JSDOM,
 CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play.
@@ -86,6 +86,9 @@ CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play.
   and `--changedFilesWithAncestor` selection, including Jest's `--all` and
   positional-path precedence and successful empty results outside source
   control.
+- Pre-commit-friendly `--findRelatedTests` with direct and transitive inverse
+  dependency selection, test-file inputs, Jest-compatible empty/error exits,
+  and coverage narrowed to the supplied source paths.
 
 ## Try Rjest on an existing project
 
@@ -128,6 +131,7 @@ rjest --globalSetup=./tools/setup.cjs
 rjest --globalTeardown=./tools/teardown.mjs
 rjest --testResultsProcessor=./tools/process-results.mjs
 rjest --onlyFailures
+rjest --findRelatedTests src/parser.ts src/config.ts
 rjest --watch
 rjest --watchAll
 rjest --forceExit --no-coverage

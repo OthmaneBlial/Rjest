@@ -186,6 +186,14 @@ struct Cli {
     )]
     last_commit: bool,
 
+    /// Run only tests related to the supplied source file paths.
+    #[arg(
+        long = "findRelatedTests",
+        visible_alias = "find-related-tests",
+        action = ArgAction::SetTrue
+    )]
+    find_related_tests: bool,
+
     /// Run only test files that failed in the previous execution.
     #[arg(short = 'f', long = "onlyFailures", visible_alias = "only-failures", action = ArgAction::SetTrue)]
     only_failures: bool,
@@ -1185,6 +1193,15 @@ fn jest_global_config(
     object.insert("logHeapUsage".into(), cli.log_heap_usage.into());
     object.insert("watch".into(), cli.watch.into());
     object.insert("watchAll".into(), cli.watch_all.into());
+    object.insert("findRelatedTests".into(), cli.find_related_tests.into());
+    object.insert(
+        "nonFlagArgs".into(),
+        serde_json::to_value(&cli.test_path_patterns)?,
+    );
+    object.insert(
+        "testPathPatterns".into(),
+        serde_json::to_value(&cli.test_path_patterns)?,
+    );
     let only_changed = changed_selection_enabled(cli, config);
     object.insert("onlyChanged".into(), only_changed.into());
     object.insert(
@@ -1377,6 +1394,11 @@ fn main() {
 
 fn run() -> Result<bool> {
     let cli = Cli::parse();
+    ensure!(
+        !cli.find_related_tests || !cli.test_path_patterns.is_empty(),
+        "The --findRelatedTests option requires file paths to be specified.\n\
+         Example usage: jest --findRelatedTests ./src/source.js ./src/index.js."
+    );
     let project_dir = std::env::current_dir().context("cannot determine current directory")?;
     let mut config = load_execution_config(&cli, &project_dir)?;
     apply_cli_config_overrides(&mut config, &cli);
@@ -1397,9 +1419,8 @@ fn run() -> Result<bool> {
 
     let changed_selection = changed_selection_enabled(&cli, &config);
     if cli.list_tests {
-        let related = changed_selection
-            .then(|| related_test_selection(&cli, &config, &project_dir))
-            .transpose()?;
+        let related =
+            active_related_test_selection(&cli, &config, &project_dir, changed_selection)?;
         write_changed_selection_message(&cli, related.as_ref());
         return run_test_cycle(
             &cli,
@@ -1413,11 +1434,13 @@ fn run() -> Result<bool> {
         );
     }
     if cli.watch_all || cli.watch {
-        let related = cli
-            .watch
-            .then(|| related_test_selection(&cli, &config, &project_dir))
-            .transpose()?;
-        if related.as_ref().is_some_and(|selection| !selection.has_scm) {
+        let related = active_related_test_selection(
+            &cli,
+            &config,
+            &project_dir,
+            cli.watch && !cli.find_related_tests,
+        )?;
+        if !cli.find_related_tests && related.as_ref().is_some_and(|selection| !selection.has_scm) {
             bail!("--watch is not supported without Git; use --watchAll");
         }
         let options = watch_options(&cli, &config, &project_dir);
@@ -1435,10 +1458,12 @@ fn run() -> Result<bool> {
         )?;
         loop {
             watcher.wait_for_change()?;
-            let related = cli
-                .watch
-                .then(|| related_test_selection(&cli, &config, &project_dir))
-                .transpose()?;
+            let related = active_related_test_selection(
+                &cli,
+                &config,
+                &project_dir,
+                cli.watch && !cli.find_related_tests,
+            )?;
             write_changed_selection_message(&cli, related.as_ref());
             run_test_cycle(
                 &cli,
@@ -1452,9 +1477,7 @@ fn run() -> Result<bool> {
             )?;
         }
     }
-    let related = changed_selection
-        .then(|| related_test_selection(&cli, &config, &project_dir))
-        .transpose()?;
+    let related = active_related_test_selection(&cli, &config, &project_dir, changed_selection)?;
     write_changed_selection_message(&cli, related.as_ref());
     run_test_cycle(
         &cli,
@@ -1479,7 +1502,11 @@ fn run_test_cycle(
     watch_mode: bool,
     related_selection: Option<&RelatedTestSelection>,
 ) -> Result<bool> {
-    let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, project_dir);
+    let test_path_patterns = if cli.find_related_tests {
+        Vec::new()
+    } else {
+        normalize_test_path_patterns(&cli.test_path_patterns, project_dir)
+    };
     let all_projects = execution_projects(config);
     let selected_projects =
         filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
@@ -1502,7 +1529,8 @@ fn run_test_cycle(
         .map(|run| run.tests.len())
         .sum::<usize>();
     let pass_with_no_tests = watch_mode
-        || related_selection.is_some()
+        || cli.list_tests
+        || (related_selection.is_some() && !cli.find_related_tests)
         || cli.pass_with_no_tests
         || config.pass_with_no_tests;
     if cli.list_tests {
@@ -1693,6 +1721,81 @@ fn related_test_selection(
     })
 }
 
+fn find_related_test_selection(
+    cli: &Cli,
+    config: &ProjectConfig,
+    project_dir: &Path,
+) -> Result<RelatedTestSelection> {
+    let all_projects = execution_projects(config);
+    let selected_projects =
+        filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
+    let related_paths = cli
+        .test_path_patterns
+        .iter()
+        .map(|path| {
+            let absolute = if path.is_absolute() {
+                path.clone()
+            } else {
+                project_dir.join(path)
+            };
+            absolute.canonicalize().unwrap_or(absolute)
+        })
+        .collect::<BTreeSet<_>>();
+    let mut tests_by_context = vec![BTreeSet::new(); all_projects.len()];
+    let mut coverage_by_context = vec![None; all_projects.len()];
+    let resolver_engine_path = internal_node_module_path("unrs-resolver")
+        .context("Rjest's internal unrs-resolver package is unavailable")?;
+    for project in selected_projects {
+        let context_id = all_projects
+            .iter()
+            .position(|config| std::ptr::eq(*config, project))
+            .expect("selected project belongs to the execution config");
+        let tests = rjest_discovery::discover(project, &[])?;
+        let project_paths = related_paths
+            .iter()
+            .filter(|path| project.roots.iter().any(|root| path.starts_with(root)))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if project_paths.is_empty() {
+            coverage_by_context[context_id] = Some(BTreeSet::new());
+            continue;
+        }
+        let graph = DependencyGraph::build(&GraphOptions {
+            root_dir: &project.root_dir,
+            roots: &project.roots,
+            module_file_extensions: &project.module_file_extensions,
+            module_path_ignore_patterns: &project.module_path_ignore_patterns,
+            module_name_mapper: &project.module_name_mapper,
+            module_directories: &project.module_directories,
+            module_paths: &project.module_paths,
+            resolver: project.resolver.as_deref(),
+            resolver_engine_path: &resolver_engine_path,
+            haste: &project.haste,
+        })?;
+        tests_by_context[context_id] = graph.related_tests(&project_paths, &tests);
+        coverage_by_context[context_id] = Some(project_paths);
+    }
+    Ok(RelatedTestSelection {
+        tests_by_context,
+        coverage_by_context,
+        has_scm: true,
+    })
+}
+
+fn active_related_test_selection(
+    cli: &Cli,
+    config: &ProjectConfig,
+    project_dir: &Path,
+    changed_selection: bool,
+) -> Result<Option<RelatedTestSelection>> {
+    if cli.find_related_tests {
+        return find_related_test_selection(cli, config, project_dir).map(Some);
+    }
+    changed_selection
+        .then(|| related_test_selection(cli, config, project_dir))
+        .transpose()
+}
+
 fn changed_selection_enabled(cli: &Cli, config: &ProjectConfig) -> bool {
     if cli.all || cli.watch_all {
         return false;
@@ -1709,6 +1812,9 @@ fn changed_selection_enabled(cli: &Cli, config: &ProjectConfig) -> bool {
 }
 
 fn write_changed_selection_message(cli: &Cli, selection: Option<&RelatedTestSelection>) {
+    if cli.find_related_tests {
+        return;
+    }
     let Some(selection) = selection else {
         return;
     };
@@ -2586,7 +2692,15 @@ fn coverage_runner_settings(
             let selected = configured.into_iter().collect::<Vec<_>>();
             (Some(selected.clone()), selected)
         }
-        (None, Some(changed)) => (Some(changed.into_iter().collect()), Vec::new()),
+        (None, Some(changed)) => {
+            let selected = changed.into_iter().collect::<Vec<_>>();
+            let sources = if cli.find_related_tests {
+                selected.clone()
+            } else {
+                Vec::new()
+            };
+            (Some(selected), sources)
+        }
         (None, None) => (None, Vec::new()),
     };
     Ok(CoverageRunnerSettings {
@@ -2961,6 +3075,11 @@ mod tests {
             Cli::try_parse_from(["rjest", "some.test.js"]).expect("positional test path");
         assert!(!changed_selection_enabled(&positional, &config));
         assert!(Cli::try_parse_from(["rjest", "--lastCommit", "--watchAll"]).is_err());
+
+        let related = Cli::try_parse_from(["rjest", "--findRelatedTests", "src/source.js"])
+            .expect("findRelatedTests flag");
+        assert!(related.find_related_tests);
+        assert_eq!(related.test_path_patterns, [PathBuf::from("src/source.js")]);
     }
 
     #[test]
@@ -3621,7 +3740,7 @@ mod tests {
         let a = fs::canonicalize(temp.path().join("a.js")).expect("a source");
         let b = fs::canonicalize(temp.path().join("b.js")).expect("b source");
         let test = fs::canonicalize(temp.path().join("a.test.js")).expect("test source");
-        let changed = vec![a.clone(), b.clone(), test];
+        let changed = vec![a.clone(), b.clone(), test.clone()];
 
         let cli = Cli::try_parse_from(["rjest", "--coverage"]).expect("coverage CLI");
         let dynamic = coverage_runner_settings(&cli, &config, &config, Some(&changed))
@@ -3634,6 +3753,13 @@ mod tests {
         let configured = coverage_runner_settings(&cli, &config, &config, Some(&changed))
             .expect("configured coverage settings");
         assert_eq!(configured.filter, Some(vec![a.clone()]));
-        assert_eq!(configured.sources, vec![a]);
+        assert_eq!(configured.sources, vec![a.clone()]);
+
+        let cli = Cli::try_parse_from(["rjest", "--coverage", "--findRelatedTests", "a.js"])
+            .expect("find-related coverage CLI");
+        let explicit = coverage_runner_settings(&cli, &config, &config, Some(&[a.clone(), test]))
+            .expect("find-related coverage settings");
+        assert_eq!(explicit.filter, Some(vec![a.clone()]));
+        assert_eq!(explicit.sources, vec![a]);
     }
 }

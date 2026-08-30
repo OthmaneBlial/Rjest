@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 184,
-    "total": 184,
+    "passing": 192,
+    "total": 192,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 30,
-      "total": 30,
+      "passing": 36,
+      "total": 36,
       "percentage": 100
     },
     "Configuration": {
@@ -24,8 +24,8 @@
       "percentage": 100
     },
     "Coverage": {
-      "passing": 5,
-      "total": 5,
+      "passing": 7,
+      "total": 7,
       "percentage": 100
     },
     "Environment": {
@@ -1115,6 +1115,54 @@
     {
       "name": "gap-async-transformer-coverage",
       "category": "Transforms",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-source",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-transitive-source",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-test-path",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-no-tests",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-pass-with-no-tests",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-requires-files",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-coverage",
+      "category": "Coverage",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "find-related-configured-coverage",
+      "category": "Coverage",
       "compatible": true,
       "differences": []
     },
