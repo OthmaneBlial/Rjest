@@ -499,7 +499,7 @@ fn normalize(raw: RawProjectConfig, config_dir: &Path) -> Result<ProjectConfig, 
     let roots = normalize_roots(raw.roots, &root_dir, &defaults.roots)?;
 
     let test_environment =
-        normalize_test_environment(raw.test_environment, &root_dir, &defaults.test_environment)?;
+        normalize_test_environment(raw.test_environment, &root_dir, &defaults.test_environment);
 
     let resolve_paths = |values: Option<Vec<String>>| {
         values
@@ -861,20 +861,9 @@ fn normalize_test_environment(
     configured: Option<String>,
     root_dir: &Path,
     fallback: &str,
-) -> Result<String, ConfigError> {
+) -> String {
     let environment = configured.unwrap_or_else(|| default_test_environment(root_dir, fallback));
-    if matches!(
-        environment.as_str(),
-        "node" | "jest-environment-node" | "jsdom" | "jest-environment-jsdom"
-    ) || Path::new(&environment).is_absolute()
-    {
-        Ok(environment)
-    } else {
-        Err(ConfigError::UnsupportedValue {
-            field: "testEnvironment".into(),
-            value: environment,
-        })
-    }
+    normalize_module_reference(&environment, root_dir)
 }
 
 fn normalize_test_patterns(
@@ -1155,6 +1144,24 @@ mod tests {
         let package = load_inline_json(temp.path(), r#"{"resolver":"fixture-resolver"}"#)
             .expect("package resolver");
         assert_eq!(package.resolver.as_deref(), Some("fixture-resolver"));
+    }
+
+    #[test]
+    fn normalizes_custom_test_environment_module_references() {
+        let temp = tempdir().expect("temp dir");
+        let rooted = load_inline_json(
+            temp.path(),
+            r#"{"testEnvironment":"<rootDir>/tools/environment.cjs"}"#,
+        )
+        .expect("rooted environment");
+        assert_eq!(
+            rooted.test_environment,
+            temp.path().join("tools/environment.cjs").to_string_lossy()
+        );
+
+        let package = load_inline_json(temp.path(), r#"{"testEnvironment":"fixture-environment"}"#)
+            .expect("package environment");
+        assert_eq!(package.test_environment, "fixture-environment");
     }
 
     #[test]

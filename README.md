@@ -65,6 +65,12 @@ custom resolver functions and `{sync}` exports can delegate through Jest-shaped
 default resolver callbacks, including preloaded top-level-await ESM resolver
 modules. Async-only exports are awaited during static and dynamic native-ESM
 graph preparation. Nonstandard package-manager layouts are not yet covered.
+Configured and docblock-selected custom test environments load from explicit
+paths or Jest-prefixed packages. CommonJS and top-level-await ESM classes
+receive Jest-shaped constructor config/context, async setup/teardown, projected
+globals, export conditions, and awaited circus lifecycle events. Node and
+JSDOM subclasses are differential-tested; Rjest still bridges their globals
+into its worker realm rather than executing modules in the environment's VM.
 When no
 transform is configured, Rjest resolves the Babel-Jest version bundled with the
 project's installed Jest before falling back to a direct project dependency.

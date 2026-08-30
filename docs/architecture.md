@@ -23,7 +23,8 @@ The architecture follows the boundary recorded in
   obsolete-file cleanup.
 - `runtime/worker.mjs`: Jest-style declaration, hooks, assertions, mocks,
   snapshots, fake timers, configured sync/async transforms, JSDOM globals,
-  async timeouts, and per-file execution inside Node.
+  custom-environment lifecycle bridging, async timeouts, and per-file execution
+  inside Node.
 
 Workers currently receive one JSON request over stdin and return a prefixed,
 versioned JSON result. Snapshot content crosses that protocol as validated data:

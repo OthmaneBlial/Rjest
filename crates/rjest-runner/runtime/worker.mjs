@@ -86,6 +86,8 @@ let runtimePrettyFormatter;
 let runtimePrettyFormatPlugins = [];
 let runtimePrettyFormatSupportsBasicPrototype = false;
 let jsdomEnvironment;
+let customTestEnvironment;
+let fileDocblockPragmas = Object.create(null);
 let nativeWindowTimers;
 let nativeAnimationFrame;
 let transformerDepth = 0;
@@ -232,7 +234,14 @@ function defineSuite(name, callback, mode) {
   if (typeof callback !== 'function') {
     throw new TypeError('describe expects a callback function');
   }
-  const suite = makeSuite(String(name), currentSuite, mode);
+  const blockName = String(name);
+  dispatchCustomEnvironmentSyncEvent({
+    asyncError: new Error(),
+    blockName,
+    mode,
+    name: 'start_describe_definition',
+  });
+  const suite = makeSuite(blockName, currentSuite, mode);
   currentSuite.children.push(suite);
   const previous = currentSuite;
   currentSuite = suite;
@@ -244,6 +253,11 @@ function defineSuite(name, callback, mode) {
       );
     }
   } finally {
+    dispatchCustomEnvironmentSyncEvent({
+      blockName,
+      mode,
+      name: 'finish_describe_definition',
+    });
     currentSuite = previous;
   }
 }
@@ -253,7 +267,7 @@ function defineTest(name, callback, mode, timeout, concurrent = false) {
   if (mode !== 'todo' && typeof callback !== 'function') {
     throw new TypeError('test expects a callback function');
   }
-  currentSuite.children.push({
+  const node = {
     type: 'test',
     name: String(name),
     callback,
@@ -263,6 +277,17 @@ function defineTest(name, callback, mode, timeout, concurrent = false) {
     parent: currentSuite,
     invocations: 0,
     retryReasons: [],
+  };
+  currentSuite.children.push(node);
+  dispatchCustomEnvironmentSyncEvent({
+    asyncError: new Error(),
+    concurrent,
+    failing: false,
+    fn: callback,
+    mode,
+    name: 'add_test',
+    testName: node.name,
+    timeout,
   });
 }
 
@@ -271,7 +296,20 @@ function defineHook(type, callback, timeout) {
   if (typeof callback !== 'function') {
     throw new TypeError(`${type} expects a callback function`);
   }
-  currentSuite.hooks[type].push({callback, timeout});
+  currentSuite.hooks[type].push({
+    callback,
+    fn: callback,
+    parent: currentSuite,
+    timeout,
+    type,
+  });
+  dispatchCustomEnvironmentSyncEvent({
+    asyncError: new Error(),
+    fn: callback,
+    hookType: type,
+    name: 'add_hook',
+    timeout,
+  });
 }
 
 function describe(name, callback) {
@@ -2200,11 +2238,17 @@ let customResolverSync;
 let customResolverAsync;
 
 function environmentExportConditions() {
-  const configured = request.testEnvironmentOptions?.customExportConditions;
+  if (typeof customTestEnvironment?.exportConditions === 'function') {
+    const exported = customTestEnvironment.exportConditions();
+    if (Array.isArray(exported) && exported.every(value => typeof value === 'string')) {
+      return exported;
+    }
+  }
+  const configured = effectiveTestEnvironmentOptions?.customExportConditions;
   if (Array.isArray(configured) && configured.every(value => typeof value === 'string')) {
     return configured;
   }
-  return String(request.testEnvironment).includes('jsdom')
+  return isBuiltinJsdomEnvironment(effectiveTestEnvironment)
     ? ['browser']
     : ['node', 'node-addons'];
 }
@@ -4560,6 +4604,7 @@ async function collectedCoverage() {
 function configureFileEnvironment() {
   const source = readFileSync(request.testPath, 'utf8');
   const pragmas = parseDocblockPragmas(source);
+  fileDocblockPragmas = pragmas;
   const customEnvironment = pragmas['jest-environment'];
   if (Array.isArray(customEnvironment)) {
     throw new TypeError(
@@ -4575,6 +4620,279 @@ function configureFileEnvironment() {
       ...effectiveTestEnvironmentOptions,
       ...JSON.parse(environmentOptions),
     };
+  }
+}
+
+function isBuiltinNodeEnvironment(environment) {
+  return environment === 'node' || environment === 'jest-environment-node';
+}
+
+function isBuiltinJsdomEnvironment(environment) {
+  return environment === 'jsdom' || environment === 'jest-environment-jsdom';
+}
+
+function isBuiltinTestEnvironment(environment) {
+  return (
+    isBuiltinNodeEnvironment(environment) ||
+    isBuiltinJsdomEnvironment(environment)
+  );
+}
+
+function customEnvironmentProjectConfig() {
+  return {
+    automock: Boolean(request.automock),
+    clearMocks: Boolean(request.clearMocks),
+    extensionsToTreatAsEsm: request.extensionsToTreatAsEsm ?? [],
+    fakeTimers: request.fakeTimers ?? {},
+    globals: {},
+    moduleDirectories: configuredModuleDirectories,
+    moduleFileExtensions: request.moduleFileExtensions ?? [],
+    moduleNameMapper: request.moduleNameMapper ?? [],
+    modulePaths: request.modulePaths ?? [],
+    resetMocks: Boolean(request.resetMocks),
+    resetModules: Boolean(request.resetModules),
+    resolver: request.resolver,
+    restoreMocks: Boolean(request.restoreMocks),
+    rootDir: request.rootDir,
+    setupFiles: request.setupFiles ?? [],
+    setupFilesAfterEnv: request.setupFilesAfterEnv ?? [],
+    snapshotSerializers: request.snapshotSerializers ?? [],
+    testEnvironment: effectiveTestEnvironment,
+    testEnvironmentOptions: effectiveTestEnvironmentOptions,
+    testMatch: [],
+    testRegex: [],
+    transform: request.transform ?? {},
+    transformIgnorePatterns: request.transformIgnorePatterns ?? [],
+  };
+}
+
+function customEnvironmentGlobalConfig() {
+  return {
+    bail: 0,
+    collectCoverage: Boolean(request.collectCoverage),
+    maxWorkers: 1,
+    rootDir: request.rootDir,
+    seed: request.seed,
+    testNamePattern: request.testNamePattern,
+    updateSnapshot: request.snapshotUpdate,
+  };
+}
+
+async function loadCustomEnvironmentConstructor() {
+  const sourceRequire = createRequire(request.testPath);
+  const configured = String(effectiveTestEnvironment);
+  const candidates =
+    isAbsolute(configured) || configured.startsWith('.')
+      ? [configured]
+      : configured.startsWith('jest-environment-')
+        ? [configured]
+        : [`jest-environment-${configured}`, configured];
+  let resolved;
+  let resolutionError;
+  for (const candidate of candidates) {
+    try {
+      resolved = sourceRequire.resolve(candidate);
+      break;
+    } catch (error) {
+      resolutionError = error;
+    }
+  }
+  if (!resolved) throw resolutionError;
+  let loaded;
+  try {
+    loaded = sourceRequire(resolved);
+  } catch (error) {
+    if (
+      error?.code !== 'ERR_REQUIRE_ESM' &&
+      error?.code !== 'ERR_REQUIRE_ASYNC_MODULE'
+    ) {
+      throw error;
+    }
+    loaded = await import(pathToFileURL(resolved).href);
+  }
+  const candidate = loaded?.default ?? loaded?.TestEnvironment ?? loaded;
+  if (typeof candidate !== 'function') {
+    throw new TypeError(
+      `Test environment found at "${resolved}" does not export a constructor`,
+    );
+  }
+  return {Environment: candidate, resolved};
+}
+
+const customEnvironmentRealmIntrinsics = new Set([
+  'AggregateError',
+  'Array',
+  'ArrayBuffer',
+  'Atomics',
+  'BigInt',
+  'BigInt64Array',
+  'BigUint64Array',
+  'Boolean',
+  'DataView',
+  'Date',
+  'Error',
+  'EvalError',
+  'FinalizationRegistry',
+  'Float32Array',
+  'Float64Array',
+  'Function',
+  'Int8Array',
+  'Int16Array',
+  'Int32Array',
+  'Intl',
+  'JSON',
+  'Map',
+  'Math',
+  'Number',
+  'Object',
+  'Promise',
+  'Proxy',
+  'RangeError',
+  'ReferenceError',
+  'Reflect',
+  'RegExp',
+  'Set',
+  'SharedArrayBuffer',
+  'String',
+  'Symbol',
+  'SyntaxError',
+  'TypeError',
+  'URIError',
+  'Uint8Array',
+  'Uint8ClampedArray',
+  'Uint16Array',
+  'Uint32Array',
+  'WeakMap',
+  'WeakRef',
+  'WeakSet',
+  'WebAssembly',
+]);
+
+function projectCustomEnvironmentGlobals() {
+  const environmentGlobal = customTestEnvironment?.global;
+  if (!environmentGlobal || typeof environmentGlobal !== 'object') return;
+  const projections = [];
+  for (const key of Reflect.ownKeys(environmentGlobal)) {
+    if (
+      key === 'global' ||
+      key === 'globalThis' ||
+      customEnvironmentRealmIntrinsics.has(key)
+    ) {
+      continue;
+    }
+    let descriptor = Object.getOwnPropertyDescriptor(environmentGlobal, key);
+    if (!descriptor) continue;
+    const current = Object.getOwnPropertyDescriptor(globalThis, key);
+    if (current && !current.configurable) continue;
+    let value;
+    try {
+      value = Reflect.get(environmentGlobal, key, environmentGlobal);
+      descriptor = Object.getOwnPropertyDescriptor(environmentGlobal, key) ?? descriptor;
+    } catch {
+      continue;
+    }
+    projections.push({descriptor, key, value});
+  }
+  for (const projection of projections) {
+    const {descriptor, key} = projection;
+    let projectedValue = projection.value;
+    try {
+      Object.defineProperty(globalThis, key, {
+        configurable: true,
+        enumerable: descriptor.enumerable,
+        get() {
+          return projectedValue === environmentGlobal ? globalThis : projectedValue;
+        },
+        set(value) {
+          projectedValue = value === globalThis ? environmentGlobal : value;
+          Reflect.set(
+            environmentGlobal,
+            key,
+            projectedValue,
+            environmentGlobal,
+          );
+        },
+      });
+    } catch {
+      // Custom environments can expose host properties protected by Node.
+    }
+  }
+}
+
+async function configureCustomTestEnvironment() {
+  if (isBuiltinTestEnvironment(effectiveTestEnvironment)) return;
+  const {Environment, resolved} = await loadCustomEnvironmentConstructor();
+  customTestEnvironment = new Environment(
+    {
+      globalConfig: customEnvironmentGlobalConfig(),
+      projectConfig: customEnvironmentProjectConfig(),
+    },
+    {
+      console,
+      docblockPragmas: fileDocblockPragmas,
+      testPath: request.testPath,
+    },
+  );
+  if (typeof customTestEnvironment?.getVmContext !== 'function') {
+    throw new TypeError(
+      `Test environment found at "${resolved}" does not export a "getVmContext" method, which is mandatory from Jest 27`,
+    );
+  }
+  if (!customTestEnvironment.global || typeof customTestEnvironment.global !== 'object') {
+    throw new TypeError(`Test environment found at "${resolved}" has no global object`);
+  }
+  customTestEnvironment.global.console = console;
+  projectCustomEnvironmentGlobals();
+}
+
+async function setupCustomTestEnvironment() {
+  if (!customTestEnvironment) return;
+  if (typeof customTestEnvironment.setup === 'function') {
+    await customTestEnvironment.setup();
+  }
+  projectCustomEnvironmentGlobals();
+}
+
+function customEnvironmentState() {
+  return {
+    currentDescribeBlock: currentSuite,
+    currentlyRunningTest: activeTest,
+    hasFocusedTests: hasOnly(rootSuite),
+    hasStarted: definitionComplete,
+    rootDescribeBlock: rootSuite,
+    seed: request.seed,
+    testNamePattern: request.testNamePattern,
+    testTimeout: defaultTimeout,
+    unhandledErrors: [],
+  };
+}
+
+async function dispatchCustomEnvironmentEvent(event) {
+  if (typeof customTestEnvironment?.handleTestEvent !== 'function') return;
+  await customTestEnvironment.handleTestEvent(event, customEnvironmentState());
+  projectCustomEnvironmentGlobals();
+}
+
+function dispatchCustomEnvironmentSyncEvent(event) {
+  if (typeof customTestEnvironment?.handleTestEvent !== 'function') return;
+  customTestEnvironment.handleTestEvent(event, customEnvironmentState());
+  projectCustomEnvironmentGlobals();
+}
+
+async function teardownCustomTestEnvironment() {
+  if (!customTestEnvironment) return;
+  let eventError;
+  try {
+    await dispatchCustomEnvironmentEvent({name: 'teardown'});
+  } catch (error) {
+    eventError = error;
+  }
+  try {
+    if (typeof customTestEnvironment.teardown === 'function') {
+      await customTestEnvironment.teardown();
+    }
+  } finally {
+    if (eventError) throw eventError;
   }
 }
 
@@ -4601,7 +4919,7 @@ function parseDocblockPragmas(source) {
 }
 
 function installJsdomEnvironment() {
-  if (!String(effectiveTestEnvironment).includes('jsdom')) return;
+  if (!isBuiltinJsdomEnvironment(effectiveTestEnvironment)) return;
   const existingGlobalDescriptors = Object.getOwnPropertyDescriptors(globalThis);
   const {JSDOM} = requireFromTest('jsdom');
   const environmentOptions = effectiveTestEnvironmentOptions;
@@ -5841,6 +6159,26 @@ async function callAsync(callback, timeout, label) {
   }
 }
 
+async function callEnvironmentHook(hook, label, context = {}) {
+  await dispatchCustomEnvironmentEvent({hook, name: 'hook_start'});
+  try {
+    await callAsync(hook.callback, hook.timeout, label);
+    await dispatchCustomEnvironmentEvent({
+      ...context,
+      hook,
+      name: 'hook_success',
+    });
+  } catch (error) {
+    await dispatchCustomEnvironmentEvent({
+      ...context,
+      error,
+      hook,
+      name: 'hook_failure',
+    });
+    throw error;
+  }
+}
+
 function hookChain(testNode, type) {
   const suites = [];
   for (let suite = testNode.parent; suite; suite = suite.parent) {
@@ -5885,10 +6223,12 @@ async function runTest(
     retryReasons: [...(node.retryReasons ?? [])],
   };
   result[RESULT_TEST_NODE] = node;
+  await dispatchCustomEnvironmentEvent({name: 'test_start', test: node});
   const isSelected = selected || node.mode === 'only';
   if (node.mode === 'todo') {
     markSnapshotsChecked(result.fullName);
     result.status = 'todo';
+    await dispatchCustomEnvironmentEvent({name: 'test_todo', test: node});
     return result;
   }
   if (
@@ -5899,9 +6239,11 @@ async function runTest(
   ) {
     markSnapshotsChecked(result.fullName);
     result.status = 'skipped';
+    await dispatchCustomEnvironmentEvent({name: 'test_skip', test: node});
     return result;
   }
   activeTest = node;
+  await dispatchCustomEnvironmentEvent({name: 'test_started', test: node});
   node.invocations = (node.invocations ?? 0) + 1;
   result.invocations = node.invocations;
   node.assertionCalls = 0;
@@ -5930,26 +6272,36 @@ async function runTest(
     if (request.restoreMocks) jest.restoreAllMocks();
     for (const hook of hookChain(node, 'beforeEach')) {
       try {
-        await callAsync(hook.callback, hook.timeout, 'beforeEach hook');
+        await callEnvironmentHook(hook, 'beforeEach hook', {test: node});
       } catch (error) {
         failures.push(error);
         break;
       }
     }
     if (failures.length === 0) {
+      await dispatchCustomEnvironmentEvent({name: 'test_fn_start', test: node});
       try {
         await callAsync(
           node.callback,
           node.timeout,
           `test "${result.fullName}"`,
         );
+        await dispatchCustomEnvironmentEvent({
+          name: 'test_fn_success',
+          test: node,
+        });
       } catch (error) {
         failures.push(error);
+        await dispatchCustomEnvironmentEvent({
+          error,
+          name: 'test_fn_failure',
+          test: node,
+        });
       }
     }
     for (const hook of hookChain(node, 'afterEach')) {
       try {
-        await callAsync(hook.callback, hook.timeout, 'afterEach hook');
+        await callEnvironmentHook(hook, 'afterEach hook', {test: node});
       } catch (error) {
         failures.push(error);
       }
@@ -5981,6 +6333,7 @@ async function runTest(
     result.failureMessage = failures.map(errorText).join('\n\n');
   }
   result.retryReasons = [...(node.retryReasons ?? [])];
+  await dispatchCustomEnvironmentEvent({name: 'test_done', test: node});
   activeTest = undefined;
   return result;
 }
@@ -6107,11 +6460,17 @@ async function runSuiteOnce(
   if (!hasRunnable(suite, focusExists, selected, skipped)) {
     return skippedResults(suite);
   }
+  await dispatchCustomEnvironmentEvent({
+    describeBlock: suite,
+    name: 'run_describe_start',
+  });
   let beforeAllError = inheritedBeforeAllError;
   if (!beforeAllError) {
     for (const hook of suite.hooks.beforeAll) {
       try {
-        await callAsync(hook.callback, hook.timeout, 'beforeAll hook');
+        await callEnvironmentHook(hook, 'beforeAll hook', {
+          describeBlock: suite,
+        });
       } catch (error) {
         beforeAllError = error;
         break;
@@ -6172,11 +6531,17 @@ async function runSuiteOnce(
   }
   for (const hook of suite.hooks.afterAll) {
     try {
-      await callAsync(hook.callback, hook.timeout, 'afterAll hook');
+      await callEnvironmentHook(hook, 'afterAll hook', {
+        describeBlock: suite,
+      });
     } catch (error) {
       fileErrors.push(errorText(error));
     }
   }
+  await dispatchCustomEnvironmentEvent({
+    describeBlock: suite,
+    name: 'run_describe_finish',
+  });
   return results;
 }
 
@@ -6192,6 +6557,7 @@ process.on('uncaughtException', error => {
 let tests = [];
 try {
   configureFileEnvironment();
+  await configureCustomTestEnvironment();
   await configureCustomResolver();
   await configureTransforms();
   installJsdomEnvironment();
@@ -6232,15 +6598,49 @@ try {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
     }
   }
+  await setupCustomTestEnvironment();
+  const runtimeGlobals = {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    fdescribe: describe.only,
+    fit: test.only,
+    it,
+    jest,
+    test,
+    xdescribe: describe.skip,
+    xit: test.skip,
+    xtest: test.skip,
+  };
+  if (customTestEnvironment) {
+    Object.assign(customTestEnvironment.global, runtimeGlobals);
+    projectCustomEnvironmentGlobals();
+  }
+  await dispatchCustomEnvironmentEvent({
+    name: 'setup',
+    parentProcess: process,
+    runtimeGlobals,
+    testNamePattern: request.testNamePattern,
+  });
   if (request.fakeTimers?.enableGlobally) {
     installFakeTimers(request.fakeTimers);
   }
+  // jest-circus registers its mock/reset/restore lifecycle as the first root
+  // beforeEach hook. Rjest performs those operations at the same boundary in
+  // runTest, while this no-op hook preserves the observable custom-environment
+  // event stream and ordering before user hooks.
+  defineHook('beforeEach', () => {});
   for (const setupPath of request.setupFilesAfterEnv ?? []) {
     await loadRuntimeModule(setupPath);
   }
   await loadRuntimeModule(request.testPath);
   definitionComplete = true;
+  await dispatchCustomEnvironmentEvent({name: 'run_start'});
   tests = await runSuite(rootSuite, hasOnly(rootSuite));
+  await dispatchCustomEnvironmentEvent({name: 'run_finish'});
   await Promise.resolve();
   await collectUncoveredCoverage();
 } catch (error) {
@@ -6278,6 +6678,13 @@ try {
   fileErrors.push(errorText(error));
 }
 
+if (fakeTimers.active) restoreRealTimers();
+try {
+  await teardownCustomTestEnvironment();
+} catch (error) {
+  fileErrors.push(errorText(error));
+}
+
 const result = {
   protocolVersion: PROTOCOL_VERSION,
   testPath: request.testPath,
@@ -6298,7 +6705,6 @@ const result = {
   },
   coverage,
 };
-if (fakeTimers.active) restoreRealTimers();
 jsdomEnvironment?.window.close();
 process.stdout.write(`${RESULT_PREFIX}${JSON.stringify(result)}\n`, () => {
   process.exit(0);

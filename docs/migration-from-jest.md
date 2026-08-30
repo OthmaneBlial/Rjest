@@ -40,14 +40,19 @@ worker trigger.
 Test-file docblocks may override the configured Node or JSDOM environment with
 `@jest-environment`. JSON supplied through `@jest-environment-options` is
 merged over the project's environment options before the file is transformed
-and evaluated. Custom environment classes remain outside the current claim.
+and evaluated. Custom environment classes can be referenced by explicit path
+or Jest-prefixed package name. CommonJS and top-level-await ESM exports receive
+Jest-shaped config/context, async setup and teardown, projected globals, export
+conditions, and awaited circus lifecycle events.
 
 JSDOM projects can redefine or spy on `window`, `self`, `navigator`, storage,
 and IndexedDB globals using the patterns covered by the differential suite.
 Rjest also isolates JSDOM's initial lifecycle events from test-side global
 constructor mocks and does not expose Node-only `TextEncoder` or `TextDecoder`
 when the installed JSDOM window omits them. Complete custom environment
-behavior remains outside the current compatibility claim.
+VM-context identity remains outside the current compatibility claim: Rjest
+currently bridges a custom environment's globals into the file worker rather
+than evaluating every test module inside `getVmContext()`.
 
 The fake-indexeddb constructor family, including `IDBRequest`,
 `IDBTransaction`, `IDBDatabase`, and related cursor/object-store globals,

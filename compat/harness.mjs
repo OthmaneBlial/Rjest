@@ -156,6 +156,20 @@ const cases = [
     category: 'Environment',
     expectedExit: 0,
   },
+  {
+    name: 'environment-custom',
+    category: 'Environment',
+    compareArtifacts: ['environment-events.json'],
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'environment-custom-jsdom-esm',
+    category: 'Environment',
+    compareArtifacts: ['environment-teardown.json'],
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'failure', category: 'Core API', expectedExit: 1},
   {name: 'fake-timers-clock', category: 'Fake timers', expectedExit: 0},
   {name: 'fake-timers-legacy', category: 'Fake timers', expectedExit: 0},
@@ -699,6 +713,13 @@ function compareCase(testCase) {
         differences.push('rewritten test sources differ');
       }
     }
+    for (const artifact of testCase.compareArtifacts ?? []) {
+      const jestArtifact = readOptionalArtifact(jestFixture, artifact);
+      const rjestArtifact = readOptionalArtifact(rjestFixture, artifact);
+      if (jestArtifact !== rjestArtifact) {
+        differences.push(`artifact differs: ${artifact}`);
+      }
+    }
     if (testCase.compareCoverage) {
       const jestCoverage = normalizeCoverageSummary(
         JSON.parse(readFileSync(join(jestFixture, '.coverage', 'coverage-summary.json'), 'utf8')),
@@ -734,6 +755,11 @@ function compareCase(testCase) {
   } finally {
     rmSync(temporary, {recursive: true, force: true});
   }
+}
+
+function readOptionalArtifact(fixture, relativePath) {
+  const path = join(fixture, relativePath);
+  return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
 }
 
 function normalizeCoverageSummary(summary) {

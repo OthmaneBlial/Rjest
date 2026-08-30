@@ -7,11 +7,12 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 102/102 (100.0%) across its explicitly listed
+The current generated matrix is 104/104 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 11/11 (100.0%), ESM is 7/7 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
-21/21 (100.0%). CLI is 6/6 (100.0%). These are scores for the bounded regression
-set, not claims about the unmeasured full Jest API.
+21/21 (100.0%). CLI is 6/6 (100.0%) and environments are 7/7 (100.0%). These
+are scores for the bounded regression set, not claims about the unmeasured full
+Jest API.
 
 The current alpha supports JSON/package and executable JavaScript/TypeScript
 configuration, native discovery, isolated JS execution, configured synchronous
@@ -89,6 +90,15 @@ mock/actual identities, static/dynamic imports, and synchronous object exports.
 Async-only resolver exports retain Jest's default synchronous CommonJS path,
 while native-ESM graph preparation awaits their static and dynamic resolutions
 and caches the canonical result for Node's later synchronous hook.
+Custom test environment references accept explicit paths and Jest's package
+prefix lookup. CommonJS and top-level-await ESM environment classes receive
+merged project/docblock options, constructor context, async setup/teardown,
+projected globals, custom export conditions, and awaited circus lifecycle
+events. Differential fixtures cover a Node subclass with exact setup, hook,
+test, run, and teardown events plus an ESM JSDOM subclass with browser globals
+and configured URL. Rjest currently bridges environment globals into its Node
+worker realm; exact custom VM-context identity and every mutable circus state
+field remain outside this bounded claim.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
