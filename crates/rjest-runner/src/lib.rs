@@ -536,11 +536,8 @@ fn execute_worker(
     if std::env::var_os("NODE_ENV").is_none() {
         command.env("NODE_ENV", "test");
     }
-    if !options.module_paths.is_empty() {
-        command.env(
-            "NODE_PATH",
-            std::env::join_paths(&options.module_paths).unwrap_or_default(),
-        );
+    if let Some(node_path) = worker_node_path(options) {
+        command.env("NODE_PATH", node_path);
     }
     let mut child = command
         .arg(worker_path)
@@ -583,6 +580,21 @@ fn execute_worker(
     let stdout = join_reader(stdout_reader)?;
     let stderr = join_reader(stderr_reader)?;
     Ok((stdout, stderr, termination))
+}
+
+fn worker_node_path(options: &RunnerOptions) -> Option<std::ffi::OsString> {
+    let mut paths = options.module_paths.clone();
+    let pnpm_virtual_hoist = options.root_dir.join("node_modules/.pnpm/node_modules");
+    if pnpm_virtual_hoist.is_dir() {
+        paths.push(pnpm_virtual_hoist);
+    }
+    if let Some(inherited) = std::env::var_os("NODE_PATH") {
+        paths.extend(std::env::split_paths(&inherited));
+    }
+    if paths.is_empty() {
+        return None;
+    }
+    std::env::join_paths(paths).ok()
 }
 
 fn read_pipe(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
@@ -1094,5 +1106,71 @@ mod tests {
 
         assert!(result.is_success());
         assert_eq!(result.test_results[0].tests[0].name, "bundled transformer");
+    }
+
+    #[test]
+    fn configured_babel_transform_ignores_an_ancestor_runner_copy() {
+        let temp = tempdir().expect("temp dir");
+        let project = temp.path().join("project");
+        fs::create_dir_all(&project).expect("project directory");
+        let test_path = project.join("isolated.test.js");
+        fs::write(&test_path, "this source requires the selected transformer")
+            .expect("test source");
+
+        let ancestor_babel = temp.path().join("node_modules/babel-jest");
+        fs::create_dir_all(&ancestor_babel).expect("ancestor Babel-Jest");
+        fs::write(
+            ancestor_babel.join("package.json"),
+            r#"{"name":"babel-jest","main":"index.js"}"#,
+        )
+        .expect("ancestor Babel-Jest package");
+        fs::write(
+            ancestor_babel.join("index.js"),
+            "exports.process = () => \"test('runner leak', () => { throw new Error('runner Babel-Jest leaked') })\";",
+        )
+        .expect("ancestor transformer");
+
+        let jest = project.join("node_modules/jest");
+        let core = jest.join("node_modules/@jest/core");
+        let jest_config = core.join("node_modules/jest-config");
+        let installed_babel = jest_config.join("node_modules/babel-jest");
+        fs::create_dir_all(&installed_babel).expect("installed Babel-Jest");
+        fs::write(jest.join("package.json"), r#"{"version":"30.4.2"}"#).expect("Jest package");
+        fs::write(core.join("package.json"), r#"{"name":"@jest/core"}"#)
+            .expect("Jest core package");
+        fs::write(
+            jest_config.join("package.json"),
+            r#"{"name":"jest-config"}"#,
+        )
+        .expect("Jest config package");
+        fs::write(
+            installed_babel.join("package.json"),
+            r#"{"name":"babel-jest","main":"index.js"}"#,
+        )
+        .expect("installed Babel-Jest package");
+        fs::write(
+            installed_babel.join("index.js"),
+            "exports.process = () => \"test('project transformer', () => expect(true).toBe(true))\";",
+        )
+        .expect("installed transformer");
+
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical test"),
+        }];
+        let mut transform = BTreeMap::new();
+        transform.insert(
+            r"^.+\.js$".into(),
+            serde_json::Value::String("babel-jest".into()),
+        );
+        let options = RunnerOptions {
+            root_dir: project,
+            transform,
+            ..RunnerOptions::default()
+        };
+
+        let result = run(&files, &options).expect("run transformed test");
+
+        assert!(result.is_success());
+        assert_eq!(result.test_results[0].tests[0].name, "project transformer");
     }
 }

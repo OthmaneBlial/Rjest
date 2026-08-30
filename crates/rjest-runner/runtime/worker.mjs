@@ -4587,9 +4587,10 @@ async function transformerFromConfig(pattern, configured) {
   let transformer;
   const leaveTransformerRuntime = enterTransformerModuleRuntime();
   try {
+    const transformerSpecifier = configuredTransformerSpecifier(moduleName);
     let loaded;
     try {
-      loaded = requireFromTest(moduleName);
+      loaded = requireFromTest(transformerSpecifier);
     } catch (error) {
       if (
         error?.code !== 'ERR_REQUIRE_ESM' &&
@@ -4597,7 +4598,7 @@ async function transformerFromConfig(pattern, configured) {
       ) {
         throw error;
       }
-      const resolved = requireFromTest.resolve(moduleName);
+      const resolved = requireFromTest.resolve(transformerSpecifier);
       loaded = await import(pathToFileURL(resolved).href);
     }
     const exported = loaded?.default ?? loaded;
@@ -4623,6 +4624,54 @@ async function transformerFromConfig(pattern, configured) {
     transformer,
     transformerConfig: transformerConfig ?? {},
   };
+}
+
+function projectContainsRuntimePath(path) {
+  if (typeof path !== 'string' || !isAbsolute(path)) return false;
+  const root = normalizedRuntimePath(resolvePath(request.rootDir));
+  const candidate = normalizedRuntimePath(resolvePath(path));
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+function installedJestTransformerSpecifier(moduleName) {
+  if (!installedJestPackagePath || moduleName !== 'babel-jest') {
+    return undefined;
+  }
+  try {
+    const requireFromJest = createRequire(installedJestPackagePath);
+    const corePackagePath = requireFromJest.resolve('@jest/core/package.json');
+    const configPackagePath = createRequire(corePackagePath).resolve(
+      'jest-config/package.json',
+    );
+    return createRequire(configPackagePath).resolve(moduleName);
+  } catch {
+    return undefined;
+  }
+}
+
+function configuredTransformerSpecifier(moduleName) {
+  if (
+    isAbsolute(moduleName) ||
+    moduleName.startsWith('./') ||
+    moduleName.startsWith('../')
+  ) {
+    return moduleName;
+  }
+  let configuredPath;
+  try {
+    configuredPath = requireFromTest.resolve(moduleName);
+  } catch {
+    // Jest's own dependency graph can still supply its default Babel
+    // transformer when the package manager does not expose it at rootDir.
+  }
+  if (configuredPath && (pnpApi || projectContainsRuntimePath(configuredPath))) {
+    return configuredPath;
+  }
+  return (
+    installedJestTransformerSpecifier(moduleName) ??
+    configuredPath ??
+    moduleName
+  );
 }
 
 async function configureTransforms() {
@@ -6481,15 +6530,16 @@ const jest = {
       );
     }
     let runs = 0;
-    let timer;
-    while ((timer = nextFakeTimer())) {
+    while (true) {
+      await new Promise(resolve => nativeSetTimeout(resolve, 0));
+      const timer = nextFakeTimer();
+      if (!timer) break;
       if (++runs > fakeTimers.maxRuns) {
         throw new Error(
           `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
         );
       }
       runTimer(timer);
-      await Promise.resolve();
     }
     runAllTicks();
     return jest;

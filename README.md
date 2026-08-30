@@ -67,17 +67,21 @@ modules. Async-only exports are awaited during static and dynamic native-ESM
 graph preparation. When Yarn Plug'n'Play is active, Rjest resolves through its
 `pnpapi` contract with Jest's import/require conditions; a deterministic portal
 fixture covers CommonJS, native ESM, ESM mocks, conditional exports, and
-undeclared-dependency errors. Zip-backed PnP archives and pnpm-specific layouts
-remain outside that bounded proof.
+undeclared-dependency errors. Configured pnpm projects automatically receive
+their virtual-hoist lookup path, and a differential fixture proves transformer
+dependencies stored there. Zip-backed PnP archives and pnpm isolated-linker
+layouts remain outside that bounded proof.
 Configured and docblock-selected custom test environments load from explicit
 paths or Jest-prefixed packages. CommonJS and top-level-await ESM classes
 receive Jest-shaped constructor config/context, async setup/teardown, projected
 globals, export conditions, and awaited circus lifecycle events. Node and
 JSDOM subclasses are differential-tested; Rjest still bridges their globals
 into its worker realm rather than executing modules in the environment's VM.
-When no
-transform is configured, Rjest resolves the Babel-Jest version bundled with the
-project's installed Jest before falling back to a direct project dependency.
+For explicit bare Babel-Jest transforms, Rjest resolves through the project's
+installed Jest dependency graph instead of accidentally loading an ancestor
+runner copy. When no transform is configured, it resolves the Babel-Jest
+version bundled with the project's installed Jest before falling back to a
+direct project dependency.
 For CommonJS, `jest.mock`/`doMock` factories, manual and virtual mocks,
 `requireActual`, `requireMock`, and recursive basic auto-mocks are available;
 transformed modules retain the declaring-file context used to resolve mocks.
@@ -212,6 +216,13 @@ adds a pnpm 10 workspace, Jest 30.3, React 19, JSDOM, Babel TypeScript/TSX,
 legacy fake timers, setup modules, a custom HTML serializer, and a
 snapshot-heavy SSR/UI suite. Official Jest and Rjest agree exactly on 59/59
 suites, 1,465/1,465 tests, and 749/749 snapshots without changing the project.
+
+The pinned [React Navigation corpus](docs/corpus/react-navigation.md) adds a
+pnpm 11 TypeScript monorepo with two Jest 30.4 projects, React Native and web
+presets, Babel TSX, JSDOM, React Testing Library, modern fake timers, mocks, and
+169 snapshots. On the unchanged project, official Jest and Rjest register the
+same 81 suites and all 1,303 test identities, with exact status and snapshot
+parity. Both reproduce the same two upstream Node 25 failures.
 
 The pinned [Apollo Client corpus](docs/corpus/apollo-client.md) establishes a
 much larger Jest 30 baseline across six Core/React projects: 563 suites, 9,974

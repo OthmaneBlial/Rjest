@@ -36,3 +36,27 @@ test('defers zero-delay timers created by promise work during a tick', async () 
   expect(callback).toHaveBeenCalledTimes(1);
   jest.useRealTimers();
 });
+
+test('settles native thenables before draining fake microtasks', async () => {
+  jest.useFakeTimers();
+  let assimilated = false;
+  let warnedBeforeAssimilation = false;
+  const pending = Promise.resolve({
+    then(resolve) {
+      assimilated = true;
+      resolve();
+    },
+  });
+  queueMicrotask(() => {
+    queueMicrotask(() => {
+      if (!assimilated) warnedBeforeAssimilation = true;
+    });
+  });
+  setTimeout(() => {}, 0);
+
+  await jest.runAllTimersAsync();
+  await pending;
+
+  expect(warnedBeforeAssimilation).toBe(false);
+  jest.useRealTimers();
+});

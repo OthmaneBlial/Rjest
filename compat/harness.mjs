@@ -668,6 +668,21 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
+  {
+    name: 'transform-installed-jest-isolation',
+    category: 'Transforms',
+    contaminateBabelJest: true,
+    expectedExit: 0,
+    installedJestPackage: 'jest',
+    useFixtureConfig: true,
+  },
+  {
+    name: 'transform-pnpm-virtual-hoist',
+    category: 'Transforms',
+    expectedExit: 0,
+    preparePnpmVirtualHoist: true,
+    useFixtureConfig: true,
+  },
   {name: 'gap-typescript-enum', category: 'Transforms', expectedExit: 0},
   {
     name: 'gap-async-transformer',
@@ -713,9 +728,10 @@ function compareCase(testCase) {
   const label = testCase.label ?? testCase.name;
   const sourceFixture = join(fixtures, testCase.name);
   const temporary = mkdtempSync(join(tmpdir(), 'rjest-compat-'));
-    const jestOutput = join(temporary, 'jest-result.json');
-    const jestFixture = join(temporary, 'jest');
-    const rjestFixture = join(temporary, 'rjest');
+  const jestOutput = join(temporary, 'jest-result.json');
+  const jestFixture = join(temporary, 'jest');
+  const rjestFixture = join(temporary, 'rjest');
+  const contaminatedNodeModules = join(temporary, 'runner-node-modules');
   try {
     cpSync(sourceFixture, jestFixture, {recursive: true});
     cpSync(sourceFixture, rjestFixture, {recursive: true});
@@ -727,9 +743,16 @@ function compareCase(testCase) {
       preparePnpFixture(jestFixture);
       preparePnpFixture(rjestFixture);
     }
+    if (testCase.preparePnpmVirtualHoist) {
+      preparePnpmVirtualHoist(jestFixture);
+      preparePnpmVirtualHoist(rjestFixture);
+    }
     if (testCase.installedJestPackage) {
       prepareInstalledJest(jestFixture, testCase.installedJestPackage);
       prepareInstalledJest(rjestFixture, testCase.installedJestPackage);
+    }
+    if (testCase.contaminateBabelJest) {
+      prepareContaminatedBabelJest(contaminatedNodeModules);
     }
     const jestCwd = testCase.workingDirectory
       ? join(jestFixture, testCase.workingDirectory)
@@ -769,6 +792,9 @@ function compareCase(testCase) {
         testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
       NODE_OPTIONS: fixtureNodeOptions(testCase, jestFixture),
     };
+    if (testCase.preparePnpmVirtualHoist) {
+      jestEnvironment.NODE_PATH = pnpmVirtualHoistPath(jestFixture);
+    }
     if (testCase.unsetNodeEnv) delete jestEnvironment.NODE_ENV;
     const jestRun = spawnSync(
       process.execPath,
@@ -809,7 +835,9 @@ function compareCase(testCase) {
     }
     const rjestEnvironment = {
       ...process.env,
-      NODE_PATH: join(repository, 'node_modules'),
+      NODE_PATH: testCase.contaminateBabelJest
+        ? contaminatedNodeModules
+        : join(repository, 'node_modules'),
       NODE_OPTIONS: fixtureNodeOptions(testCase, rjestFixture),
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
       RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
@@ -961,6 +989,18 @@ function preparePnpFixture(fixture) {
   }
 }
 
+function pnpmVirtualHoistPath(fixture) {
+  return join(fixture, 'node_modules', '.pnpm', 'node_modules');
+}
+
+function preparePnpmVirtualHoist(fixture) {
+  cpSync(
+    join(fixture, 'virtual-transform-dependency'),
+    join(pnpmVirtualHoistPath(fixture), 'virtual-transform-dependency'),
+    {recursive: true},
+  );
+}
+
 function prepareInstalledJest(fixture, packageName) {
   const nodeModules = join(fixture, 'node_modules');
   mkdirSync(nodeModules, {recursive: true});
@@ -968,6 +1008,19 @@ function prepareInstalledJest(fixture, packageName) {
     join(repository, 'node_modules', packageName),
     join(nodeModules, 'jest'),
     'junction',
+  );
+}
+
+function prepareContaminatedBabelJest(nodeModules) {
+  const babelJest = join(nodeModules, 'babel-jest');
+  mkdirSync(babelJest, {recursive: true});
+  writeFileSync(
+    join(babelJest, 'package.json'),
+    JSON.stringify({name: 'babel-jest', main: 'index.js'}),
+  );
+  writeFileSync(
+    join(babelJest, 'index.js'),
+    "throw new Error('runner-visible Babel-Jest must not be loaded');\n",
   );
 }
 

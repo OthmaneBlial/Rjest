@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 128,
-    "total": 128,
+    "passing": 130,
+    "total": 130,
     "percentage": 100
   },
   "categories": {
@@ -64,8 +64,8 @@
       "percentage": 100
     },
     "Transforms": {
-      "passing": 5,
-      "total": 5,
+      "passing": 7,
+      "total": 7,
       "percentage": 100
     }
   },
@@ -816,6 +816,18 @@
     },
     {
       "name": "transformer-cache-isolation",
+      "category": "Transforms",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "transform-installed-jest-isolation",
+      "category": "Transforms",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "transform-pnpm-virtual-hoist",
       "category": "Transforms",
       "compatible": true,
       "differences": []
