@@ -351,6 +351,10 @@ Last updated: 2026-08-30
   loose nested equality, so nested `undefined` properties behave like
   `toEqual`. Apollo's unchanged `ApolloClient/general.test.ts` matches all 447
   statuses across the Core projects: 423 passed and 24 skipped.
+- Asymmetric factories now return class instances, matching Jest's object-shape
+  boundary so ecosystem serializers do not recursively flatten away matcher
+  methods. Apollo's `MockedProvider` `maxUsageCount` regression matches 3
+  selected passes and 84 skips across React 17, 18, and 19.
 
 ## Current work
 

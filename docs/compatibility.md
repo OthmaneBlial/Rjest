@@ -160,6 +160,12 @@ properties whose expected value is `undefined`.
 Every custom matcher installed with `expect.extend` also creates positive and
 negative asymmetric factories on `expect`, using the same matcher context and
 custom equality testers as its assertion form.
+Rjest-created asymmetric matchers are class instances like Jest's rather than
+plain object literals. User utilities that recursively copy plain objects
+therefore preserve their matcher methods and nested `objectContaining` /
+`stringContaining` behavior. Apollo's `MockedProvider` `maxUsageCount` probe
+matches all 87 statuses across React 17, 18, and 19: 3 selected passes and 84
+skips.
 The matcher context includes the covered Jest utility surface for extension
 packages: strict equality with explicit testers, generic iterable equality,
 expected/received color functions, structural diffs, and

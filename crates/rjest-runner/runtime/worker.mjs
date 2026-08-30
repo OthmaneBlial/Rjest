@@ -471,17 +471,35 @@ function printable(value) {
   });
 }
 
+class RjestAsymmetricMatcher {
+  constructor(match, description, sample, inverse) {
+    this.$$typeof = Symbol.for('jest.asymmetricMatcher');
+    this.sample = sample;
+    this.inverse = inverse;
+    Object.defineProperties(this, {
+      [ASYMMETRIC]: {value: true},
+      match: {value: match},
+      description: {value: description},
+    });
+  }
+
+  asymmetricMatch(other) {
+    return this.match(other);
+  }
+
+  toString() {
+    return this.description;
+  }
+
+  toAsymmetricMatcher() {
+    return this.description === 'Any'
+      ? `Any<${this.sample?.name ?? 'anonymous'}>`
+      : this.description;
+  }
+}
+
 function asymmetric(match, description, sample, inverse = false) {
-  return {
-    $$typeof: Symbol.for('jest.asymmetricMatcher'),
-    sample,
-    inverse,
-    [ASYMMETRIC]: true,
-    asymmetricMatch: match,
-    toString: () => description,
-    toAsymmetricMatcher: () =>
-      description === 'Any' ? `Any<${sample?.name ?? 'anonymous'}>` : description,
-  };
+  return new RjestAsymmetricMatcher(match, description, sample, inverse);
 }
 
 function isAsymmetric(value) {

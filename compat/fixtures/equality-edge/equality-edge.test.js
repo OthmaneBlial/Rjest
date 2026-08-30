@@ -50,3 +50,45 @@ test('uses loose nested equality inside objectContaining', () => {
   expect({}).not.toEqual(expect.objectContaining({missing: undefined}));
   expect([1]).not.toEqual(expect.objectContaining({0: 1}));
 });
+
+test('matches Error properties through an asymmetric matcher in strict custom equality', () => {
+  expect.extend({
+    toStrictlyMatch(received, expected) {
+      const pass = this.equals(
+        expected,
+        received,
+        [...this.customTesters, this.utils.iterableEquality],
+        true,
+      );
+      return {
+        pass,
+        message: () => 'expected strict custom equality to match',
+      };
+    },
+  });
+
+  const serializePlainObjects = value => {
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      (Object.getPrototypeOf(value) === Object.prototype ||
+        Object.getPrototypeOf(value) === null)
+    ) {
+      return Reflect.ownKeys(value).reduce((copy, key) => {
+        copy[key] = serializePlainObjects(value[key]);
+        return copy;
+      }, {});
+    }
+    return value;
+  };
+  const expected = serializePlainObjects({
+    error: expect.objectContaining({
+      message: expect.stringContaining('No more mocked responses'),
+    }),
+  });
+
+  expect(Object.getPrototypeOf(expected.error)).not.toBe(Object.prototype);
+  expect({
+    error: new Error('No more mocked responses for the query'),
+  }).toStrictlyMatch(expected);
+});

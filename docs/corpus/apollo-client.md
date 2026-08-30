@@ -121,6 +121,7 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `ObservableQuery.ts` | Core / min-RxJS / GraphQL 16 | 411 passed, 24 skipped | 411 passed, 24 skipped |
 | `ApolloClient.ts` | Core / min-RxJS / GraphQL 16 | 225 passed, 18 skipped, 60 snapshots | 225 passed, 18 skipped, 60 snapshots |
 | `ApolloClient/general.test.ts` | Core / min-RxJS / GraphQL 16 | 423 passed, 24 skipped | 423 passed, 24 skipped |
+| `local-state/export.ts` + `local-state/general.ts` | Core / min-RxJS / GraphQL 16 | 177 passed, 15 snapshots | 177 passed, 15 snapshots |
 | `useLoadableQuery.test.tsx` | React 18 / 19 | 98 / 98 passed | 98 / 98 passed |
 | `useSuspenseFragment.test.tsx` | React 18 / 19 | 52 passed, 28 skipped | 52 passed, 28 skipped |
 | `streamGraphQL17Alpha9.test.tsx` | React 18 / 19 | 36 / 36 passed | 36 / 36 passed |
@@ -128,6 +129,7 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `useQuery.test.tsx` | React 17 / 18 / 19 | 477 / 477 passed | 476 / 477 passed |
 | `onlineSource.test.ts` + `windowFocusSource.test.ts` | Core / min-RxJS / GraphQL 16 | 12 / 12 passed | 12 / 12 passed |
 | `HttpLink.ts` (`HttpLink Dev warnings`) | Core / min-RxJS / GraphQL 16 | 9 passed, 246 skipped | 9 passed, 246 skipped |
+| `MockedProvider.test.tsx` (`maxUsageCount`) | React 17 / 18 / 19 | 3 passed, 84 skipped | 3 passed, 84 skipped |
 
 These are targeted compatibility results, not a claim for the complete corpus.
 The remaining `useQuery` mismatch is timing-sensitive and has moved between
