@@ -41,6 +41,7 @@ cargo run -p rjest-cli -- --shard=1/3
 cargo run -p rjest-cli -- --bail
 cargo run -p rjest-cli -- --projects packages/api packages/web
 cargo run -p rjest-cli -- --selectProjects web --ignoreProjects legacy
+cargo run -p rjest-cli -- --testSequencer=./tools/sequencer.cjs
 ```
 
 Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
@@ -57,7 +58,8 @@ project directories or config files in one invocation. `--selectProjects` and
 Configured CommonJS and ESM `testSequencer` classes receive Jest-shaped project
 contexts and global seed/shard options. Their synchronous or asynchronous
 `shard` hook runs before `sort`, and the same instance receives post-run
-`cacheResults` data.
+`cacheResults` data. A CLI `--testSequencer` value takes precedence over the
+configured class.
 Exported async config functions and supported `fakeTimers` options work. Unknown
 Jest options fail explicitly rather than being ignored. Node 22.18 or newer is
 required; the current TypeScript path uses Node's native erasable-syntax support

@@ -1185,7 +1185,9 @@ fn load_project_path(
     }
 }
 
-fn normalize_module_reference(value: &str, root_dir: &Path) -> String {
+/// Resolves a path-like Jest module reference from the normalized project root
+/// while retaining bare package names for Node resolution.
+pub fn normalize_module_reference(value: &str, root_dir: &Path) -> String {
     let path = Path::new(value);
     if value == "<rootDir>"
         || value.starts_with("<rootDir>/")

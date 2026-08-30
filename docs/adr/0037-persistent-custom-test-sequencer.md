@@ -31,17 +31,22 @@ the bridge process alive until execution ends, then call `cacheResults` on the
 same instance with a Jest-shaped aggregate. Close without caching for list-only,
 empty, or threshold-bailed runs, following Jest's control flow.
 
+Accept Jest's `--testSequencer` CLI option and normalize its path from the
+selected project root after configuration loading. The CLI-selected module
+replaces the configured class before discovery and session startup.
+
 ## Consequences
 
 - Seed-sensitive custom ordering is observable under serial execution.
 - Custom shard implementations replace the default SHA-1 shard selection and
   still run before sort.
 - CommonJS, native ESM, synchronous, and asynchronous hooks are supported.
+- CLI override precedence is marker-tested with a class whose order and cache
+  output differ from the configured sequencer.
 - Classes inheriting `@jest/test-sequencer` can use size sorting and persist
   failure/duration data through the supplied cache coordinates.
 - Duplicate physical paths in separate projects retain distinct identities.
 - Malformed results, missing hooks, module-load failures, and cache failures
   become explicit coordinator errors; no shell is involved.
-- `--onlyFailures`/`allFailedTests`, the CLI `--testSequencer` override, and
-  resolving a sequencer through a configured custom resolver remain future
-  compatibility work.
+- `--onlyFailures`/`allFailedTests` and resolving a sequencer through a
+  configured custom resolver remain future compatibility work.

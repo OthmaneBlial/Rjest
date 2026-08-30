@@ -75,6 +75,14 @@ struct Cli {
     #[arg(long, value_name = "PATH|JSON")]
     config: Option<String>,
 
+    /// Override the configured Jest test sequencer module.
+    #[arg(
+        long = "testSequencer",
+        visible_alias = "test-sequencer",
+        value_name = "PATH"
+    )]
+    test_sequencer: Option<String>,
+
     /// Project directories or config files to run in one Jest invocation.
     #[arg(long, value_name = "PATH", num_args = 1.., action = ArgAction::Append)]
     projects: Vec<PathBuf>,
@@ -412,11 +420,7 @@ fn run() -> Result<bool> {
     let cli = Cli::parse();
     let project_dir = std::env::current_dir().context("cannot determine current directory")?;
     let mut config = load_execution_config(&cli, &project_dir)?;
-    if cli.no_bail {
-        config.bail = 0;
-    } else if cli.bail {
-        config.bail = 1;
-    }
+    apply_cli_config_overrides(&mut config, &cli);
 
     if cli.show_config {
         println!("{}", serde_json::to_string_pretty(&config)?);
@@ -513,6 +517,20 @@ fn run() -> Result<bool> {
         && coverage_report
             .as_ref()
             .is_none_or(|report| report.threshold_failures.is_empty()))
+}
+
+fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if cli.no_bail {
+        config.bail = 0;
+    } else if cli.bail {
+        config.bail = 1;
+    }
+    if let Some(test_sequencer) = cli.test_sequencer.as_deref() {
+        config.test_sequencer = Some(rjest_config::normalize_module_reference(
+            test_sequencer,
+            &config.root_dir,
+        ));
+    }
 }
 
 fn order_project_runs<'a>(
@@ -1351,6 +1369,19 @@ mod tests {
                 PathBuf::from("packages/beta/jest.config.cjs")
             ]
         );
+        assert!(cli.run_in_band);
+    }
+
+    #[test]
+    fn accepts_a_jest_test_sequencer_override() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--testSequencer=./tools/sequencer.cjs",
+            "--runInBand",
+        ])
+        .expect("Jest test sequencer override");
+
+        assert_eq!(cli.test_sequencer.as_deref(), Some("./tools/sequencer.cjs"));
         assert!(cli.run_in_band);
     }
 

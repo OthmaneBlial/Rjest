@@ -5,13 +5,15 @@ Compatibility is tracked in the machine-readable
 Counts come only from executable Rust and Jest/Rjest differential tests;
 placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
-output differences.
+output differences. Oracle fixtures run from fresh copies with Jest's cache
+disabled, so stale haste/performance data cannot alter a differential unless a
+scenario explicitly tests caching.
 
-The current generated matrix is 139/139 (100.0%) across its explicitly listed
+The current generated matrix is 140/140 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 32/32 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 12/12 (100.0%), and environments are 7/7
+Expect is 7/7 (100.0%), CLI is 13/13 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -113,9 +115,9 @@ persistent Node bridge. One instance receives Jest-shaped `contexts` and
 test identity preserves project ownership, and `cacheResults` receives the
 executed aggregate after the run. Differentials cover seed-sensitive reverse
 ordering, custom shard membership, inherited `@jest/test-sequencer` caching,
-and native ESM loading. `--onlyFailures`/`allFailedTests`, the CLI
-`--testSequencer` override, and sequencer resolution through a configured custom
-resolver remain unsupported.
+and native ESM loading. CLI `--testSequencer` precedence and project-root path
+normalization are also covered. `--onlyFailures`/`allFailedTests` and sequencer
+resolution through a configured custom resolver remain unsupported.
 New and mismatched inline snapshots rewrite the original matcher callsite in
 update modes. V8 stack locations are remapped through transformer source maps,
 then Babel parses and regenerates only the matched call expression. The

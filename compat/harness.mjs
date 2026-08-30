@@ -560,6 +560,16 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-test-sequencer',
+    label: 'cli-test-sequencer-override',
+    category: 'CLI',
+    expectedExit: 0,
+    compareExecutionMarkers: true,
+    seed: 17,
+    testSequencer: './ascending-sequencer.cjs',
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-test-sequencer-esm',
     category: 'Configuration',
     expectedExit: 0,
@@ -841,8 +851,13 @@ function compareCase(testCase) {
     if (testCase.ignoreProjects) {
       jestArguments.push('--ignoreProjects', ...testCase.ignoreProjects);
     }
-    if (testCase.compareExecutionMarkers) jestArguments.push('--no-cache');
-    else jestArguments.push('--json', `--outputFile=${jestOutput}`);
+    if (testCase.testSequencer) {
+      jestArguments.push(`--testSequencer=${testCase.testSequencer}`);
+    }
+    jestArguments.push('--no-cache');
+    if (!testCase.compareExecutionMarkers) {
+      jestArguments.push('--json', `--outputFile=${jestOutput}`);
+    }
     if (!testCase.useFixtureConfig) {
       jestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(jestFixture))}`);
     }
@@ -900,6 +915,9 @@ function compareCase(testCase) {
     }
     if (testCase.ignoreProjects) {
       rjestArguments.push('--ignoreProjects', ...testCase.ignoreProjects);
+    }
+    if (testCase.testSequencer) {
+      rjestArguments.push(`--testSequencer=${testCase.testSequencer}`);
     }
     if (!testCase.compareExecutionMarkers) rjestArguments.push('--json');
     if (!testCase.useFixtureConfig) {
