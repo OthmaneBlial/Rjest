@@ -1576,6 +1576,59 @@ function recordAssertion() {
   }
 }
 
+function iterableEquality(received, expected, customTesters = [], strict = false) {
+  if (
+    received === null ||
+    expected === null ||
+    typeof received !== 'object' ||
+    typeof expected !== 'object' ||
+    typeof received[Symbol.iterator] !== 'function' ||
+    typeof expected[Symbol.iterator] !== 'function'
+  ) {
+    return undefined;
+  }
+  if (
+    Array.isArray(received) ||
+    Array.isArray(expected) ||
+    received instanceof Map ||
+    expected instanceof Map ||
+    received instanceof Set ||
+    expected instanceof Set
+  ) {
+    return undefined;
+  }
+  if (received.constructor !== expected.constructor) return false;
+  const remainingTesters = customTesters.filter(
+    tester => tester !== iterableEquality,
+  );
+  return deepEqual(
+    [...received],
+    [...expected],
+    strict,
+    [],
+    [],
+    remainingTesters,
+  );
+}
+
+function matcherDiff(expected, received) {
+  if (deepEqual(expected, received)) return null;
+  return `- Expected\n+ Received\n\n- ${printable(expected)}\n+ ${printable(received)}`;
+}
+
+function printDiffOrStringify(
+  expected,
+  received,
+  expectedLabel = 'Expected',
+  receivedLabel = 'Received',
+) {
+  const difference = matcherDiff(expected, received);
+  return (
+    difference ??
+    `${expectedLabel}: ${printable(expected)}\n${receivedLabel}: ${printable(received)}`
+  );
+}
+
 function customMatcherContext(isNot = false, promiseMode = undefined) {
   return {
     isNot,
@@ -1584,8 +1637,13 @@ function customMatcherContext(isNot = false, promiseMode = undefined) {
     customTesters: customEqualityTesters,
     testFailing: Boolean(activeTest?.failing),
     utils: {
+      EXPECTED_COLOR: value => String(value),
+      RECEIVED_COLOR: value => String(value),
+      diff: matcherDiff,
+      iterableEquality,
       printExpected: printable,
       printReceived: printable,
+      printDiffOrStringify,
       matcherHint: matcherName => `expect(received).${matcherName}`,
     },
   };

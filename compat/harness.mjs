@@ -545,6 +545,11 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'expect-custom-matcher-context',
+    category: 'Expect',
+    expectedExit: 0,
+  },
+  {
     name: 'expect-package-shared-state',
     category: 'Expect',
     expectedExit: 0,

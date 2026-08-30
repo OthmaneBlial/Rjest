@@ -7,11 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 120/120 (100.0%) across its explicitly listed
+The current generated matrix is 121/121 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
 26/26 (100.0%). Resolution is 12/12 (100.0%), snapshots are 12/12 (100.0%),
-Expect is 6/6 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
+Expect is 7/7 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -148,6 +148,10 @@ same matcher registry as the injected global `expect`.
 Every custom matcher installed with `expect.extend` also creates positive and
 negative asymmetric factories on `expect`, using the same matcher context and
 custom equality testers as its assertion form.
+The matcher context includes the covered Jest utility surface for extension
+packages: strict equality with explicit testers, generic iterable equality,
+expected/received color functions, structural diffs, and
+`printDiffOrStringify`. Rjest currently emits plain text from the color helpers.
 Babel-Jest hoists standard mock factories. Babel coverage supports parallel
 Istanbul-map merging, `collectCoverageFrom`, common reports, and global
 thresholds. Manual `__mocks__` lookup, virtual CommonJS factories, assertion
@@ -327,7 +331,9 @@ paths from those project configs. Targeted unchanged probes pass 78/78 Core
 assertions across three dependency variants and 123/123 React assertions across
 React 17, 18, and 19. A third probe matches 30/30 response-stream assertions and
 all suite/test identities across the three Core variants after repairing
-`test.failing` and custom asymmetric matchers. The full result is still being
+`test.failing` and custom asymmetric matchers. `ObservableQuery.ts` adds exact
+parity for another 435 registered statuses (411 passed and 24 skipped) after
+completing Apollo's matcher-context utilities. The full result is still being
 captured, so these probes are progress evidence rather than a corpus-wide parity
 claim.
 
