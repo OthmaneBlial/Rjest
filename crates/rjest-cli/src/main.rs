@@ -69,6 +69,10 @@ struct Cli {
     #[arg(long, value_name = "PATH|JSON")]
     config: Option<String>,
 
+    /// Project directories or config files to run in one Jest invocation.
+    #[arg(long, value_name = "PATH", num_args = 1.., action = ArgAction::Append)]
+    projects: Vec<PathBuf>,
+
     /// Print all selected test files and exit.
     #[arg(long = "listTests", visible_alias = "list-tests", action = ArgAction::SetTrue)]
     list_tests: bool,
@@ -265,7 +269,7 @@ fn main() {
 fn run() -> Result<bool> {
     let cli = Cli::parse();
     let project_dir = std::env::current_dir().context("cannot determine current directory")?;
-    let mut config = load_config(&project_dir, cli.config.as_deref())?;
+    let mut config = load_execution_config(&cli, &project_dir)?;
     if cli.no_bail {
         config.bail = 0;
     } else if cli.bail {
@@ -556,6 +560,23 @@ fn load_config(project_dir: &std::path::Path, configured: Option<&str>) -> Resul
         )?),
         None => Ok(rjest_config::load(project_dir, None)?),
     }
+}
+
+fn load_execution_config(cli: &Cli, project_dir: &Path) -> Result<ProjectConfig> {
+    if cli.projects.is_empty() {
+        return load_config(project_dir, cli.config.as_deref());
+    }
+    let selected = rjest_config::load_project_paths(project_dir, &cli.projects)?;
+    if cli.config.is_none() {
+        return Ok(selected);
+    }
+    let mut global = load_config(project_dir, cli.config.as_deref())?;
+    global.projects = if selected.projects.is_empty() {
+        vec![selected]
+    } else {
+        selected.projects
+    };
+    Ok(global)
 }
 
 fn coverage_runner_settings(cli: &Cli, config: &ProjectConfig) -> Result<CoverageRunnerSettings> {
@@ -893,6 +914,27 @@ mod tests {
             .expect("Jest-compatible flags");
         assert_eq!(cli.max_workers.as_deref(), Some("1"));
         assert!(cli.log_heap_usage);
+    }
+
+    #[test]
+    fn accepts_variadic_jest_project_paths() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--projects",
+            "packages/alpha",
+            "packages/beta/jest.config.cjs",
+            "--runInBand",
+        ])
+        .expect("Jest project paths");
+
+        assert_eq!(
+            cli.projects,
+            [
+                PathBuf::from("packages/alpha"),
+                PathBuf::from("packages/beta/jest.config.cjs")
+            ]
+        );
+        assert!(cli.run_in_band);
     }
 
     #[test]

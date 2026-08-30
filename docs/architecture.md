@@ -65,6 +65,8 @@ Jest's distinct parent-root and parent-config anchors and duplicate-config
 rejection. Preset evaluation happens before normalization and uses the same
 trusted Node config boundary, with explicit merge rules for setup arrays,
 module mappings, and transforms.
+CLI `--projects` paths use the same child loader without glob expansion; the
+first child supplies coordinator defaults when several paths are provided.
 
 Worker protocol v20 carries the supported snapshot-format options. Project
 identity remains coordinator-owned because a worker executes one fully

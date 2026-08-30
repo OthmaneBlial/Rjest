@@ -7,11 +7,11 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 131/131 (100.0%) across its explicitly listed
+The current generated matrix is 132/132 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 30/30 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
-Expect is 7/7 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
+Expect is 7/7 (100.0%), CLI is 7/7 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
@@ -57,6 +57,9 @@ are resolved from the invocation directory before each project's patterns are
 applied. Jest presets can be loaded from explicit paths or the conventional
 `<package>/jest-preset` entry and merge inherited setup arrays, module mappings,
 transforms, and ordinary options before project overrides.
+The variadic `--projects` CLI option loads directory and config-file entries as
+the execution matrix. With multiple entries the first project supplies run-wide
+defaults, while a single entry can still expand its own root `projects` field.
 CommonJS `deepUnmock` propagates actual-module decisions through dependencies
 and cycles while retaining explicit-factory priority and ordinary-parent mocks.
 `jest.replaceProperty` covers prototype lookup, repeated handles, descriptor

@@ -78,6 +78,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-projects-cli',
+    category: 'CLI',
+    expectedExit: 0,
+    projects: ['packages/alpha', 'packages/beta/jest.config.cjs'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-projects-rootdir-cli-path',
     category: 'Configuration',
     expectedExit: 0,
@@ -767,6 +774,9 @@ function compareCase(testCase) {
       ? join(rjestFixture, testCase.workingDirectory)
       : rjestFixture;
     const jestArguments = [testCase.jestExecutable ?? jest, '--runInBand'];
+    if (testCase.projects) {
+      jestArguments.push('--projects', ...testCase.projects);
+    }
     if (testCase.compareExecutionMarkers) jestArguments.push('--no-cache');
     else jestArguments.push('--json', `--outputFile=${jestOutput}`);
     if (!testCase.useFixtureConfig) {
@@ -818,6 +828,9 @@ function compareCase(testCase) {
         ? `--maxWorkers=${testCase.rjestMaxWorkers}`
         : '--runInBand',
     ];
+    if (testCase.projects) {
+      rjestArguments.push('--projects', ...testCase.projects);
+    }
     if (!testCase.compareExecutionMarkers) rjestArguments.push('--json');
     if (!testCase.useFixtureConfig) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);

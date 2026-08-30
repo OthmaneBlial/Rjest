@@ -471,6 +471,67 @@ pub fn load_inline_json(project_dir: &Path, source: &str) -> Result<ProjectConfi
     normalize(raw, &project_dir, &project_dir, &project_dir)
 }
 
+/// Loads project directories or config files supplied through Jest's
+/// `--projects` CLI option.
+///
+/// A single entry can expand its own root `projects` option. With multiple
+/// entries, each config is an independent child and the first child supplies
+/// run-wide defaults, matching Jest's `readConfigs` coordinator behavior.
+///
+/// # Errors
+///
+/// Returns [`ConfigError`] when an entry cannot be resolved or loaded, or when
+/// multiple entries resolve to the same configuration file.
+pub fn load_project_paths(
+    invocation_dir: &Path,
+    configured: &[PathBuf],
+) -> Result<ProjectConfig, ConfigError> {
+    let invocation_dir = absolute(invocation_dir)?;
+    if configured.is_empty() {
+        return Err(ConfigError::UnsupportedValue {
+            field: "projects".into(),
+            value: "expected at least one project path".into(),
+        });
+    }
+
+    let paths = configured
+        .iter()
+        .map(|path| absolute(&resolve_from(&invocation_dir, path)))
+        .collect::<Result<Vec<_>, _>>()?;
+    if paths.len() == 1 {
+        let path = &paths[0];
+        let config_path = project_config_path(path)?;
+        let canonical_config = fs::canonicalize(&config_path).unwrap_or(config_path);
+        return load_project_path(path, &canonical_config, true);
+    }
+
+    let mut config_paths = BTreeMap::<PathBuf, PathBuf>::new();
+    let mut projects = Vec::with_capacity(paths.len());
+    for path in paths {
+        if path.is_file() && !is_jest_config_path(&path) {
+            continue;
+        }
+        let config_path = project_config_path(&path)?;
+        let canonical_config = fs::canonicalize(&config_path).unwrap_or(config_path);
+        if let Some(previous) = config_paths.insert(canonical_config.clone(), path.clone()) {
+            return Err(duplicate_project_config_error(
+                &previous,
+                &path,
+                &canonical_config,
+            ));
+        }
+        projects.push(load_project_path(&path, &canonical_config, false)?);
+    }
+    let Some(mut global) = projects.first().cloned() else {
+        return Err(ConfigError::UnsupportedValue {
+            field: "projects".into(),
+            value: "no loadable project configuration was selected".into(),
+        });
+    };
+    global.projects = projects;
+    Ok(global)
+}
+
 fn read_json(path: &Path) -> Result<Value, ConfigError> {
     let source = fs::read_to_string(path).map_err(|source| ConfigError::Read {
         path: path.to_path_buf(),
@@ -982,17 +1043,13 @@ fn normalize_projects(
                     if let Some(previous) =
                         config_paths.insert(canonical_config.clone(), project_path.clone())
                     {
-                        return Err(ConfigError::UnsupportedValue {
-                            field: "projects".into(),
-                            value: format!(
-                                "project paths `{}` and `{}` resolve to the same config `{}`",
-                                previous.display(),
-                                project_path.display(),
-                                canonical_config.display(),
-                            ),
-                        });
+                        return Err(duplicate_project_config_error(
+                            &previous,
+                            &project_path,
+                            &canonical_config,
+                        ));
                     }
-                    projects.push(load_project_path(&project_path, &canonical_config)?);
+                    projects.push(load_project_path(&project_path, &canonical_config, false)?);
                 }
             }
         }
@@ -1088,11 +1145,35 @@ fn project_config_path(path: &Path) -> Result<PathBuf, ConfigError> {
     }
 }
 
-fn load_project_path(path: &Path, config_path: &Path) -> Result<ProjectConfig, ConfigError> {
+fn duplicate_project_config_error(
+    previous: &Path,
+    current: &Path,
+    config_path: &Path,
+) -> ConfigError {
+    ConfigError::UnsupportedValue {
+        field: "projects".into(),
+        value: format!(
+            "project paths `{}` and `{}` resolve to the same config `{}`",
+            previous.display(),
+            current.display(),
+            config_path.display(),
+        ),
+    }
+}
+
+fn load_project_path(
+    path: &Path,
+    config_path: &Path,
+    expand_projects: bool,
+) -> Result<ProjectConfig, ConfigError> {
     if path.is_dir() {
-        load_internal(path, Some(config_path), false)
+        load_internal(path, Some(config_path), expand_projects)
     } else {
-        load_internal(path.parent().unwrap_or(path), Some(config_path), false)
+        load_internal(
+            path.parent().unwrap_or(path),
+            Some(config_path),
+            expand_projects,
+        )
     }
 }
 
@@ -2001,6 +2082,41 @@ mod tests {
         let error = load(temp.path(), None).expect_err("duplicate project configs");
 
         assert!(error.to_string().contains("resolve to the same config"));
+    }
+
+    #[test]
+    fn loads_multiple_cli_project_paths_as_an_execution_matrix() {
+        let temp = tempdir().expect("temp dir");
+        for name in ["alpha", "beta"] {
+            let project = temp.path().join(name);
+            fs::create_dir_all(&project).expect("project directory");
+            fs::write(
+                project.join("jest.config.json"),
+                format!(r#"{{"displayName":"{name}","rootDir":"."}}"#),
+            )
+            .expect("project config");
+        }
+
+        let config = load_project_paths(
+            temp.path(),
+            &[
+                PathBuf::from("alpha"),
+                PathBuf::from("beta/jest.config.json"),
+            ],
+        )
+        .expect("CLI projects");
+
+        assert_eq!(config.projects.len(), 2);
+        assert_eq!(
+            config
+                .projects
+                .iter()
+                .filter_map(|project| project.display_name.as_ref())
+                .map(|display_name| display_name.name.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta"]
+        );
+        assert_eq!(config.root_dir, config.projects[0].root_dir);
     }
 
     #[test]

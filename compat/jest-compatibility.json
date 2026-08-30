@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 131,
-    "total": 131,
+    "passing": 132,
+    "total": 132,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 6,
-      "total": 6,
+      "passing": 7,
+      "total": 7,
       "percentage": 100
     },
     "Configuration": {
@@ -133,6 +133,12 @@
     {
       "name": "config-projects-path-glob",
       "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-projects-cli",
+      "category": "CLI",
       "compatible": true,
       "differences": []
     },

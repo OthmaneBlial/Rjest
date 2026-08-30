@@ -30,6 +30,13 @@ the package's CommonJS or ESM semantics, including `import.meta` in a
 `"type": "module"` project. Native syntax failures in `.ts`/`.cts` retain the
 ts-node fallback; `.mts` remains ESM-only.
 
+Root `projects` arrays may contain inline objects, project directories,
+supported config-file paths, and standard path globs. The variadic
+`rjest --projects project-a project-b` form also runs several project
+directories or config files in one invocation. Keep Jest as the gate for
+`--selectProjects`, `--ignoreProjects`, and unmeasured cross-project coverage,
+sharding, bail, or reporter combinations.
+
 The `fakeTimers` configuration supports global modern or legacy activation,
 `advanceTimers`, `doNotFake`, `now`, and `timerLimit`. Explicit
 `jest.useFakeTimers({legacyFakeTimers: true})` retains Jest's zero-based legacy
