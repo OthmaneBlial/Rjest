@@ -163,6 +163,11 @@ const snapshotState = {
 };
 const expectState = {
   assertionCalls: 0,
+  currentConcurrentTestName: () => {
+    const test = currentTestNode();
+    return test ? fullName(test) : undefined;
+  },
+  currentTestIdentity: () => currentTestNode(),
   currentTestName: undefined,
   expectedAssertionsNumber: null,
   isExpectingAssertions: false,

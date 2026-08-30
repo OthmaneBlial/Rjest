@@ -1184,6 +1184,11 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'expect-test-identity-context',
+    category: 'Expect',
+    expectedExit: 0,
+  },
+  {
     name: 'expect-package-shared-state',
     category: 'Expect',
     expectedExit: 0,
