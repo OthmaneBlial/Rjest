@@ -526,6 +526,13 @@ const cases = [
     shard: '1/1',
   },
   {
+    name: 'config-projects-shard',
+    category: 'CLI',
+    expectedExit: 0,
+    shard: '1/2',
+    useFixtureConfig: true,
+  },
+  {
     name: 'gap-bail',
     category: 'CLI',
     expectedExit: 1,

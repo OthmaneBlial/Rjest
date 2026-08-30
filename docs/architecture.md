@@ -69,6 +69,9 @@ CLI `--projects` paths use the same child loader without glob expansion; the
 first child supplies coordinator defaults when several paths are provided.
 Display-name selection and ignore predicates filter the normalized matrix before
 discovery, sharding, or worker scheduling.
+Default sharding then hashes each selected test relative to its owning project
+root across one combined matrix; it does not reuse the coordinator's root for
+child projects.
 
 Worker protocol v20 carries the supported snapshot-format options. Project
 identity remains coordinator-owned because a worker executes one fully

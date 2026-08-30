@@ -36,7 +36,8 @@ supported config-file paths, and standard path globs. The variadic
 directories or config files in one invocation. Display-name filtering through
 `--selectProjects` and `--ignoreProjects` follows Jest's composed selection and
 exclusion rules. Keep Jest as the gate for unmeasured cross-project coverage,
-sharding, bail, or reporter combinations.
+bail, reporter combinations, or custom test sequencer sharding. Default
+multi-project sharding uses each test's own project root in the covered case.
 
 The `fakeTimers` configuration supports global modern or legacy activation,
 `advanceTimers`, `doNotFake`, `now`, and `timerLimit`. Explicit

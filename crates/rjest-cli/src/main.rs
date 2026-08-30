@@ -305,7 +305,7 @@ fn run() -> Result<bool> {
         })
         .collect::<Result<Vec<_>>>()?;
     if let Some(shard) = cli.shard {
-        shard_project_runs(&mut project_runs, &config.root_dir, shard);
+        shard_project_runs(&mut project_runs, shard);
     }
     let test_count = project_runs
         .iter()
@@ -599,6 +599,7 @@ fn snapshot_update(cli: &Cli) -> SnapshotUpdate {
     }
 }
 
+#[cfg(test)]
 fn shard_tests(
     mut tests: Vec<TestFile>,
     root_dir: &std::path::Path,
@@ -609,39 +610,37 @@ fn shard_tests(
         let normalized = relative.to_string_lossy().replace('\\', "/");
         Sha1::digest(normalized.as_bytes())
     });
-    let base_size = tests.len() / shard.count;
-    let larger_shards = tests.len() % shard.count;
-    let preceding = shard.index - 1;
-    let start = preceding * base_size + preceding.min(larger_shards);
-    let size = base_size + usize::from(shard.index <= larger_shards);
+    let (start, size) = shard_bounds(tests.len(), shard);
     tests.into_iter().skip(start).take(size).collect()
 }
 
-fn shard_project_runs(
-    project_runs: &mut [ProjectRun<'_>],
-    root_dir: &std::path::Path,
-    shard: Shard,
-) {
-    let flattened = project_runs
+fn shard_bounds(test_count: usize, shard: Shard) -> (usize, usize) {
+    let base_size = test_count / shard.count;
+    let larger_shards = test_count % shard.count;
+    let preceding = shard.index - 1;
+    let start = preceding * base_size + preceding.min(larger_shards);
+    let size = base_size + usize::from(shard.index <= larger_shards);
+    (start, size)
+}
+
+fn shard_project_runs(project_runs: &mut [ProjectRun<'_>], shard: Shard) {
+    let mut flattened = project_runs
         .iter_mut()
         .enumerate()
         .flat_map(|(project_index, run)| {
-            std::mem::take(&mut run.tests)
-                .into_iter()
-                .map(move |test| (project_index, test))
+            let root_dir = &run.config.root_dir;
+            std::mem::take(&mut run.tests).into_iter().map(move |test| {
+                let relative = test.path.strip_prefix(root_dir).unwrap_or(&test.path);
+                let normalized = relative.to_string_lossy().replace('\\', "/");
+                let hash: [u8; 20] = Sha1::digest(normalized.as_bytes()).into();
+                (hash, project_index, test)
+            })
         })
         .collect::<Vec<_>>();
-    let tests = shard_tests(
-        flattened.iter().map(|(_, test)| test.clone()).collect(),
-        root_dir,
-        shard,
-    );
-    let mut selected = tests.into_iter().map(|test| test.path).collect::<Vec<_>>();
-    for (project_index, test) in flattened {
-        if let Some(index) = selected.iter().position(|path| path == &test.path) {
-            selected.remove(index);
-            project_runs[project_index].tests.push(test);
-        }
+    flattened.sort_by_key(|(hash, _, _)| *hash);
+    let (start, size) = shard_bounds(flattened.len(), shard);
+    for (_, project_index, test) in flattened.into_iter().skip(start).take(size) {
+        project_runs[project_index].tests.push(test);
     }
 }
 

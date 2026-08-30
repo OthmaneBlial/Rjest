@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 134,
-    "total": 134,
+    "passing": 135,
+    "total": 135,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 9,
-      "total": 9,
+      "passing": 10,
+      "total": 10,
       "percentage": 100
     },
     "Configuration": {
@@ -630,6 +630,12 @@
     },
     {
       "name": "gap-shard-1-of-1",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-projects-shard",
       "category": "CLI",
       "compatible": true,
       "differences": []
