@@ -58,6 +58,35 @@ callbacks. The machine-readable baseline preserves every failing identity so a
 later Rjest comparison must reproduce or improve on evidence, not assume the
 upstream command is green.
 
+## First full Rjest capture
+
+The first complete six-project Rjest run used commit `593933e`, before the
+subsequent `test.failing`, custom matcher-context, mock snapshot, and fake-timer
+repairs. It is retained as an honest convergence baseline rather than presented
+as the current implementation's result:
+
+| Measurement | Initial Rjest capture |
+| --- | ---: |
+| Discovered project-suite executions | 563 |
+| Passed / failed / skipped suites | 338 / 207 / 18 |
+| Reported tests | 8,661 |
+| Passed / failed / skipped tests | 6,030 / 2,225 / 406 |
+| Matched / unmatched snapshots | 383 / 66 |
+| File-level errors | 35 across 29 suites |
+| Exit code | 1 |
+| Rjest-reported time | 3,130.34 s |
+| End-to-end wall time | 3,131.69 s |
+| Peak RSS | 2,122,645,504 bytes |
+
+The capture exposed concentrated causes rather than 2,225 unrelated failures:
+1,900 tests failed on Apollo's `expect.toBeOneOf` asymmetric matcher, another
+171 on a missing matcher color utility, and 36 promise assertions inherited the
+same asymmetric-matcher error. Thirteen project-suite executions failed to load
+because `it.failing` or `test.failing` was absent. Six more hit Rjest's safety
+timeout, including all three `useQuery.test.tsx` projects. Those classes now
+have official-Jest differential regressions and targeted corpus verification;
+a fresh full capture is required to measure the remaining denominator.
+
 ## Rjest compatibility loop
 
 The first Rjest attempt failed while evaluating `config/jest.config.ts`. Apollo
@@ -91,10 +120,18 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `responseIterator.ts` | Core / min-RxJS / GraphQL 16 | 30 / 30 passed | 30 / 30 passed |
 | `ObservableQuery.ts` | Core / min-RxJS / GraphQL 16 | 411 passed, 24 skipped | 411 passed, 24 skipped |
 | `ApolloClient.ts` | Core / min-RxJS / GraphQL 16 | 225 passed, 18 skipped, 60 snapshots | 225 passed, 18 skipped, 60 snapshots |
+| `useLoadableQuery.test.tsx` | React 18 / 19 | 98 / 98 passed | 98 / 98 passed |
+| `useSuspenseFragment.test.tsx` | React 18 / 19 | 52 passed, 28 skipped | 52 passed, 28 skipped |
+| `streamGraphQL17Alpha9.test.tsx` | React 18 / 19 | 36 / 36 passed | 36 / 36 passed |
+| `useFragment.test.tsx` | React 17 / 18 / 19 | 99 passed, 6 skipped | 99 passed, 6 skipped |
+| `useQuery.test.tsx` | React 17 / 18 / 19 | 477 / 477 passed | 476 / 477 passed |
 
 These are targeted compatibility results, not a claim for the complete corpus.
-The full 563-suite Rjest JSON capture and strict comparison remain in progress;
-no Jest/Rjest performance ratio is reported before that evidence exists.
+The remaining `useQuery` mismatch is timing-sensitive and has moved between
+React 18 and 19 on isolated reruns; it is not counted as compatible. A fresh
+full 563-suite capture with all repairs and strict comparison remains in
+progress. The initial run is also much slower than Jest, but correctness is
+still the priority and no performance claim is inferred from mismatched runs.
 
 ## Compatibility pressure
 
@@ -109,6 +146,6 @@ The pinned suite combines:
 - nearly ten thousand registered tests under repeated dependency variants;
 - forced garbage collection and a roughly 3 GB official-Jest peak RSS.
 
-This report records an authoritative baseline, exact discovery, and five
-repaired multi-project execution slices. It does not yet claim Apollo Client can
-switch to Rjest.
+This report records an authoritative baseline, exact discovery, the first full
+Rjest convergence capture, and repaired multi-project execution slices. It does
+not yet claim Apollo Client can switch to Rjest.

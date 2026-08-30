@@ -206,6 +206,11 @@ const cases = [
   },
   {name: 'failure', category: 'Core API', expectedExit: 1},
   {name: 'fake-timers-clock', category: 'Fake timers', expectedExit: 0},
+  {
+    name: 'fake-timers-date-marker',
+    category: 'Fake timers',
+    expectedExit: 0,
+  },
   {name: 'fake-timers-legacy', category: 'Fake timers', expectedExit: 0},
   {
     name: 'fake-timers-legacy-jsdom',

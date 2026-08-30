@@ -5479,6 +5479,7 @@ const fakeTimerStates = {
 
 const fakeTimers = {
   active: false,
+  duringTick: false,
   mode: 'modern',
   maxRuns: 100_000,
   autoAdvanceHandle: undefined,
@@ -5559,6 +5560,13 @@ function scheduleFakeTimer(type, callback, delay, args) {
     duration = Number(delay) | 0;
   } else {
     duration = timerDelay(delay);
+  }
+  if (
+    fakeTimers.mode !== 'legacy' &&
+    duration === 0 &&
+    fakeTimers.duringTick
+  ) {
+    duration = 1;
   }
   fakeTimers.timers.set(id, {
     id,
@@ -5705,34 +5713,47 @@ function runTimer(timer) {
 }
 
 function runTimersUntil(target, allowedIds) {
-  let runs = 0;
-  let timer;
-  while ((timer = nextFakeTimer(target, allowedIds))) {
-    if (++runs > fakeTimers.maxRuns) {
-      throw new Error(
-        `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
-      );
+  const previousDuringTick = fakeTimers.duringTick;
+  fakeTimers.duringTick = true;
+  try {
+    let runs = 0;
+    let timer;
+    while ((timer = nextFakeTimer(target, allowedIds))) {
+      if (++runs > fakeTimers.maxRuns) {
+        throw new Error(
+          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
+        );
+      }
+      runTimer(timer);
     }
-    runTimer(timer);
+    fakeTimers.monotonicNow += target - fakeTimers.now;
+    fakeTimers.now = target;
+  } finally {
+    fakeTimers.duringTick = previousDuringTick;
   }
-  fakeTimers.monotonicNow += target - fakeTimers.now;
-  fakeTimers.now = target;
 }
 
 async function runTimersUntilAsync(target) {
-  let runs = 0;
-  let timer;
-  while ((timer = nextFakeTimer(target))) {
-    if (++runs > fakeTimers.maxRuns) {
-      throw new Error(
-        `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
-      );
+  await new Promise(resolve => nativeSetTimeout(resolve, 0));
+  const previousDuringTick = fakeTimers.duringTick;
+  fakeTimers.duringTick = true;
+  try {
+    let runs = 0;
+    let timer;
+    while ((timer = nextFakeTimer(target))) {
+      if (++runs > fakeTimers.maxRuns) {
+        throw new Error(
+          `Aborting after running ${fakeTimers.maxRuns} timers, assuming an infinite loop`,
+        );
+      }
+      runTimer(timer);
+      await new Promise(resolve => nativeSetTimeout(resolve, 0));
     }
-    runTimer(timer);
-    await Promise.resolve();
+    fakeTimers.monotonicNow += target - fakeTimers.now;
+    fakeTimers.now = target;
+  } finally {
+    fakeTimers.duringTick = previousDuringTick;
   }
-  fakeTimers.monotonicNow += target - fakeTimers.now;
-  fakeTimers.now = target;
 }
 
 function installFakeTimers(options = {}) {
@@ -5866,6 +5887,8 @@ function installFakeTimers(options = {}) {
   }
   if (!doNotFake.has('Date')) {
     globalThis.Date = class FakeDate extends NativeDate {
+      static isFake = true;
+
       constructor(...args) {
         super(...(args.length === 0 ? [fakeTimers.now] : args));
       }

@@ -209,8 +209,10 @@ the same 196 unique paths and matches targeted Core (78/78) and React
 (123/123) multi-project probes, plus a 30/30 Core response-stream probe. The
 Core `ObservableQuery.ts` probe also matches all 435 statuses (411 passed, 24
 skipped), while `ApolloClient.ts` matches 243 statuses and all 60 snapshots. The
-full capture is still in progress, so this remains an active compatibility
-target rather than a parity claim.
+first full Rjest convergence capture reported 6,030 passing tests before the
+subsequent concentrated matcher, snapshot, failing-test, and timer repairs. A
+current `useQuery.test.tsx` probe now executes all 477 statuses and passes 476.
+A fresh full capture remains active, so this is not a corpus-parity claim.
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current

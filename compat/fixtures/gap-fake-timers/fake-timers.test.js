@@ -8,3 +8,19 @@ test('advances modern fake timers deterministically', () => {
   expect(callback).toHaveBeenCalledTimes(1);
   jest.useRealTimers();
 });
+
+test('defers zero-delay timers created during a tick by one millisecond', () => {
+  jest.useFakeTimers({now: 0});
+  const calls = [];
+  setTimeout(() => {
+    calls.push(Date.now());
+    setTimeout(() => calls.push(Date.now()), 0);
+  }, 10);
+
+  jest.advanceTimersByTime(10);
+  expect(calls).toEqual([10]);
+
+  jest.advanceTimersByTime(1);
+  expect(calls).toEqual([10, 11]);
+  jest.useRealTimers();
+});

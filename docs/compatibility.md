@@ -7,12 +7,12 @@ placeholders are never counted. The differential harness normalizes test names,
 statuses, files, and exit codes while deliberately ignoring timing and cosmetic
 output differences.
 
-The current generated matrix is 122/122 (100.0%) across its explicitly listed
+The current generated matrix is 123/123 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 5/5 (100.0%), mocks are 13/13 (100.0%), and configuration is
 26/26 (100.0%). Resolution is 12/12 (100.0%), snapshots are 13/13 (100.0%),
 Expect is 7/7 (100.0%), CLI is 6/6 (100.0%), and environments are 7/7
-(100.0%). These
+(100.0%). Fake timers are 10/10 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
 
@@ -169,6 +169,9 @@ wall-clock APIs and microtask queue, `runAllImmediates`, queue ordering, and
 modern-only API errors. Node and JSDOM behavior is differential-tested, as are
 globally enabled legacy and modern timer configuration. Modern automatic
 wall-clock advancement supports the boolean 20 ms default and a numeric cadence.
+Modern fake `Date` exposes Sinon's `Date.isFake` marker, zero-delay timers
+created during an active tick are deferred by one millisecond, and asynchronous
+advancement yields to pending native promise work at Jest's event-loop boundary.
 
 Native Node resolution is verified for relative CommonJS/ESM modules, package
 self-references and `exports`, and scoped packages under `node_modules`.
@@ -338,8 +341,11 @@ all suite/test identities across the three Core variants after repairing
 parity for another 435 registered statuses (411 passed and 24 skipped) after
 completing Apollo's matcher-context utilities. `ApolloClient.ts` then matches
 all 243 statuses (225 passed and 18 skipped) and 60/60 snapshots after adding
-mock-function snapshot serialization. The full result is still being captured,
-so these probes are progress evidence rather than a corpus-wide parity claim.
+mock-function snapshot serialization. The first full Rjest capture reported
+6,030 passing, 2,225 failing, and 406 skipped tests before those repairs. A
+current `useQuery.test.tsx` probe now executes all 477 statuses and passes 476;
+the fresh full rerun is still required, so these results remain progress
+evidence rather than a corpus-wide parity claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on
