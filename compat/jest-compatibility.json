@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 221,
-    "total": 221,
+    "passing": 222,
+    "total": 222,
     "percentage": 100
   },
   "categories": {
@@ -44,8 +44,8 @@
       "percentage": 100
     },
     "Fake timers": {
-      "passing": 18,
-      "total": 18,
+      "passing": 19,
+      "total": 19,
       "percentage": 100
     },
     "Mocks": {
@@ -1192,6 +1192,12 @@
     },
     {
       "name": "gap-fake-timers-frame",
+      "category": "Fake timers",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "fake-timers-animation-contracts",
       "category": "Fake timers",
       "compatible": true,
       "differences": []

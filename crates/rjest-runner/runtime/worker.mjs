@@ -6343,15 +6343,19 @@ function timeToNextFrame() {
   return 16 - (fakeTimers.monotonicNow % 16);
 }
 
-function scheduleFakeTimer(type, callback, delay, args) {
-  if (fakeTimers.mode !== 'legacy' && callback === undefined) {
+function validateModernTimerCallback(callback) {
+  if (callback === undefined) {
     throw new Error('Callback must be provided to timer calls');
   }
-  if (fakeTimers.mode !== 'legacy' && typeof callback !== 'function') {
+  if (typeof callback !== 'function') {
     throw new TypeError(
       `[ERR_INVALID_CALLBACK]: Callback must be a function. Received ${callback} of type ${typeof callback}`,
     );
   }
+}
+
+function scheduleFakeTimer(type, callback, delay, args) {
+  if (fakeTimers.mode !== 'legacy') validateModernTimerCallback(callback);
   const id = fakeTimers.nextId++;
   let duration;
   if (type === 'immediate') {
@@ -6447,6 +6451,16 @@ function timerReferenceId(reference) {
 }
 
 function nativeTimerClearHandler(type, reference) {
+  if (
+    type === 'animationFrame' &&
+    typeof nativeAnimationFrame?.cancel === 'function'
+  ) {
+    nativeAnimationFrame.cancel.call(
+      jsdomEnvironment?.window ?? globalThis,
+      reference,
+    );
+    return;
+  }
   if (jsdomEnvironment && typeof reference === 'number') {
     const windowHandler =
       type === 'interval'
@@ -6469,6 +6483,9 @@ function nativeTimerClearHandler(type, reference) {
 }
 
 function timerApiName(prefix, type) {
+  if (type === 'animationFrame') {
+    return prefix === 'set' ? 'requestAnimationFrame' : 'cancelAnimationFrame';
+  }
   return `${prefix}${type[0].toUpperCase()}${type.slice(1)}`;
 }
 
@@ -6779,9 +6796,7 @@ function installFakeTimers(options = {}) {
     typeof nativeAnimationFrame.request === 'function'
   ) {
     const fakeRequestAnimationFrame = callback => {
-      if (typeof callback !== 'function') {
-        throw new TypeError('requestAnimationFrame expects a callback function');
-      }
+      validateModernTimerCallback(callback);
       return scheduleFakeTimer(
         'animationFrame',
         () => callback(fakeTimers.monotonicNow),
@@ -6798,9 +6813,7 @@ function installFakeTimers(options = {}) {
     !doNotFake.has('cancelAnimationFrame') &&
     typeof nativeAnimationFrame.cancel === 'function'
   ) {
-    const fakeCancelAnimationFrame = id => {
-      fakeTimers.timers.delete(timerReferenceId(id));
-    };
+    const fakeCancelAnimationFrame = id => clearFakeTimer('animationFrame', id);
     globalThis.cancelAnimationFrame = fakeCancelAnimationFrame;
     if (jsdomEnvironment) {
       jsdomEnvironment.window.cancelAnimationFrame = fakeCancelAnimationFrame;
