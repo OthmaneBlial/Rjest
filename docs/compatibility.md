@@ -146,7 +146,10 @@ Exact custom VM-context identity and every mutable circus state field remain
 outside this bounded claim.
 Bespoke JSDOM environment globals preserve `window === globalThis` while
 forwarding Window event-target methods to the environment realm, including
-listener registration, removal, and dispatch.
+listener registration, removal, and dispatch. Configurable Node host `fetch`
+is removed before user modules execute when the custom environment realm does
+not provide it, while a later user assignment remains visible through the
+shared global identity.
 Bespoke equality functions registered through `expect.addEqualityTesters`
 participate recursively in equality-based matchers and receive Jest's matcher
 context. Setup modules that extend the installed `expect` package share the
@@ -350,8 +353,10 @@ all 243 statuses (225 passed and 18 skipped) and 60/60 snapshots after adding
 mock-function snapshot serialization. The first full Rjest capture reported
 6,030 passing, 2,225 failing, and 406 skipped tests before those repairs. A
 current `useQuery.test.tsx` probe now executes all 477 statuses and passes 476;
-the fresh full rerun is still required, so these results remain progress
-evidence rather than a corpus-wide parity claim.
+the `HttpLink` development-warning probe matches all 255 statuses across the
+three Core projects (9 selected passes and 246 skips) after isolating custom
+JSDOM from Node's host `fetch`. The fresh full rerun is still required, so these
+results remain progress evidence rather than a corpus-wide parity claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

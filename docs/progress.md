@@ -343,6 +343,10 @@ Last updated: 2026-08-30
   and `dispatchEvent` through the environment realm while retaining Jest's
   `window === globalThis` identity. Apollo's unchanged online and visibility
   refetch-source probes now pass 12/12 tests across the three Core projects.
+- Custom JSDOM setup removes Node's configurable host `fetch` when the
+  environment realm does not expose it, before user modules are evaluated.
+  Apollo's unchanged `HttpLink` development-warning probe now matches all 255
+  statuses across the Core projects: 9 selected passes and 246 skips.
 - `expect.objectContaining` now combines required top-level keys with Jest's
   loose nested equality, so nested `undefined` properties behave like
   `toEqual`. Apollo's unchanged `ApolloClient/general.test.ts` matches all 447

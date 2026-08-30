@@ -21,3 +21,13 @@ test('forwards Window event-target methods through the custom realm', () => {
   window.dispatchEvent(new Event('rjest-custom-event'));
   expect(listener).toHaveBeenCalledTimes(1);
 });
+
+test('does not inherit Node host globals absent from the JSDOM realm', () => {
+  expect(window.fetch).toBeUndefined();
+  expect(() => fetch).toThrow(ReferenceError);
+
+  const localFetch = () => Promise.resolve();
+  window.fetch = localFetch;
+  expect(fetch).toBe(localFetch);
+  delete window.fetch;
+});

@@ -5201,6 +5201,16 @@ function projectCustomEnvironmentGlobals() {
   }
 }
 
+function hideUnavailableCustomEnvironmentHostGlobals() {
+  const environmentGlobal = customTestEnvironment?.global;
+  if (!environmentGlobal || typeof environmentGlobal !== 'object') return;
+  for (const key of ['fetch']) {
+    if (key in environmentGlobal) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+    if (descriptor?.configurable) delete globalThis[key];
+  }
+}
+
 async function configureCustomTestEnvironment() {
   if (isBuiltinTestEnvironment(effectiveTestEnvironment)) return;
   const {Environment, resolved} = await loadCustomEnvironmentConstructor();
@@ -5225,6 +5235,7 @@ async function configureCustomTestEnvironment() {
   }
   customTestEnvironment.global.console = console;
   projectCustomEnvironmentGlobals();
+  hideUnavailableCustomEnvironmentHostGlobals();
 }
 
 async function setupCustomTestEnvironment() {
