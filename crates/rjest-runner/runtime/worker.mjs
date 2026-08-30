@@ -4908,7 +4908,6 @@ function scopedJest(fromPath) {
     },
     setSystemTime(value) {
       jest.setSystemTime(value);
-      return scoped;
     },
     setTimerTickMode(value) {
       jest.setTimerTickMode(value);
@@ -6242,12 +6241,20 @@ const fakeTimers = {
   },
 };
 
-function assertFakeTimers() {
-  if (!fakeTimers.active) {
-    throw new Error(
-      'Fake timers are not active. Call jest.useFakeTimers() before using timer controls.',
-    );
-  }
+function checkFakeTimers() {
+  if (fakeTimers.active) return true;
+  const guidance =
+    fakeTimers.mode === 'legacy'
+      ? 'A function to advance timers was called but the timers APIs are not mocked ' +
+        'with fake timers. Call `jest.useFakeTimers({legacyFakeTimers: true})` ' +
+        'in this test file or enable fake timers for all tests by setting ' +
+        "{'enableGlobally': true, 'legacyFakeTimers': true} in Jest configuration file."
+      : 'A function to advance timers was called but the timers APIs are not replaced ' +
+        'with fake timers. Call `jest.useFakeTimers()` in this test file or enable ' +
+        "fake timers for all tests by setting 'fakeTimers': {'enableGlobally': true} " +
+        'in Jest configuration file.';
+  console.warn(`${guidance}\nStack Trace:\n${new Error().stack ?? ''}`);
+  return false;
 }
 
 function timerDelay(value) {
@@ -6399,7 +6406,7 @@ function nextFakeTimer(limit = Number.POSITIVE_INFINITY, allowedIds) {
 }
 
 function runAllTicks() {
-  assertFakeTimers();
+  if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
   let runs = 0;
   while (fakeTimers.ticks.length > 0) {
     if (++runs > fakeTimers.maxRuns) {
@@ -6414,7 +6421,6 @@ function runAllTicks() {
       tick.callback(...tick.args);
     }
   }
-  return jest;
 }
 
 function runLegacyTick(tick) {
@@ -6451,12 +6457,12 @@ function scheduleLegacyImmediate(callback, args) {
 }
 
 function runAllLegacyImmediates() {
-  assertFakeTimers();
   if (fakeTimers.mode !== 'legacy') {
     throw new TypeError(
       '`jest.runAllImmediates()` is only available when using legacy fake timers.',
     );
   }
+  checkFakeTimers();
   let runs = 0;
   while (fakeTimers.immediates.length > 0) {
     if (++runs > fakeTimers.maxRuns) {
@@ -6466,7 +6472,6 @@ function runAllLegacyImmediates() {
     }
     runLegacyImmediate(fakeTimers.immediates[0]);
   }
-  return jest;
 }
 
 function runTimer(timer) {
@@ -6752,12 +6757,12 @@ async function advanceTimersInNextAsyncMode(counter) {
 }
 
 function setTimerTickMode(options) {
-  assertFakeTimers();
   if (fakeTimers.mode === 'legacy') {
     throw new TypeError(
       '`jest.setTimerTickMode()` is not available when using legacy fake timers.',
     );
   }
+  if (!checkFakeTimers()) return jest;
   const mode = options?.mode;
   if (!['interval', 'manual', 'nextAsync'].includes(mode)) {
     throw new TypeError(
@@ -7068,7 +7073,7 @@ const jest = {
   runAllTicks,
   runAllImmediates: runAllLegacyImmediates,
   runAllTimers() {
-    assertFakeTimers();
+    if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
     if (fakeTimers.mode === 'legacy') {
       runAllTicks();
       runAllLegacyImmediates();
@@ -7088,15 +7093,14 @@ const jest = {
       }
     }
     if (fakeTimers.mode !== 'legacy') runAllTicks();
-    return jest;
   },
   async runAllTimersAsync() {
-    assertFakeTimers();
     if (fakeTimers.mode === 'legacy') {
       throw new TypeError(
         '`jest.runAllTimersAsync()` is not available when using legacy fake timers.',
       );
     }
+    if (!checkFakeTimers()) return;
     return withPausedNextAsyncMode(async () => {
       let runs = 0;
       while (true) {
@@ -7111,11 +7115,10 @@ const jest = {
         runTimer(timer);
       }
       runAllTicks();
-      return jest;
     });
   },
   runOnlyPendingTimers() {
-    assertFakeTimers();
+    if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
     const pending = [...fakeTimers.timers.values()].sort(
       (left, right) => left.callAt - right.callAt || left.id - right.id,
     );
@@ -7129,20 +7132,19 @@ const jest = {
         fakeTimers.now = timer.callAt;
         runTimer(timer);
       }
-      return jest;
+      return;
     }
     for (const timer of pending) {
       if (fakeTimers.timers.get(timer.id) === timer) runTimer(timer);
     }
-    return jest;
   },
   async runOnlyPendingTimersAsync() {
-    assertFakeTimers();
     if (fakeTimers.mode === 'legacy') {
       throw new TypeError(
         '`jest.runOnlyPendingTimersAsync()` is not available when using legacy fake timers.',
       );
     }
+    if (!checkFakeTimers()) return;
     return withPausedNextAsyncMode(async () => {
       const pending = [...fakeTimers.timers.values()].sort(
         (left, right) => left.callAt - right.callAt || left.id - right.id,
@@ -7153,72 +7155,66 @@ const jest = {
           await Promise.resolve();
         }
       }
-      return jest;
     });
   },
   advanceTimersByTime(milliseconds) {
-    assertFakeTimers();
+    if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
     const duration = timerAdvanceDuration(milliseconds);
     runTimersUntil(fakeTimers.now + duration);
-    return jest;
   },
   advanceTimersToNextFrame() {
-    assertFakeTimers();
     if (fakeTimers.mode === 'legacy') {
       throw new TypeError(
         '`jest.advanceTimersToNextFrame()` is not available when using legacy fake timers.',
       );
     }
+    if (!checkFakeTimers()) return;
     runTimersUntil(fakeTimers.now + timeToNextFrame());
-    return jest;
   },
   async advanceTimersByTimeAsync(milliseconds) {
-    assertFakeTimers();
     if (fakeTimers.mode === 'legacy') {
       throw new TypeError(
         '`jest.advanceTimersByTimeAsync()` is not available when using legacy fake timers.',
       );
     }
+    if (!checkFakeTimers()) return;
     const duration = timerAdvanceDuration(milliseconds);
     return withPausedNextAsyncMode(async () => {
       await runTimersUntilAsync(fakeTimers.now + duration);
-      return jest;
     });
   },
   advanceTimersToNextTimer(steps = 1) {
-    assertFakeTimers();
+    if (fakeTimers.mode !== 'legacy' && !checkFakeTimers()) return;
     for (let index = 0; index < Number(steps); index += 1) {
       const timer = nextFakeTimer();
       if (!timer) break;
+      if (fakeTimers.mode === 'legacy') checkFakeTimers();
       runTimersUntil(timer.callAt);
     }
-    return jest;
   },
   async advanceTimersToNextTimerAsync(steps = 1) {
-    assertFakeTimers();
     if (fakeTimers.mode === 'legacy') {
       throw new TypeError(
         '`jest.advanceTimersToNextTimerAsync()` is not available when using legacy fake timers.',
       );
     }
+    if (!checkFakeTimers()) return;
     return withPausedNextAsyncMode(async () => {
       for (let index = 0; index < Number(steps); index += 1) {
         const timer = nextFakeTimer();
         if (!timer) break;
         await runTimersUntilAsync(timer.callAt);
       }
-      return jest;
     });
   },
   clearAllTimers() {
-    assertFakeTimers();
+    if (!fakeTimers.active && fakeTimers.mode !== 'legacy') return;
     fakeTimers.timers.clear();
     fakeTimers.immediates.length = 0;
     if (fakeTimers.mode !== 'legacy') fakeTimers.ticks.length = 0;
-    return jest;
   },
   getTimerCount() {
-    assertFakeTimers();
+    if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return 0;
     return (
       fakeTimers.timers.size +
       fakeTimers.ticks.length +
@@ -7226,19 +7222,18 @@ const jest = {
     );
   },
   setSystemTime(value) {
-    assertFakeTimers();
     if (fakeTimers.mode === 'legacy') {
       throw new TypeError(
         '`jest.setSystemTime()` is not available when using legacy fake timers.',
       );
     }
+    if (!checkFakeTimers()) return;
     const next = timerEpoch(value);
     const difference = next - fakeTimers.now;
     fakeTimers.now = next;
     for (const timer of fakeTimers.timers.values()) {
       timer.callAt += difference;
     }
-    return jest;
   },
   setTimerTickMode,
   now() {
