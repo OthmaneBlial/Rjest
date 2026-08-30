@@ -9,13 +9,13 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 202/202 (100.0%) across its explicitly listed
+The current generated matrix is 203/203 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
 Expect is 7/7 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%), coverage is 15/15 (100.0%), and custom
-reporters are 6/6 (100.0%), and Watch is 4/4 (100.0%). These
+reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
 
@@ -47,9 +47,11 @@ claim.
 The reporter probes cover CommonJS and ESM class loading, constructor context
 and options, awaited run/file/case hooks, legacy file-hook fallbacks,
 `getLastError()` and thrown-hook exits, custom-only stdout, multi-project
-display identities, and two-worker dispatch. Case events currently carry the
-covered Jest payloads after a file finishes; reporters that require callbacks
-to run concurrently with the active test body remain outside this score.
+display identities, and two-worker dispatch. Case start/result events stream
+from active workers instead of being replayed after file completion. The live
+oracle makes test bodies observe their reporter markers, verifies that the
+first case result arrives before the next test executes, preserves direct
+worker stdout without a trailing newline, and covers skipped and todo semantics.
 
 A CLI runtime-override probe starts an open interval under `--forceExit` and
 disables config-enabled coverage with `--no-coverage`. Both runners exit

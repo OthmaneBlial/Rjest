@@ -10,6 +10,7 @@ rust-version.workspace = true
 rayon.workspace = true
 rjest-core = { path = "../rjest-core" }
 rjest-snapshot = { path = "../rjest-snapshot" }
+serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true

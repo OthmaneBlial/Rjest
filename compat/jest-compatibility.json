@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 202,
-    "total": 202,
+    "passing": 203,
+    "total": 203,
     "percentage": 100
   },
   "categories": {
@@ -54,8 +54,8 @@
       "percentage": 100
     },
     "Reporters": {
-      "passing": 6,
-      "total": 6,
+      "passing": 7,
+      "total": 7,
       "percentage": 100
     },
     "Resolution": {
@@ -364,6 +364,12 @@
     },
     {
       "name": "reporters-parallel",
+      "category": "Reporters",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "reporters-test-case-streaming",
       "category": "Reporters",
       "compatible": true,
       "differences": []

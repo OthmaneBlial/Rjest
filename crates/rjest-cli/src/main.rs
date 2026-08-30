@@ -1353,6 +1353,38 @@ impl rjest_runner::RunObserver for ReporterRunObserver<'_> {
             .map(|_| ())
             .map_err(|error| format!("{error:#}"))
     }
+
+    fn on_test_case_start(
+        &self,
+        path: &Path,
+        info: &rjest_core::TestCaseStartInfo,
+    ) -> std::result::Result<(), String> {
+        self.session
+            .send(&serde_json::json!({
+                "action": "testCaseStart",
+                "contextId": self.context_id,
+                "path": path,
+                "info": info,
+            }))
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"))
+    }
+
+    fn on_test_case_result(
+        &self,
+        path: &Path,
+        result: &rjest_core::TestCaseResult,
+    ) -> std::result::Result<(), String> {
+        self.session
+            .send(&serde_json::json!({
+                "action": "testCaseResult",
+                "contextId": self.context_id,
+                "path": path,
+                "result": result,
+            }))
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"))
+    }
 }
 
 fn finish_test_sequencers(
@@ -4071,6 +4103,7 @@ mod tests {
                 ancestor_titles: Vec::new(),
                 status,
                 duration_ms: 0,
+                started_at: None,
                 failure_message: None,
                 num_passing_asserts: 0,
                 invocations: 1,

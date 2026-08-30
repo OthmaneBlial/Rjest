@@ -13,10 +13,11 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 23;
+const PROTOCOL_VERSION = 24;
 const supportsSyncEvaluate =
   typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
+const EVENT_PREFIX = '__RJEST_EVENT__';
 const ASYMMETRIC = Symbol.for('rjest.asymmetricMatcher');
 const RESULT_TEST_NODE = Symbol('rjest.testNode');
 const nativeSetTimeout = globalThis.setTimeout;
@@ -6757,6 +6758,30 @@ function ancestorTitles(node) {
   return names;
 }
 
+async function emitWorkerEvent(event, payload) {
+  if (request.testEventMode !== 'enabled') return;
+  const message = `${EVENT_PREFIX}${JSON.stringify({event, ...payload})}\n`;
+  if (!process.stdout.write(message)) {
+    await new Promise(resolve => process.stdout.once('drain', resolve));
+  }
+}
+
+async function emitTestCaseStart(node, startedAt) {
+  await emitWorkerEvent('testCaseStart', {
+    info: {
+      title: node.name,
+      fullName: fullName(node),
+      ancestorTitles: ancestorTitles(node),
+      mode: node.mode,
+      startedAt,
+    },
+  });
+}
+
+async function emitTestCaseResult(result) {
+  await emitWorkerEvent('testCaseResult', {result});
+}
+
 function hasOnly(node, inherited = false) {
   const focused = inherited || node.mode === 'only';
   if (node.type === 'test') return focused;
@@ -6878,17 +6903,18 @@ function hookChain(testNode, type) {
 function skippedResults(node, status = 'skipped') {
   if (node.type === 'test') {
     markSnapshotsChecked(fullName(node));
-      const result = {
-        name: node.name,
-        fullName: fullName(node),
-        ancestorTitles: ancestorTitles(node),
-        status: node.mode === 'todo' ? 'todo' : status,
-        durationMs: 0,
-        failureMessage: null,
-        numPassingAsserts: 0,
-        invocations: 0,
-        retryReasons: [],
-      };
+    const result = {
+      name: node.name,
+      fullName: fullName(node),
+      ancestorTitles: ancestorTitles(node),
+      status: node.mode === 'todo' ? 'todo' : status,
+      durationMs: 0,
+      startedAt: undefined,
+      failureMessage: null,
+      numPassingAsserts: 0,
+      invocations: 0,
+      retryReasons: [],
+    };
     result[RESULT_TEST_NODE] = node;
     return [result];
   }
@@ -6908,18 +6934,23 @@ async function runTest(
     ancestorTitles: ancestorTitles(node),
     status: 'passed',
     durationMs: 0,
+    startedAt: undefined,
     failureMessage: null,
     numPassingAsserts: 0,
     invocations: node.invocations ?? 0,
     retryReasons: [...(node.retryReasons ?? [])],
   };
   result[RESULT_TEST_NODE] = node;
+  result.startedAt = NativeDate.now();
+  node.invocations = (node.invocations ?? 0) + 1;
+  result.invocations = node.invocations;
   await dispatchCustomEnvironmentEvent({name: 'test_start', test: node});
   const isSelected = selected || node.mode === 'only';
   if (node.mode === 'todo') {
     markSnapshotsChecked(result.fullName);
     result.status = 'todo';
     await dispatchCustomEnvironmentEvent({name: 'test_todo', test: node});
+    await emitTestCaseResult(result);
     return result;
   }
   if (
@@ -6935,8 +6966,7 @@ async function runTest(
   }
   activeTest = node;
   await dispatchCustomEnvironmentEvent({name: 'test_started', test: node});
-  node.invocations = (node.invocations ?? 0) + 1;
-  result.invocations = node.invocations;
+  await emitTestCaseStart(node, result.startedAt);
   node.assertionCalls = 0;
   node.expectedAssertions = undefined;
   node.requiresAssertions = false;
@@ -7049,6 +7079,7 @@ async function runTest(
   result.retryReasons = [...(node.retryReasons ?? [])];
   result.numPassingAsserts = node.assertionCalls;
   await dispatchCustomEnvironmentEvent({name: 'test_done', test: node});
+  await emitTestCaseResult(result);
   activeTest = undefined;
   expectState.testFailing = false;
   return result;

@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 23;
+pub const WORKER_PROTOCOL_VERSION: u32 = 24;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -95,6 +95,15 @@ pub enum SnapshotUpdate {
     All,
 }
 
+/// Controls whether a worker emits live test-case lifecycle messages.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkerEventMode {
+    #[default]
+    Disabled,
+    Enabled,
+}
+
 /// Jest pretty-format options that affect persisted and inline snapshots.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -143,6 +152,7 @@ pub struct WorkerRequest {
     pub coverage_sources: Vec<PathBuf>,
     pub test_name_pattern: Option<String>,
     pub default_timeout_ms: u64,
+    pub test_event_mode: WorkerEventMode,
     #[serde(flatten)]
     pub snapshot: SnapshotRequest,
 }
@@ -165,6 +175,20 @@ pub enum TestStatus {
     Todo,
 }
 
+/// Jest Circus metadata emitted immediately before a runnable test case starts.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestCaseStartInfo {
+    pub title: String,
+    pub full_name: String,
+    #[serde(default)]
+    pub ancestor_titles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestCaseResult {
@@ -174,6 +198,8 @@ pub struct TestCaseResult {
     pub ancestor_titles: Vec<String>,
     pub status: TestStatus,
     pub duration_ms: u64,
+    #[serde(default)]
+    pub started_at: Option<u64>,
     pub failure_message: Option<String>,
     #[serde(default)]
     pub num_passing_asserts: usize,

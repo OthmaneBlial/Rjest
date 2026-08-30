@@ -2,12 +2,13 @@
 
 use std::{
     collections::BTreeMap,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     },
     thread,
     time::Duration,
@@ -19,11 +20,12 @@ use rjest_core::{
     AggregatedResult, CoverageMap, ExecutionOrderConfig, FakeTimersConfig, GlobalExecutionConfig,
     HasteConfig, MockLifecycleConfig, ModuleNameMapper, SnapshotFormat, SnapshotRequest,
     SnapshotResult, SnapshotUpdate, TestFile, TestFileResult, WORKER_PROTOCOL_VERSION,
-    WorkerRequest,
+    WorkerEventMode, WorkerRequest,
 };
 use thiserror::Error;
 
 const RESULT_PREFIX: &str = "__RJEST_RESULT__";
+const EVENT_PREFIX: &str = "__RJEST_EVENT__";
 const WORKER_SOURCE: &str = include_str!("../runtime/worker.mjs");
 
 /// Thread-safe signal used to interrupt an active test-file execution batch.
@@ -171,6 +173,12 @@ pub enum RunnerError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("worker returned an invalid live event for `{path}`: {source}")]
+    InvalidEvent {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
     #[error("worker protocol mismatch for `{path}`: expected {expected}, received {received}")]
     ProtocolMismatch {
         path: PathBuf,
@@ -208,6 +216,32 @@ pub trait RunObserver: Sync {
         Ok(())
     }
 
+    /// Called while a worker is running, immediately before a runnable test case.
+    ///
+    /// # Errors
+    ///
+    /// Returning a message aborts the worker and surfaces an observer error.
+    fn on_test_case_start(
+        &self,
+        _path: &Path,
+        _info: &rjest_core::TestCaseStartInfo,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Called while a worker is running, immediately after a test attempt finishes.
+    ///
+    /// # Errors
+    ///
+    /// Returning a message aborts the worker and surfaces an observer error.
+    fn on_test_case_result(
+        &self,
+        _path: &Path,
+        _result: &rjest_core::TestCaseResult,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Called after a worker produced a validated result for one test file.
     ///
     /// # Errors
@@ -229,6 +263,13 @@ enum WorkerTermination {
     Completed,
     TimedOut,
     Cancelled,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "camelCase")]
+enum WorkerEvent {
+    TestCaseStart { info: rjest_core::TestCaseStartInfo },
+    TestCaseResult { result: rjest_core::TestCaseResult },
 }
 
 #[derive(Debug, Default)]
@@ -308,6 +349,7 @@ fn run_internal(
                         worker_path,
                         index == 0,
                         Cancellation::default(),
+                        observer,
                     )? {
                         FileRunOutcome::Completed(result) => {
                             notify_file_result(observer, &result)?;
@@ -355,11 +397,17 @@ fn run_files_with_cancellation(
                     return Ok(None);
                 }
                 notify_file_start(observer, file)?;
-                let result =
-                    match run_file(&file.path, options, worker_path, index == 0, cancellation)? {
-                        FileRunOutcome::Completed(result) => *result,
-                        FileRunOutcome::Cancelled => return Ok(None),
-                    };
+                let result = match run_file(
+                    &file.path,
+                    options,
+                    worker_path,
+                    index == 0,
+                    cancellation,
+                    observer,
+                )? {
+                    FileRunOutcome::Completed(result) => *result,
+                    FileRunOutcome::Cancelled => return Ok(None),
+                };
                 notify_file_result(observer, &result)?;
                 let mut state = state
                     .lock()
@@ -553,6 +601,7 @@ fn run_file(
     worker_path: &Path,
     collect_uncovered_sources: bool,
     cancellation: Cancellation<'_>,
+    observer: Option<&dyn RunObserver>,
 ) -> Result<FileRunOutcome, RunnerError> {
     if cancellation.requested() {
         return Ok(FileRunOutcome::Cancelled);
@@ -597,6 +646,11 @@ fn run_file(
         },
         test_name_pattern: options.test_name_pattern.clone(),
         default_timeout_ms: options.default_timeout_ms,
+        test_event_mode: if observer.is_some() {
+            WorkerEventMode::Enabled
+        } else {
+            WorkerEventMode::Disabled
+        },
         snapshot: SnapshotRequest {
             snapshot_update: options.snapshot_update,
             snapshot_file_exists: snapshot.exists,
@@ -606,7 +660,7 @@ fn run_file(
     };
     let encoded = serde_json::to_vec(&request)?;
     let (stdout, stderr, termination) =
-        execute_worker(&encoded, options, worker_path, cancellation)?;
+        execute_worker(&encoded, path, options, worker_path, cancellation, observer)?;
     if termination == WorkerTermination::Cancelled {
         return Ok(FileRunOutcome::Cancelled);
     }
@@ -665,9 +719,11 @@ fn timed_out_result(path: &Path, file_timeout_ms: u64) -> TestFileResult {
 
 fn execute_worker(
     encoded_request: &[u8],
+    path: &Path,
     options: &RunnerOptions,
     worker_path: &Path,
     cancellation: Cancellation<'_>,
+    observer: Option<&dyn RunObserver>,
 ) -> Result<(Vec<u8>, Vec<u8>, WorkerTermination), RunnerError> {
     let mut command = Command::new(&options.node_binary);
     if std::env::var_os("NODE_ENV").is_none() {
@@ -702,10 +758,18 @@ fn execute_worker(
         .map_err(RunnerError::Write)?;
     let stdout_pipe = child.stdout.take().expect("piped stdout is available");
     let stderr_pipe = child.stderr.take().expect("piped stderr is available");
-    let stdout_reader = thread::spawn(move || read_pipe(stdout_pipe));
+    let (event_sender, event_receiver) = mpsc::channel();
+    let stdout_reader = thread::spawn(move || read_worker_stdout(stdout_pipe, &event_sender));
     let stderr_reader = thread::spawn(move || read_pipe(stderr_pipe));
     let child_started = Instant::now();
+    let mut event_error = None;
     let termination = loop {
+        if let Err(error) = drain_worker_events(&event_receiver, observer, path) {
+            let _ = child.kill();
+            child.wait().map_err(RunnerError::Wait)?;
+            event_error = Some(error);
+            break WorkerTermination::Completed;
+        }
         if child.try_wait().map_err(RunnerError::Wait)?.is_some() {
             break WorkerTermination::Completed;
         }
@@ -723,7 +787,56 @@ fn execute_worker(
     };
     let stdout = join_reader(stdout_reader)?;
     let stderr = join_reader(stderr_reader)?;
+    if event_error.is_none() {
+        drain_worker_events(&event_receiver, observer, path)?;
+    }
+    if let Some(error) = event_error {
+        return Err(error);
+    }
     Ok((stdout, stderr, termination))
+}
+
+fn drain_worker_events(
+    receiver: &mpsc::Receiver<Result<WorkerEvent, serde_json::Error>>,
+    observer: Option<&dyn RunObserver>,
+    path: &Path,
+) -> Result<(), RunnerError> {
+    for event in receiver.try_iter() {
+        let event = event.map_err(|source| RunnerError::InvalidEvent {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        notify_worker_event(observer, path, &event)?;
+    }
+    Ok(())
+}
+
+fn notify_worker_event(
+    observer: Option<&dyn RunObserver>,
+    path: &Path,
+    event: &WorkerEvent,
+) -> Result<(), RunnerError> {
+    let Some(observer) = observer else {
+        return Ok(());
+    };
+    match event {
+        WorkerEvent::TestCaseStart { info } => {
+            observer
+                .on_test_case_start(path, info)
+                .map_err(|message| RunnerError::Observer {
+                    event: "onTestCaseStart",
+                    path: path.to_path_buf(),
+                    message,
+                })
+        }
+        WorkerEvent::TestCaseResult { result } => observer
+            .on_test_case_result(path, result)
+            .map_err(|message| RunnerError::Observer {
+                event: "onTestCaseResult",
+                path: path.to_path_buf(),
+                message,
+            }),
+    }
 }
 
 fn worker_node_path(options: &RunnerOptions) -> Option<std::ffi::OsString> {
@@ -744,6 +857,35 @@ fn worker_node_path(options: &RunnerOptions) -> Option<std::ffi::OsString> {
 fn read_pipe(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
     let mut output = Vec::new();
     pipe.read_to_end(&mut output)?;
+    Ok(output)
+}
+
+fn read_worker_stdout(
+    pipe: impl Read,
+    events: &mpsc::Sender<Result<WorkerEvent, serde_json::Error>>,
+) -> std::io::Result<Vec<u8>> {
+    let mut reader = BufReader::new(pipe);
+    let mut output = Vec::new();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        output.extend_from_slice(&line);
+        let Some(prefix_index) = line
+            .windows(EVENT_PREFIX.len())
+            .position(|window| window == EVENT_PREFIX.as_bytes())
+        else {
+            continue;
+        };
+        let payload = &line[prefix_index + EVENT_PREFIX.len()..];
+        let payload = payload.strip_suffix(b"\n").unwrap_or(payload);
+        let payload = payload.strip_suffix(b"\r").unwrap_or(payload);
+        if events.send(serde_json::from_slice(payload)).is_err() {
+            break;
+        }
+    }
     Ok(output)
 }
 
@@ -781,6 +923,56 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    struct RecordingObserver {
+        events: Mutex<Vec<String>>,
+        root: PathBuf,
+    }
+
+    impl RunObserver for RecordingObserver {
+        fn on_test_case_start(
+            &self,
+            _path: &Path,
+            info: &rjest_core::TestCaseStartInfo,
+        ) -> Result<(), String> {
+            fs::write(self.root.join(format!("{}.started", info.title)), "started")
+                .map_err(|error| error.to_string())?;
+            self.events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(format!("start:{}", info.title));
+            Ok(())
+        }
+
+        fn on_test_case_result(
+            &self,
+            _path: &Path,
+            result: &rjest_core::TestCaseResult,
+        ) -> Result<(), String> {
+            fs::write(
+                self.root.join(format!("{}.completed", result.name)),
+                format!("{:?}", result.status),
+            )
+            .map_err(|error| error.to_string())?;
+            self.events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(format!("result:{}:{:?}", result.name, result.status));
+            Ok(())
+        }
+    }
+
+    struct RejectingObserver;
+
+    impl RunObserver for RejectingObserver {
+        fn on_test_case_start(
+            &self,
+            _path: &Path,
+            _info: &rjest_core::TestCaseStartInfo,
+        ) -> Result<(), String> {
+            Err("case reporter rejected the event".into())
+        }
+    }
 
     #[test]
     fn executes_nested_async_hooks_matchers_and_mocks() {
@@ -935,6 +1127,105 @@ mod tests {
 
         assert!(result.is_success());
         assert_eq!(result.count(TestStatus::Passed), 1);
+    }
+
+    #[test]
+    fn streams_test_case_events_while_the_worker_is_running() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("streaming.test.cjs");
+        fs::write(
+            &test_path,
+            format!(
+                r"
+                  const fs = require('node:fs');
+                  const path = require('node:path');
+                  const root = {};
+                  process.stdout.write('application output without a newline');
+                  async function waitFor(name) {{
+                    const marker = path.join(root, name);
+                    const deadline = Date.now() + 2000;
+                    while (!fs.existsSync(marker) && Date.now() < deadline) {{
+                      await new Promise(resolve => setTimeout(resolve, 10));
+                    }}
+                    expect(fs.existsSync(marker)).toBe(true);
+                  }}
+                  test('first', async () => waitFor('first.started'));
+                  test('second', async () => {{
+                    await waitFor('first.completed');
+                    await waitFor('second.started');
+                  }});
+                  test.skip('skipped', () => {{}});
+                  test.todo('todo');
+                ",
+                serde_json::to_string(temp.path()).expect("root path")
+            ),
+        )
+        .expect("write test");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical path"),
+        }];
+        let observer = RecordingObserver {
+            events: Mutex::new(Vec::new()),
+            root: temp.path().to_path_buf(),
+        };
+
+        let result = run_with_observer(&files, &RunnerOptions::default(), &observer)
+            .expect("run with live observer");
+
+        assert!(result.is_success());
+        assert_eq!(result.count(TestStatus::Passed), 2);
+        assert_eq!(result.count(TestStatus::Skipped), 1);
+        assert_eq!(result.count(TestStatus::Todo), 1);
+        for test in &result.test_results[0].tests {
+            assert!(test.started_at.is_some());
+            assert_eq!(test.invocations, 1);
+        }
+        assert_eq!(
+            *observer
+                .events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            [
+                "start:first",
+                "result:first:Passed",
+                "start:second",
+                "result:second:Passed",
+                "result:todo:Todo",
+            ]
+        );
+    }
+
+    #[test]
+    fn aborts_an_active_worker_when_a_test_case_observer_fails() {
+        let temp = tempdir().expect("temp dir");
+        let marker = temp.path().join("body-finished.marker");
+        let test_path = temp.path().join("observer-error.test.cjs");
+        fs::write(
+            &test_path,
+            format!(
+                "const fs = require('node:fs');\n\
+                 test('stops', async () => {{\n\
+                   await new Promise(resolve => setTimeout(resolve, 500));\n\
+                   fs.writeFileSync({}, 'finished');\n\
+                 }});",
+                serde_json::to_string(&marker).expect("marker path")
+            ),
+        )
+        .expect("write test");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("canonical path"),
+        }];
+
+        let error = run_with_observer(&files, &RunnerOptions::default(), &RejectingObserver)
+            .expect_err("observer failure");
+
+        assert!(error.to_string().contains("onTestCaseStart"));
+        assert!(
+            error
+                .to_string()
+                .contains("case reporter rejected the event")
+        );
+        assert!(!marker.exists());
     }
 
     #[test]

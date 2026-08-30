@@ -697,6 +697,7 @@ dependencies = [
  "rayon",
  "rjest-core",
  "rjest-snapshot",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

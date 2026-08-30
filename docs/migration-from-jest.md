@@ -103,8 +103,10 @@ receive awaited `onRunStart`, file hooks (including legacy fallbacks), test-case
 hooks, `onRunComplete`, and `getLastError()`. Custom-only configurations suppress
 Rjest's native default summary, while `default` and `summary` retain native
 output. Multi-project contexts and parallel file dispatch are covered. Keep
-Jest as the gate for reporters that require case callbacks while the test body
-is still active, or that depend on specialized `github-actions`/agent built-ins.
+Jest as the gate for reporters that depend on specialized
+`github-actions`/agent built-ins or unmeasured runner-specific payload fields.
+Case start/result callbacks now stream while the worker is active, including
+the covered skip/todo and inter-test ordering semantics.
 
 Configured CommonJS and native-ESM `testSequencer` classes can shard and sort
 the complete selected matrix, receive `cacheResults` on the same instance, and
@@ -167,14 +169,15 @@ continues to use Node host intrinsics.
 
 `rjest --coverage` supports Babel-Jest instrumentation, parallel map merging,
 positive and negated `collectCoverageFrom` globs, coverage path ignores, JSON,
-JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global
-positive-percentage and negative-uncovered thresholds. Global coverage globs
+JSON-summary, text, text-summary, LCOV/HTML, and Clover output, plus global,
+exact-path, directory, and per-file glob positive-percentage or
+negative-uncovered thresholds. Global coverage globs
 also include imported and untested files across covered inline project roots.
 `rjest --no-coverage` overrides config-enabled collection, including across a
 multi-project matrix, and is reported to custom extensions through Jest's
 `globalConfig.collectCoverage` field.
 Keep Jest as the coverage gate when using the V8 provider, custom Istanbul
-reporters, or path/glob-specific and cross-project threshold groups.
+reporters, or unmeasured cross-project threshold combinations.
 
 Projects using ordinary Node-relative imports, CommonJS `require`, ESM package
 exports, and standard `node_modules` packages can exercise those paths today.

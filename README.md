@@ -11,7 +11,7 @@ Change the command. Keep the tests.
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility report](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![Differential scenarios: 202/202](https://img.shields.io/badge/Jest_differential-202%2F202-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Differential scenarios: 203/203](https://img.shields.io/badge/Jest_differential-203%2F203-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111511?style=for-the-badge)](LICENSE)
@@ -67,14 +67,14 @@ Jest 29.7.0. No scenario is counted because a feature name appears in the code.
 | Expect | 7 / 7 | 100% |
 | Fake timers | 10 / 10 | 100% |
 | Mocks | 14 / 14 | 100% |
-| Reporters | 6 / 6 | 100% |
+| Reporters | 7 / 7 | 100% |
 | Resolution | 12 / 12 | 100% |
 | Snapshots | 15 / 15 | 100% |
 | Transforms | 7 / 7 | 100% |
 | Watch | 4 / 4 | 100% |
-| **Versioned matrix** | **202 / 202** | **100%** |
+| **Versioned matrix** | **203 / 203** | **100%** |
 
-**What that number means:** Rjest matches Jest in all 202 scenarios currently
+**What that number means:** Rjest matches Jest in all 203 scenarios currently
 checked into this repository.
 
 **What it does not mean:** Rjest implements 100% of every Jest API and ecosystem
@@ -222,9 +222,9 @@ Rjest is useful now. It is not yet a universal drop-in replacement.
   are implemented and differentially tested.
 - Transform and discovery caches are not persisted yet, and workers are not
   reused. Transform-heavy projects can be slower than Jest.
-- Exact custom-environment VM identity, live reporter case-event timing,
-  specialized reporter built-ins, and long-tail resolver/PnP combinations need
-  broader proof.
+- Exact custom-environment VM identity, specialized reporter built-ins, and
+  long-tail resolver/PnP combinations need broader proof. Live custom-reporter
+  case timing is now differentially covered for runnable, skipped, and todo tests.
 - Basic TypeScript can use Node's erasable syntax. TSX and TypeScript syntax
   requiring code generation still need a configured Jest transformer.
 - Unlisted behavior is not a compatibility claim, even when it happens to work.
@@ -240,7 +240,7 @@ make check
 ```
 
 The local gate runs Rust formatting, strict Clippy, the complete workspace test
-suite, JavaScript syntax and comparator tests, then all 202 semantic fixtures
+suite, JavaScript syntax and comparator tests, then all 203 semantic fixtures
 against pinned official Jest oracles, including Jest 29.7.0 and Jest 30.5.0.
 No GitHub Actions are required. The Jest source checkout and project corpus
 remain ignored under `base/`.

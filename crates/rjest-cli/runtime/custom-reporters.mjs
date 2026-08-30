@@ -34,6 +34,12 @@ async function main() {
       if (request.action === 'testFileStart') {
         await onTestFileStart(state, request);
         respond({ok: true});
+      } else if (request.action === 'testCaseStart') {
+        await onTestCaseStart(state, request);
+        respond({ok: true});
+      } else if (request.action === 'testCaseResult') {
+        await onTestCaseResult(state, request);
+        respond({ok: true});
       } else if (request.action === 'testFileResult') {
         await onTestFileResult(state, request);
         respond({ok: true});
@@ -117,35 +123,31 @@ async function onTestFileStart(state, request) {
   }
 }
 
+async function onTestCaseStart(state, request) {
+  const test = getTest(state, request.path, request.contextId);
+  for (const reporter of state.reporters) {
+    if (typeof reporter.onTestCaseStart === 'function') {
+      await reporter.onTestCaseStart(test, request.info);
+    }
+  }
+}
+
+async function onTestCaseResult(state, request) {
+  const test = getTest(state, request.path, request.contextId);
+  const result = toJestAssertionResult(request.result);
+  for (const reporter of state.reporters) {
+    if (typeof reporter.onTestCaseResult === 'function') {
+      await reporter.onTestCaseResult(test, result);
+    }
+  }
+}
+
 async function onTestFileResult(state, request) {
   const test = getTest(state, request.result.testPath, request.contextId);
   const testResult = toJestTestResult(
     request.result,
     test.context?.config?.displayName,
   );
-  for (const testCaseResult of testResult.testResults) {
-    const startInfo = {
-      ancestorTitles: testCaseResult.ancestorTitles,
-      mode:
-        testCaseResult.status === 'todo'
-          ? 'todo'
-          : testCaseResult.status === 'pending'
-            ? 'skip'
-            : undefined,
-      startedAt: testCaseResult.startedAt,
-      title: testCaseResult.title,
-    };
-    for (const reporter of state.reporters) {
-      if (typeof reporter.onTestCaseStart === 'function') {
-        await reporter.onTestCaseStart(test, startInfo);
-      }
-    }
-    for (const reporter of state.reporters) {
-      if (typeof reporter.onTestCaseResult === 'function') {
-        await reporter.onTestCaseResult(test, testCaseResult);
-      }
-    }
-  }
   addResult(state.aggregated, testResult);
   for (const reporter of state.reporters) {
     if (typeof reporter.onTestFileResult === 'function') {
@@ -359,7 +361,7 @@ function toJestAssertionResult(test) {
     location: null,
     numPassingAsserts: test.numPassingAsserts ?? 0,
     retryReasons: test.retryReasons ?? [],
-    startedAt: Date.now() - test.durationMs,
+    startedAt: test.startedAt,
     status,
     title: test.name,
   };

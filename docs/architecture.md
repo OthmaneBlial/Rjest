@@ -104,13 +104,16 @@ Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.
 
-Worker protocol v23 carries assertion ancestor titles/counts used by reporter
-payloads in addition to the supported snapshot-format options. Project identity
+Worker protocol v24 carries assertion ancestor titles/counts and optional live
+test-case lifecycle events used by reporter payloads in addition to the
+supported snapshot-format options. Project identity
 remains coordinator-owned because a worker executes one fully normalized
 project/file pair and should not need root-configuration context. Custom
-reporters use a separate persistent line protocol: Rust observes live file
-starts/results while the Node bridge preserves plugin instances and dispatches
-awaited run, file, case, and completion callbacks.
+reporters use a separate persistent line protocol: Rust observes live file and
+case events while the Node bridge preserves plugin instances and dispatches
+awaited run, file, case, and completion callbacks. Worker event frames are
+parsed concurrently with process execution, including after raw application
+stdout that does not end with a newline.
 
 Global setup and teardown use another persistent line protocol. Rust derives
 the active hook set only after project filtering, sharding, and sequencing, so

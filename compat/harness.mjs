@@ -378,6 +378,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'reporters-test-case-streaming',
+    category: 'Reporters',
+    compareArtifacts: ['reporter-stream.json'],
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'coverage-basic',
     category: 'Coverage',
     expectedExit: 0,

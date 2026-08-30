@@ -23,8 +23,10 @@ list. Resolve path, package, CommonJS, ESM, and configured-resolver modules in
 a persistent Node bridge. Construct custom reporters once and retain that
 process for the complete Rust-coordinated run.
 
-Expose thread-safe file start/result observations from the bounded Rust runner.
-The bridge serializes reporter dispatch, applies Jest's modern-to-legacy
+Expose thread-safe file and live test-case observations from the bounded Rust
+runner. Worker protocol v24 writes framed case events to stdout while a test
+file remains active; the Rust coordinator drains them concurrently with worker
+execution. The bridge serializes reporter dispatch, applies Jest's modern-to-legacy
 `onTestFileStart`/`onTestStart` and `onTestFileResult`/`onTestResult` fallbacks,
 projects Jest-shaped file and assertion results, dispatches case callbacks,
 and calls `onRunComplete` followed by `getLastError`. Reporter hook failures
@@ -41,12 +43,13 @@ must not leak the native default summary.
 - Async lifecycle methods are awaited, stdout is forwarded, multi-project test
   contexts retain display names/colors, and parallel file workers share one
   ordered reporter dispatcher.
-- Six differential fixtures cover lifecycle payloads, legacy fallbacks,
+- Seven differential fixtures cover lifecycle payloads, legacy fallbacks,
   reporter-controlled failure, thrown hooks, custom-only output, multi-project
-  contexts, and bounded parallel dispatch.
-- Test-case payloads are currently emitted from the completed file result, so
-  their values and ordering match the covered Jest fixtures but their callbacks
-  are not live while the test body is running. Streaming worker case events is
-  separate compatibility work.
+  contexts, bounded parallel dispatch, and live test-case timing.
+- Worker protocol v24 emits framed case-start/result messages while the test
+  file is active. Rust drains those messages without waiting for process exit,
+  serializes them through the persistent reporter bridge, and aborts the active
+  worker if a case callback fails. Runnable, skipped, todo, raw-stdout, and
+  inter-test result ordering are permanent differential or Rust regressions.
 - Specialized built-ins such as `github-actions` and interactive agent output
   still need their own native behavior and differential coverage.
