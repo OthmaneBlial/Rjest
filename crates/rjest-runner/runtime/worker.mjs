@@ -6554,24 +6554,30 @@ function legacyInfiniteLoopError(kind) {
 
 function runAllTicks() {
   if (!checkFakeTimers() && fakeTimers.mode !== 'legacy') return;
-  let index = 0;
-  while (fakeTimers.ticks.length > 0) {
-    if (fakeTimers.mode === 'legacy' && index >= fakeTimers.maxRuns) {
-      throw legacyInfiniteLoopError('ticks');
-    }
-    const tick = fakeTimers.ticks.shift();
-    if (fakeTimers.mode === 'legacy') {
-      runLegacyTick(tick);
-    } else {
-      tick.callback(...tick.args);
-      // Sinon checks `i > loopLimit` after running each queued job. Preserve
-      // that observable boundary even though it executes limit + 2 callbacks.
-      if (fakeTimers.maxRuns && index > fakeTimers.maxRuns) {
-        throw modernInfiniteLoopError();
+  if (fakeTimers.mode === 'legacy') {
+    let index = 0;
+    while (fakeTimers.ticks.length > 0) {
+      if (index >= fakeTimers.maxRuns) {
+        throw legacyInfiniteLoopError('ticks');
       }
+      runLegacyTick(fakeTimers.ticks.shift());
+      index += 1;
+    }
+    return;
+  }
+
+  let index = 0;
+  while (index < fakeTimers.ticks.length) {
+    const job = fakeTimers.ticks[index];
+    job.func.apply(null, job.args);
+    // Sinon checks `i > loopLimit` after running each queued job. Preserve
+    // that observable boundary even though it executes limit + 2 callbacks.
+    if (fakeTimers.maxRuns && index > fakeTimers.maxRuns) {
+      throw modernInfiniteLoopError();
     }
     index += 1;
   }
+  fakeTimers.ticks.length = 0;
 }
 
 function runLegacyTick(tick) {
@@ -6773,18 +6779,12 @@ function installFakeTimers(options = {}) {
   }
   if (!doNotFake.has('nextTick')) {
     process.nextTick = (callback, ...args) => {
-      if (typeof callback !== 'function') {
-        throw new TypeError('process.nextTick callback must be a function');
-      }
-      fakeTimers.ticks.push({callback, args});
+      fakeTimers.ticks.push({func: callback, args});
     };
   }
   if (!doNotFake.has('queueMicrotask')) {
     const fakeQueueMicrotask = callback => {
-      if (typeof callback !== 'function') {
-        throw new TypeError('queueMicrotask callback must be a function');
-      }
-      fakeTimers.ticks.push({callback, args: []});
+      fakeTimers.ticks.push({func: callback, args: []});
     };
     globalThis.queueMicrotask = fakeQueueMicrotask;
     if (jsdomEnvironment) {

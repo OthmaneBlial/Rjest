@@ -1264,6 +1264,12 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
+  {
+    name: 'fake-timers-microtask-contracts',
+    category: 'Fake timers',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
   {name: 'gap-inline-snapshot', category: 'Snapshots', expectedExit: 0},
   {
     name: 'snapshot-inline-write',
