@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local compatibility tooling for the Rust-powered Rjest test runner",
   "scripts": {
-    "check:runtime": "node --check crates/rjest-config/runtime/config-loader.mjs && node --check crates/rjest-cli/runtime/test-sequencer.mjs && node --check crates/rjest-runner/runtime/worker.mjs && node --check compat/harness.mjs && node --check compat/compare-corpus-results.mjs && node --test compat/compare-corpus-results.test.mjs",
+    "check:runtime": "node --check crates/rjest-config/runtime/config-loader.mjs && node --check crates/rjest-cli/runtime/test-sequencer.mjs && node --check crates/rjest-runner/runtime/worker.mjs && node --check compat/harness.mjs && node --check compat/compare-corpus-results.mjs && node --check site/app.js && node --test compat/compare-corpus-results.test.mjs",
     "compat": "node compat/harness.mjs",
     "compare:corpus": "node compat/compare-corpus-results.mjs"
   },

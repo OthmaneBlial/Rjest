@@ -1,268 +1,194 @@
-# Rjest
+<div align="center">
 
-Rjest is an early, independent implementation of a Jest-compatible JavaScript
-and TypeScript test runner whose coordinator is written in Rust.
+# RJEST
 
-> **Status:** early alpha. JavaScript, configured JSX/TypeScript transforms,
-> Node and JSDOM environments, modern and legacy fake timers, CommonJS module
-> factories, and Jest v1 snapshots now execute through isolated workers. Existing inline
-> snapshots, snapshot property matchers, configured serializers,
-> Babel/Istanbul coverage, and CommonJS/transformed `moduleNameMapper` rules are
-> supported. CommonJS and native-ESM automocking, manual CommonJS/native-ESM
-> `__mocks__` resolution,
-> Babel-hoisted and virtual mock factories, native-ESM mapping, and direct
-> synchronous or asynchronous ESM module mocks also work. New and updated
-> inline snapshots can rewrite JavaScript, TypeScript, CommonJS, and native ESM
-> callsites, including whole-file formatting and snapshot indentation through a
-> project's configured Prettier 2 or 3. V8 coverage, watch mode, and
-> many Jest edge cases remain.
-> Rjest does not claim full or production-ready Jest compatibility.
+### Switch the runner. Keep the test suite.
 
-## Why this architecture?
+An independent Jest-compatible test runner with a Rust coordinator and isolated Node workers.
 
-Rust owns configuration, discovery, scheduling, process management, aggregation,
-and reporting. JavaScript tests execute in isolated Node workers so that real
-Node module semantics and ecosystem integrations remain reachable. See
-the [architecture](docs/architecture.md) and accepted
-[runtime ADR](docs/adr/0001-hybrid-node-runtime.md).
+[Website](https://othmaneblial.github.io/rjest/) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
-## Try the current milestone
+![Status](https://img.shields.io/badge/status-alpha-f4b942?style=flat-square)
+![Differential scenarios](https://img.shields.io/badge/differential_scenarios-150%2F150-c8ff3d?style=flat-square)
+![Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=flat-square&logo=rust)
+![Node](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=flat-square&logo=nodedotjs)
+![License](https://img.shields.io/badge/license-MIT-111511?style=flat-square)
 
-```sh
-cargo run -p rjest-cli -- --showConfig
-cargo run -p rjest-cli -- --listTests
-cargo run -p rjest-cli -- --runInBand
-cargo run -p rjest-cli -- --maxWorkers=50% --testNamePattern=calculator
-cargo run -p rjest-cli -- --updateSnapshot
-cargo run -p rjest-cli -- --coverage
-cargo run -p rjest-cli -- --seed=1234 --showSeed
-cargo run -p rjest-cli -- --randomize --seed=1234
-cargo run -p rjest-cli -- --shard=1/3
-cargo run -p rjest-cli -- --bail
-cargo run -p rjest-cli -- --projects packages/api packages/web
-cargo run -p rjest-cli -- --selectProjects web --ignoreProjects legacy
-cargo run -p rjest-cli -- --testSequencer=./tools/sequencer.cjs
-cargo run -p rjest-cli -- --onlyFailures
-cargo run -p rjest-cli -- --no-cache
-cargo run -p rjest-cli -- --clearCache
+</div>
+
+```text
+npx jest
+    ↓
+npx rjest
 ```
 
-Supported configuration locations include `jest.config.js`, `.cjs`, `.mjs`,
-`.ts`, `.cts`, `.mts`, `.json`, and the `jest` field or config reference in
-`package.json`. Implicit discovery climbs from the invocation directory and
-uses the nearest package as a project-root boundary, matching Jest. Jest-style
-inline JSON passed through `--config` also works.
-Multi-project configs accept inline objects, project directories, config-file
-paths, and standard path globs. `<rootDir>` project entries resolve from the
-parent project root, while ordinary relative entries resolve from the parent
-config file as in Jest. The variadic `--projects` CLI form also loads multiple
-project directories or config files in one invocation. `--selectProjects` and
-`--ignoreProjects` compose as display-name filters over that execution matrix.
-Configured CommonJS and ESM `testSequencer` classes receive Jest-shaped project
-contexts and global seed/shard options. Their synchronous or asynchronous
-`shard` hook runs before `sort`, and the same instance receives post-run
-`cacheResults` data. `--onlyFailures`/`-f` invokes its synchronous or
-asynchronous `allFailedTests` hook after sorting. A CLI `--testSequencer` value
-takes precedence over the configured class. The native default sequencer
-persists failure/duration data, prioritizes failed, uncached, and slower files
-like Jest, and uses that cache to select failed files on later invocations.
-`cache` and `cacheDirectory` configuration, CLI `--cache`/`--no-cache`, and
-`--clearCache` are supported for sequencer cache state. Rjest uses a namespaced
-temporary default and refuses to clear a filesystem root, project root, current
-directory, temporary root, or home directory.
-Exported async config functions and supported `fakeTimers` options work. Unknown
-Jest options fail explicitly rather than being ignored. Node 22.18 or newer is
-required; the current TypeScript path uses Node's native erasable-syntax support
-and does not yet handle TSX or TypeScript features that require code generation.
+That is the destination: existing Jest projects changing the command, not their
+tests. Rjest already runs substantial React, TypeScript, Node, JSDOM, ESM,
+snapshot, mock, fake-timer, coverage, and monorepo workloads without source
+changes. It is still alpha software, so prove your own suite before replacing
+Jest as a release gate.
 
-The worker currently delegates ordinary relative, CommonJS, ESM, `main`, and
-package `exports` resolution to Node. Configured Jest transformers can compile
-JS, JSX, TS, and TSX before execution. Native ESM imports prefer `processAsync`
-when available, await asynchronous transformer factories (including ESM
-transformer modules), and prepare transformed static and dynamic graphs before
-Node's synchronous loader hook consumes them. Ordered
-`moduleNameMapper` rules support capture substitution and fallback targets for
-CommonJS, transformed modules, and the covered native-ESM paths. Configured
-`moduleDirectories` names and absolute roots use Jest-compatible lookup order
-for CommonJS, transformed modules, and native ESM. Configured synchronous
-custom resolver functions and `{sync}` exports can delegate through Jest-shaped
-default resolver callbacks, including preloaded top-level-await ESM resolver
-modules. Async-only exports are awaited during static and dynamic native-ESM
-graph preparation. When Yarn Plug'n'Play is active, Rjest resolves through its
-`pnpapi` contract with Jest's import/require conditions; a deterministic portal
-fixture covers CommonJS, native ESM, ESM mocks, conditional exports, and
-undeclared-dependency errors. Configured pnpm projects automatically receive
-their virtual-hoist lookup path, and a differential fixture proves transformer
-dependencies stored there. Zip-backed PnP archives and pnpm isolated-linker
-layouts remain outside that bounded proof.
-Configured and docblock-selected custom test environments load from explicit
-paths or Jest-prefixed packages. CommonJS and top-level-await ESM classes
-receive Jest-shaped constructor config/context, async setup/teardown, projected
-globals, export conditions, and awaited circus lifecycle events. Node and
-JSDOM subclasses are differential-tested; Rjest still bridges their globals
-into its worker realm rather than executing modules in the environment's VM.
-For explicit bare Babel-Jest transforms, Rjest resolves through the project's
-installed Jest dependency graph instead of accidentally loading an ancestor
-runner copy. When no transform is configured, it resolves the Babel-Jest
-version bundled with the project's installed Jest before falling back to a
-direct project dependency.
-For CommonJS, `jest.mock`/`doMock` factories, manual and virtual mocks,
-`requireActual`, `requireMock`, and recursive basic auto-mocks are available;
-transformed modules retain the declaring-file context used to resolve mocks.
+## Compatibility you can inspect
 
-## Local validation
+No invented percentage. No hand-picked screenshot. Every published number is
+tied to an executable differential fixture or a pinned real-world corpus.
+
+| Proof | Official Jest | Rjest |
+| --- | ---: | ---: |
+| Versioned differential matrix | 150 / 150 scenarios | 150 / 150 scenarios |
+| Downshift | 92 suites · 1,110 tests · 49 snapshots | exact parity |
+| styled-components web | 59 suites · 1,465 tests · 749 snapshots | exact parity |
+| React Navigation | 81 suites · 1,303 identities · 169 snapshots | exact parity, including the same 2 upstream failures |
+| AWS Amplify Auth | 101 suites · 1,150 tests | exact identity, status, and coverage parity |
+| Apollo Client | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
+
+The 150/150 result is **100% of the versioned scenarios currently in the
+matrix**, not 100% of the entire Jest API. The repository also contains 24
+documented corpus reports spanning React, React Native, TypeScript, JSDOM,
+CommonJS, native ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play.
+
+[Read the generated matrix →](compat/jest-compatibility.json)
+
+## What already works
+
+- Jest-style `describe`, `test`, `it`, hooks, focus, skip, todo, retries, bail,
+  seeded randomization, sharding, and failed-test reruns.
+- Common matchers, asymmetric matchers, custom async matchers, `.resolves`,
+  `.rejects`, assertion counts, mocks, spies, module mocks, and automocking.
+- External and inline snapshots, property matchers, serializers, update mode,
+  Prettier 2/3 formatting, and source-mapped inline snapshot writes.
+- JavaScript, configured JSX/TS/TSX transforms, CommonJS, native ESM,
+  top-level await, async transformers, Node, JSDOM, and custom environments.
+- Modern and legacy fake timers, including automatic advancement and the
+  covered Node/JSDOM scheduling boundaries.
+- Jest config discovery, executable JS/TS configs, presets, multi-project
+  matrices, display-name filters, custom resolvers, custom sequencers, pnpm,
+  and Yarn Plug'n'Play.
+- Istanbul/Babel coverage with JSON, text, LCOV/HTML, Clover, source-map
+  remapping, merging, and global thresholds.
+- Jest-compatible cache controls for failure/duration sequencer history.
+
+## Try Rjest on an existing project
+
+Rjest is not published as an npm package yet. Build the current alpha from the
+repository so the binary and its pinned compatibility dependencies stay
+together:
+
+```sh
+git clone https://github.com/OthmaneBlial/rjest.git
+cd rjest
+npm ci
+cargo build --release -p rjest-cli
+```
+
+Then point the binary at a Jest project:
+
+```sh
+cd /path/to/your-jest-project
+/path/to/rjest/target/release/rjest --listTests
+/path/to/rjest/target/release/rjest --runInBand
+/path/to/rjest/target/release/rjest
+```
+
+Start with discovery, run serially, compare both runners, then enable Rjest's
+default bounded parallel execution.
+
+## Familiar commands, native coordination
+
+```sh
+rjest --coverage
+rjest --updateSnapshot
+rjest --testNamePattern=calculator
+rjest --maxWorkers=50%
+rjest --projects packages/api packages/web
+rjest --selectProjects web --ignoreProjects legacy
+rjest --shard=1/3
+rjest --randomize --seed=1234
+rjest --testSequencer=./tools/sequencer.cjs
+rjest --onlyFailures
+rjest --no-cache
+rjest --clearCache
+```
+
+Unknown Jest configuration options fail explicitly instead of disappearing
+silently.
+
+## Why Rust and Node?
+
+```mermaid
+flowchart LR
+    A[Jest config] --> B[Rust discovery]
+    B --> C[Rust scheduling]
+    C --> D1[Isolated Node worker]
+    C --> D2[Isolated Node worker]
+    C --> D3[Isolated Node worker]
+    D1 --> E[Rust aggregation]
+    D2 --> E
+    D3 --> E
+    E --> F[Results · snapshots · coverage]
+```
+
+Rust owns configuration normalization, native discovery, scheduling, process
+management, aggregation, coverage merging, and snapshot persistence. Node owns
+JavaScript execution, real module semantics, Jest ecosystem transformers, and
+environment integrations. Each test file gets a fresh process today: strong
+isolation and deterministic aggregation, with startup cost that still needs to
+be reduced.
+
+The boundary is documented in [ADR 0001](docs/adr/0001-hybrid-node-runtime.md).
+
+## Alpha boundaries
+
+Rjest is genuinely useful for compatibility work, but it is not yet a universal
+drop-in replacement.
+
+- Watch mode and V8 coverage are not implemented.
+- Persisted transform/discovery caches and worker reuse are still open, so
+  transform-heavy projects can be materially slower than Jest.
+- Exact custom-environment VM-context identity, reporter combinations,
+  path/glob coverage thresholds, and long-tail resolver/PnP combinations need
+  broader proof.
+- Native TypeScript without a configured transformer is limited to Node's
+  erasable syntax; TSX and syntax requiring code generation need a Jest
+  transformer.
+- The current matrix is deliberately bounded. Unlisted Jest behavior is not a
+  compatibility claim.
+
+See the [migration guide](docs/migration-from-jest.md) for the detailed boundary
+and keep Jest as the release gate until your own suite produces equivalent
+results.
+
+## Verify the evidence locally
 
 ```sh
 make check
 ```
 
-The local gate runs formatting, Clippy, Rust unit/integration tests, JavaScript
-syntax checks, and semantic differential scenarios against official Jest 30.5.0.
-The generated score includes versioned known-incompatible probes in its
-denominator and states its limited corpus scope; it is not an estimate of the
-percentage of the complete Jest API.
+The gate runs Rust formatting, Clippy, all workspace tests, JavaScript syntax
+and comparator tests, then every semantic fixture against pinned official Jest
+30.5.0. The local Jest checkout and real-project corpora live under ignored
+`base/`; generated results never inflate the repository.
 
-A pinned Downshift corpus provides a separate real-project proof: official Jest
-and Rjest both pass 92/92 suites, 1,110/1,110 tests, and 49/49 snapshot
-assertions on the recorded dependency tree. The ignored corpus artifacts and
-commands are intentionally separate from the versioned probe percentage. See
-the [Downshift corpus report](docs/corpus/downshift.md).
+## Explore
 
-The pinned [React Select corpus](docs/corpus/react-select.md) separately reaches
-5/5 suites, 255 passing and 3 skipped tests, and 5/5 Emotion snapshots under
-Jest 25. Its original `--coverage` command now runs unchanged; Jest and Rjest
-also agree exactly on the 39-file Istanbul summary and all statement, branch,
-function, and line totals.
+- [Compatibility matrix](docs/compatibility.md)
+- [Migration from Jest](docs/migration-from-jest.md)
+- [Architecture](docs/architecture.md)
+- [Current progress and open work](docs/progress.md)
+- [Real-project corpus reports](docs/corpus)
+- [Local development](docs/development.md)
+- [Architecture decisions](docs/adr)
 
-The pinned [setup-matlab corpus](docs/corpus/setup-matlab.md) adds native ESM,
-`ts-jest`, top-level await, and ESM module mocks. Official Jest and Rjest both
-pass 7/7 suites and 94/94 tests with identical coverage summaries across nine
-TypeScript source files.
+## Contributing
 
-The pinned [ts-jest corpus](docs/corpus/ts-jest.md) exercises a large TypeScript
-transformer unit suite, executable TypeScript configuration, parameterized
-snapshot names, virtual/manual mocks, and compiler-heavy memory behavior.
-Official Jest and Rjest both pass 20/20 suites, 358/358 tests, and 137/137
-snapshots on the untouched checkout.
+The most valuable contribution is a minimized Jest/Rjest disagreement backed by
+an executable fixture. Reproduce the behavior with official Jest, add it to the
+differential matrix, fix Rjest, and keep the regression forever.
 
-The pinned [AWS Amplify Analytics corpus](docs/corpus/amplify-analytics.md)
-exercises an unchanged Yarn monorepo package after the repository's complete
-production build. Jest 29 and Rjest both pass 30/30 suites and 111/111 tests,
-with exact aggregate and per-file coverage-summary parity across 58 source
-files.
-
-The pinned [AWS Amplify Core corpus](docs/corpus/amplify-core.md) expands the
-same unchanged monorepo proof to 94/94 suites, 632/632 tests, and 2/2 snapshots.
-Its strict comparison also finds exact test identity/status and aggregate plus
-per-file coverage parity across 204 source files. Rjest remains materially
-slower on this transformer-heavy workload.
-
-The pinned [AWS Amplify Auth corpus](docs/corpus/amplify-auth.md) extends the
-unchanged monorepo proof to 101/101 suites and 1,150/1,150 tests. Its automated
-comparison finds exact suite paths, test identities/statuses, and aggregate plus
-per-file coverage parity across 198 source files, with zero Rjest file errors.
-
-The pinned [AWS Amplify Storage corpus](docs/corpus/amplify-storage.md) adds
-85/85 suites and 850/850 tests from the unchanged package. Jest and Rjest agree
-on every test identity/status and every Istanbul summary across 129 source
-files after exercising async custom matchers, XHR mocks, and cross-realm data.
-
-The pinned [AWS Amplify DataStore corpus](docs/corpus/amplify-datastore.md)
-adds fake IndexedDB, Dexie, RxJS scheduling, TSX type tests, and expectation
-state. Both runners discover 33 suites and 1,174 tests, pass 1,160 with 14
-skipped, match 8 snapshots, and agree on every Istanbul summary across 29
-source files. Executed identities are exact; 12 skipped fuzz labels are random
-and are compared by an explicit per-file count policy.
-
-The pinned [AWS Amplify Notifications corpus](docs/corpus/amplify-notifications.md)
-adds 61 suites and 261 tests covering native/mobile branches, event listeners,
-signed requests, and per-file environment docblocks. Jest and Rjest agree on
-every test identity/status and every Istanbul summary across 90 source files.
-
-The pinned [AWS Amplify Adapter Next.js corpus](docs/corpus/amplify-adapter-nextjs.md)
-adds a mock-dense Node/Next.js server workload. Both runners pass 41/41 suites,
-300 tests with one skipped test, and one snapshot, with exact coverage summaries
-across 50 source files.
-
-The pinned [AWS Amplify API REST corpus](docs/corpus/amplify-api-rest.md) adds
-request signing, cancellation, response parsing, factory mocks, and timeout
-spies. Both runners pass 10/10 suites and 208/208 tests, with exact aggregate
-and per-file coverage summaries across 24 source files.
-
-The pinned [aggregate AWS Amplify API corpus](docs/corpus/amplify-api.md)
-composes GraphQL, Adapter Next.js, SSR, fetch mocks, and package exports. Both
-runners pass 2/2 suites and 86/86 tests with exact test identities/statuses.
-
-The pinned [AWS Amplify PubSub corpus](docs/corpus/amplify-pubsub.md) covers
-MQTT-over-WebSocket reconnection, network recovery, Observables, topic
-wildcards, and vendored JavaScript. Both runners pass 17/17 tests and match all
-coverage summaries across 14 files.
-
-The pinned [AWS Amplify Interactions corpus](docs/corpus/amplify-interactions.md)
-covers Lex V1/V2 clients, JSDOM blobs, automatic mocks, and asynchronous
-compression in eval-based Node worker threads. Both runners pass 30/30 tests
-and match every coverage summary across 19 files.
-
-The pinned [AWS Amplify React Native corpus](docs/corpus/amplify-react-native.md)
-covers platform/native-module facades, dynamic loaders, `doMock`, and
-`resetModules`. Both runners pass 29/29 tests and, when coverage is requested,
-match every summary across 19 files and the package's threshold exit code.
-
-The pinned [AWS Amplify Predictions corpus](docs/corpus/amplify-predictions.md)
-adds AWS machine-learning clients, binary/browser data paths, and a large SDK
-module graph. Both runners discover 4/4 suites and 51/51 tests, and match every
-Istanbul summary across 12 source files.
-
-The pinned [AWS Amplify RTN Push Notification corpus](docs/corpus/amplify-rtn-push-notification.md)
-adds React Native facades, event listeners, permission normalization, and
-headless tasks. Both runners pass 12/12 suites and 28/28 tests with exact
-coverage across 13 files.
-
-The pinned [top-level AWS Amplify facade corpus](docs/corpus/amplify-aws-amplify.md)
-validates cross-package public exports, cookie storage, and server contexts.
-Both runners pass 7/7 suites and 50/50 tests with exact coverage across 21
-files.
-
-The pinned [NVIDIA Nsight VS Code language-support corpus](docs/corpus/nsight-vscode-language.md)
-adds Jest 30 native TypeScript, an ESM custom environment and transformer,
-extensionless ESM imports, VS Code mocks, and filesystem-heavy tests. Official
-Jest and Rjest reproduce the same 8 suite paths and all 95 test statuses,
-including the same single upstream macOS path failure.
-
-The pinned [Granite corpus](docs/corpus/granite.md) adds a strict Yarn 4
-Plug'n'Play workspace with zip-backed dependencies, React Native's resolver and
-environment, Haste platform extensions, Babel TSX, React Native Testing Library,
-custom matchers, and inline snapshots. Official Jest 29 and Rjest agree exactly
-on 5/5 suites, 29/29 tests, and 3/3 snapshots without modifying the project.
-
-The pinned [styled-components web corpus](docs/corpus/styled-components.md)
-adds a pnpm 10 workspace, Jest 30.3, React 19, JSDOM, Babel TypeScript/TSX,
-legacy fake timers, setup modules, a custom HTML serializer, and a
-snapshot-heavy SSR/UI suite. Official Jest and Rjest agree exactly on 59/59
-suites, 1,465/1,465 tests, and 749/749 snapshots without changing the project.
-
-The pinned [React Navigation corpus](docs/corpus/react-navigation.md) adds a
-pnpm 11 TypeScript monorepo with two Jest 30.4 projects, React Native and web
-presets, Babel TSX, JSDOM, React Testing Library, modern fake timers, mocks, and
-169 snapshots. On the unchanged project, official Jest and Rjest register the
-same 81 suites and all 1,303 test identities, with exact status and snapshot
-parity. Both reproduce the same two upstream Node 25 failures.
-
-The pinned [Apollo Client corpus](docs/corpus/apollo-client.md) establishes a
-much larger Jest 30 baseline across six Core/React projects: 563 suites, 9,974
-tests, and 519 snapshots. Its second complete Rjest capture found the exact 563
-suite paths and all 9,974 test identities. The latest complete capture passes
-9,495 tests, fails the same three WHATWG-stream cases as official Jest, skips
-the same 476 tests, matches all 519 snapshots, and has zero file errors or
-Rjest-only failures. Strict identity/status parity against the frozen official
-baseline is 9,968/9,974 (99.940%) because Rjest passes six official failures;
-three isolated official rechecks pass those cases too. This is evidence for the
-pinned corpus, not an exhaustive Jest-compatibility claim.
-
-No GitHub-hosted CI is used. See [local development](docs/development.md), the
-[compatibility matrix](compat/jest-compatibility.json), current
-[progress](docs/progress.md), and the honest [migration status](docs/migration-from-jest.md).
+If Rjest almost runs your project, open an issue with the smallest reproducible
+test and config. Those gaps define the roadmap.
 
 ## License
 
-MIT. Jest attribution is recorded in [NOTICE.md](NOTICE.md).
+MIT. Rjest is an independent project. Jest attribution is recorded in
+[NOTICE.md](NOTICE.md).

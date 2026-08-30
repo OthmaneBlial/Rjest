@@ -14,8 +14,10 @@ the project's own suite is proven equivalent.
 
 Rjest reads existing Jest snapshot files without rewriting them when values
 match and loads configured snapshot serializers. Existing inline snapshots are
-matched and counted; inserting or updating inline source text is not supported.
-Use `rjest --updateSnapshot` only after reviewing the compatibility result.
+matched and counted. New and updated inline snapshots rewrite JavaScript,
+TypeScript, CommonJS, and native-ESM callsites, including transformed source-map
+locations and project-local Prettier 2 or 3 formatting. Use
+`rjest --updateSnapshot` only after reviewing the compatibility result.
 
 Common `jest.config.js`, CJS, ESM, and erasable TypeScript config files can be
 used directly, as can Jest's inline JSON form of `--config`. Rjest normalizes
@@ -160,5 +162,8 @@ name, assertion count, and assertion requirements; `expect.setState()` can
 merge additional matcher state.
 
 External and existing inline snapshots accept nested property matchers and
-serialize their asymmetric placeholders like Jest. Rjest still cannot write a
-new inline snapshot back into the test source.
+serialize their asymmetric placeholders like Jest. New and updated inline
+snapshots also support property matchers, thrown errors, promise chains,
+multiple callsites, and whole-file formatting through the configured
+`prettierPath`; set that option to `null` to retain the unformatted source
+rewrite path.
