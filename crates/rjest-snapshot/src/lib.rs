@@ -10,6 +10,7 @@ use rjest_core::SnapshotUpdate;
 use thiserror::Error;
 
 pub const SNAPSHOT_HEADER: &str = "// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing";
+pub const LEGACY_SNAPSHOT_HEADER: &str = "// Jest Snapshot v1, https://goo.gl/fbAQLP";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SnapshotFile {
@@ -77,7 +78,7 @@ pub fn load(test_path: &Path, update: SnapshotUpdate) -> Result<SnapshotFile, Sn
     })?;
     let normalized = source.replace("\r\n", "\n").replace('\r', "\n");
     let header = normalized.lines().next().unwrap_or_default();
-    let dirty = header != SNAPSHOT_HEADER;
+    let dirty = !matches!(header, SNAPSHOT_HEADER | LEGACY_SNAPSHOT_HEADER);
     if dirty && update == SnapshotUpdate::None {
         return Err(SnapshotError::InvalidHeader {
             path,
@@ -124,6 +125,7 @@ pub fn persist(
         path: parent.to_path_buf(),
         source,
     })?;
+    let header = existing_supported_header(path)?.unwrap_or(SNAPSHOT_HEADER);
     let mut entries = data.iter().collect::<Vec<_>>();
     entries.sort_by(|(left, _), (right, _)| natord::compare(left, right));
     let body = entries
@@ -137,11 +139,24 @@ pub fn persist(
         })
         .collect::<Vec<_>>()
         .join("\n\n");
-    fs::write(path, format!("{SNAPSHOT_HEADER}\n\n{body}\n")).map_err(|source| {
-        SnapshotError::Write {
-            path: path.to_path_buf(),
-            source,
-        }
+    fs::write(path, format!("{header}\n\n{body}\n")).map_err(|source| SnapshotError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn existing_supported_header(path: &Path) -> Result<Option<&'static str>, SnapshotError> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let source = fs::read_to_string(path).map_err(|source| SnapshotError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(match source.lines().next().unwrap_or_default() {
+        SNAPSHOT_HEADER => Some(SNAPSHOT_HEADER),
+        LEGACY_SNAPSHOT_HEADER => Some(LEGACY_SNAPSHOT_HEADER),
+        _ => None,
     })
 }
 
@@ -318,5 +333,24 @@ mod tests {
                 .expect("updatable snapshot")
                 .dirty
         );
+    }
+
+    #[test]
+    fn accepts_and_preserves_the_legacy_jest_v1_header() {
+        let temp = tempdir().expect("temp dir");
+        let test_path = temp.path().join("legacy.test.js");
+        let snapshot_path = snapshot_path(&test_path);
+        fs::create_dir_all(snapshot_path.parent().unwrap()).expect("snapshot dir");
+        fs::write(
+            &snapshot_path,
+            format!("{LEGACY_SNAPSHOT_HEADER}\n\nexports[`case 1`] = `value`;\n"),
+        )
+        .expect("legacy snapshot source");
+
+        let snapshot = load(&test_path, SnapshotUpdate::New).expect("legacy snapshot");
+        assert!(!snapshot.dirty);
+        persist(&snapshot_path, &snapshot.data, true).expect("rewrite snapshot contents");
+        let source = fs::read_to_string(snapshot_path).expect("rewritten snapshot");
+        assert!(source.starts_with(LEGACY_SNAPSHOT_HEADER));
     }
 }

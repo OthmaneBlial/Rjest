@@ -21,6 +21,7 @@ import {fileURLToPath} from 'node:url';
 const repository = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const rjest = join(repository, 'target', 'debug', 'rjest');
 const jest = join(repository, 'node_modules', 'jest', 'bin', 'jest.js');
+const jest29 = join(repository, 'node_modules', 'jest-29', 'bin', 'jest.js');
 const jest30_3 = join(repository, 'node_modules', 'jest-30-3', 'bin', 'jest.js');
 const fixtures = join(repository, 'compat', 'fixtures');
 const require = createRequire(import.meta.url);
@@ -940,6 +941,14 @@ const cases = [
     category: 'Snapshots',
     expectedExit: 0,
     compareSnapshots: true,
+  },
+  {
+    name: 'snapshot-legacy-header',
+    category: 'Snapshots',
+    expectedExit: 0,
+    compareSnapshots: true,
+    installedJestPackage: 'jest-29',
+    jestExecutable: jest29,
   },
   {
     name: 'snapshot-serializer-modern',

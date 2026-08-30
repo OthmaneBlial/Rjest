@@ -9,15 +9,22 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 193/193 (100.0%) across its explicitly listed
+The current generated matrix is 194/194 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 13/13 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 14/14 (100.0%), and configuration is
-48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 14/14 (100.0%),
+48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 15/15 (100.0%),
 Expect is 7/7 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 10/10 (100.0%), coverage is 7/7 (100.0%), and custom
 reporters are 6/6 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
+
+Snapshot probes now include a pinned Jest 29.7 oracle. Jest 29 preserves the
+historical `https://goo.gl/fbAQLP` v1 header during a matching run, while Jest
+30 can migrate it to the current documentation URL. Rjest recognizes both
+headers and preserves the existing format without reporting or causing a
+spurious tracked-file update. Unknown headers retain the strict error/update
+boundary.
 
 The global-hook probes cover async CommonJS setup, native-ESM teardown,
 configured TypeScript transformation, environment propagation into isolated

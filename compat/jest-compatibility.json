@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 193,
-    "total": 193,
+    "passing": 194,
+    "total": 194,
     "percentage": 100
   },
   "categories": {
@@ -64,8 +64,8 @@
       "percentage": 100
     },
     "Snapshots": {
-      "passing": 14,
-      "total": 14,
+      "passing": 15,
+      "total": 15,
       "percentage": 100
     },
     "Transforms": {
@@ -910,6 +910,12 @@
     },
     {
       "name": "snapshot",
+      "category": "Snapshots",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "snapshot-legacy-header",
       "category": "Snapshots",
       "compatible": true,
       "differences": []

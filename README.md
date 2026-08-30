@@ -11,7 +11,7 @@ Change the command. Keep the tests.
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility report](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![Differential scenarios: 193/193](https://img.shields.io/badge/Jest_differential-193%2F193-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Differential scenarios: 194/194](https://img.shields.io/badge/Jest_differential-194%2F194-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111511?style=for-the-badge)](LICENSE)
@@ -68,12 +68,12 @@ is counted because a feature name appears in the code.
 | Mocks | 14 / 14 | 100% |
 | Reporters | 6 / 6 | 100% |
 | Resolution | 12 / 12 | 100% |
-| Snapshots | 14 / 14 | 100% |
+| Snapshots | 15 / 15 | 100% |
 | Transforms | 7 / 7 | 100% |
 | Watch | 4 / 4 | 100% |
-| **Versioned matrix** | **193 / 193** | **100%** |
+| **Versioned matrix** | **194 / 194** | **100%** |
 
-**What that number means:** Rjest matches Jest in all 193 scenarios currently
+**What that number means:** Rjest matches Jest in all 194 scenarios currently
 checked into this repository.
 
 **What it does not mean:** Rjest implements 100% of every Jest API and ecosystem
@@ -88,12 +88,13 @@ that fixtures miss.
 | Unmodified project suite | Official Jest | Rjest result |
 | --- | ---: | ---: |
 | Downshift | 92 suites · 1,110 tests · 49 snapshots | Exact parity |
+| React Testing Library | 16 suites · 251 tests · 11 snapshots | Exact React 19/JSDOM parity |
 | styled-components web | 59 suites · 1,465 tests · 749 snapshots | Exact parity |
 | React Navigation | 81 suites · 1,303 identities · 169 snapshots | Exact parity, including the same 2 upstream failures |
 | AWS Amplify Auth | 101 suites · 1,150 tests | Exact identity, status, and coverage parity |
 | Apollo Client | 563 suites · 9,974 identities · 519 snapshots | 99.940% frozen-status parity, zero Rjest-only failures |
 
-There are 24 pinned corpus reports across React, React Native, TypeScript,
+There are 25 pinned corpus reports across React, React Native, TypeScript,
 JSDOM, CommonJS, ESM, npm, pnpm, Yarn workspaces, and Yarn Plug'n'Play. Read the
 [real-project reports](docs/corpus) instead of taking the table on faith.
 
@@ -237,9 +238,10 @@ make check
 ```
 
 The local gate runs Rust formatting, strict Clippy, the complete workspace test
-suite, JavaScript syntax and comparator tests, then all 193 semantic fixtures
-against pinned official Jest 30.5.0. No GitHub Actions are required. The Jest
-source checkout and project corpus remain ignored under `base/`.
+suite, JavaScript syntax and comparator tests, then all 194 semantic fixtures
+against pinned official Jest oracles, including Jest 29.7.0 and Jest 30.5.0.
+No GitHub Actions are required. The Jest source checkout and project corpus
+remain ignored under `base/`.
 
 ## Help close the gap
 

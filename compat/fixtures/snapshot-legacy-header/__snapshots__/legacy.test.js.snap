@@ -1,0 +1,7 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`consumes a snapshot with the legacy Jest v1 header 1`] = `
+{
+  "stable": true,
+}
+`;
