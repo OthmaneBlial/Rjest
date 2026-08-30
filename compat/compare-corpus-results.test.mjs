@@ -12,7 +12,18 @@ test('requires explicit policy for randomized skipped test names', () => {
   try {
     const strict = compare(fixture);
     assert.equal(strict.status, 1);
-    assert.equal(JSON.parse(strict.stdout).tests.namesAndStatusesExact, false);
+    const strictReport = JSON.parse(strict.stdout);
+    assert.equal(strictReport.tests.namesAndStatusesExact, false);
+    assert.deepEqual(strictReport.tests.identityParity, {
+      matching: 1,
+      percentage: 50,
+      total: 2,
+    });
+    assert.deepEqual(strictReport.tests.identityStatusParity, {
+      matching: 1,
+      percentage: 50,
+      total: 2,
+    });
 
     const relaxed = compare(fixture, '--compare-skipped-by-file-count');
     assert.equal(relaxed.status, 0);
@@ -21,6 +32,51 @@ test('requires explicit policy for randomized skipped test names', () => {
     assert.equal(report.tests.executedNamesAndStatusesExact, true);
     assert.equal(report.tests.skippedCountsByFileExact, true);
     assert.equal(report.tests.skippedNamesAndStatusesExact, false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('reports 100 percent identity and status parity for exact results', () => {
+  const fixture = comparisonFixture({rjestSkippedName: 'random official'});
+  try {
+    const comparison = compare(fixture);
+    assert.equal(comparison.status, 0);
+    const report = JSON.parse(comparison.stdout);
+    assert.deepEqual(report.tests.identityParity, {
+      matching: 2,
+      percentage: 100,
+      total: 2,
+    });
+    assert.deepEqual(report.tests.identityStatusParity, {
+      matching: 2,
+      percentage: 100,
+      total: 2,
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('distinguishes identity coverage from identity and status parity', () => {
+  const fixture = comparisonFixture({
+    rjestPassedStatus: 'failed',
+    rjestSkippedName: 'random official',
+  });
+  try {
+    const comparison = compare(fixture);
+    assert.equal(comparison.status, 1);
+    const report = JSON.parse(comparison.stdout);
+    assert.deepEqual(report.tests.identityParity, {
+      matching: 2,
+      percentage: 100,
+      total: 2,
+    });
+    assert.deepEqual(report.tests.identityStatusParity, {
+      matching: 1,
+      percentage: 50,
+      total: 2,
+    });
   } finally {
     fixture.cleanup();
   }
@@ -65,9 +121,12 @@ function comparisonFixture(options = {}) {
   const tests = [
     {
       fullName: options.rjestPassedName ?? 'runs',
-      status: 'passed',
+      status: options.rjestPassedStatus ?? 'passed',
     },
-    {fullName: 'random rjest', status: 'skipped'},
+    {
+      fullName: options.rjestSkippedName ?? 'random rjest',
+      status: 'skipped',
+    },
   ];
   if (options.extraRjestSkipped) {
     tests.push({fullName: 'another random rjest', status: 'skipped'});

@@ -23,6 +23,16 @@ const skippedCountsExact = same(
   skippedCountsByFile(officialResult.tests),
   skippedCountsByFile(rjestResult.tests),
 );
+const identityStatusParity = multisetParity(
+  officialResult.tests,
+  rjestResult.tests,
+  test => JSON.stringify([test.file, test.fullName, test.status]),
+);
+const identityParity = multisetParity(
+  officialResult.tests,
+  rjestResult.tests,
+  test => JSON.stringify([test.file, test.fullName]),
+);
 const testsCompatible =
   testsExact ||
   (compareSkippedByFileCount && executedTestsExact && skippedCountsExact);
@@ -52,6 +62,8 @@ const report = {
     executedNamesAndStatusesExact: executedTestsExact,
     skippedNamesAndStatusesExact: skippedTestsExact,
     skippedCountsByFileExact: skippedCountsExact,
+    identityParity,
+    identityStatusParity,
     compatible: testsCompatible,
     skippedComparison: compareSkippedByFileCount
       ? 'per-file-count'
@@ -245,6 +257,31 @@ function compareTests(left, right) {
   return `${left.file}\0${left.fullName}\0${left.status}`.localeCompare(
     `${right.file}\0${right.fullName}\0${right.status}`,
   );
+}
+
+function multisetParity(left, right, keyOf) {
+  const leftCounts = countBy(left, keyOf);
+  const rightCounts = countBy(right, keyOf);
+  let matching = 0;
+  for (const [key, count] of leftCounts) {
+    matching += Math.min(count, rightCounts.get(key) ?? 0);
+  }
+  const total = Math.max(left.length, right.length);
+  return {
+    matching,
+    total,
+    percentage:
+      total === 0 ? 100 : Math.round((matching / total) * 100_000) / 1_000,
+  };
+}
+
+function countBy(values, keyOf) {
+  const counts = new Map();
+  for (const value of values) {
+    const key = keyOf(value);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
 }
 
 function same(left, right) {

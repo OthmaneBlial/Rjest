@@ -85,7 +85,46 @@ same asymmetric-matcher error. Thirteen project-suite executions failed to load
 because `it.failing` or `test.failing` was absent. Six more hit Rjest's safety
 timeout, including all three `useQuery.test.tsx` projects. Those classes now
 have official-Jest differential regressions and targeted corpus verification;
-a fresh full capture is required to measure the remaining denominator.
+the second capture below measures their effect before the latest environment
+and equality repairs.
+
+## Second full Rjest capture
+
+The next complete run used commit `1ce28ab`. It includes the fake-timer boundary
+repair, but predates the later custom-JSDOM event, host-global, equality, and
+asymmetric-matcher fixes:
+
+| Measurement | Second Rjest capture |
+| --- | ---: |
+| Discovered project-suite executions | 563 |
+| Passed / failed / skipped suites | 527 / 18 / 18 |
+| Registered tests | 9,974 |
+| Passed / failed / skipped tests | 9,465 / 33 / 476 |
+| Matched / unmatched snapshots | 519 / 0 |
+| File-level errors | 0 |
+| Exit code | 1 |
+| Rjest-reported time | 3,041.443 s |
+| End-to-end wall time | 3,043.54 s |
+| Peak RSS | 2,088,697,856 bytes |
+| Test-identity parity | 9,974 / 9,974 (100.000%) |
+| Test identity/status parity | 9,938 / 9,974 (99.639%) |
+
+The suite outcome split is derived from the registered test statuses; Rjest's
+compact reporter counts the 18 all-skipped suite executions among its 545
+non-failing suites. The automated comparator treats test records as multisets
+of normalized project path, full test name, and status. This prevents duplicate
+project executions or reordered results from inflating the score.
+
+Three of the 33 Rjest failures reproduce official Jest's WHATWG stream
+failures. Of the remaining 30 Rjest-only failures, 28 now have later exact
+targeted evidence: 12 custom-JSDOM event failures, six host-`fetch` failures,
+four React 19 scheduler-path failures, three nested `objectContaining`
+failures, and three flattened-asymmetric-matcher failures. The two captured
+Rjest-only failures still requiring investigation are the timing-sensitive
+`useQuery` stale-variables case and a `useLazyQuery` manual-trigger case. Six
+official-Jest-only GC/minimum-RxJS failures also contribute to the 36 status
+differences. A latest-source full rerun is required before recalculating this
+corpus score.
 
 ## Rjest compatibility loop
 
@@ -131,12 +170,14 @@ paths with `--listTests`. Two unchanged cross-project probes also match:
 | `onlineSource.test.ts` + `windowFocusSource.test.ts` | Core / min-RxJS / GraphQL 16 | 12 / 12 passed | 12 / 12 passed |
 | `HttpLink.ts` (`HttpLink Dev warnings`) | Core / min-RxJS / GraphQL 16 | 9 passed, 246 skipped | 9 passed, 246 skipped |
 | `MockedProvider.test.tsx` (`maxUsageCount`) | React 17 / 18 / 19 | 3 passed, 84 skipped | 3 passed, 84 skipped |
+| `mockLink.ts` | Core / min-RxJS / GraphQL 16 | 138 passed, 12 skipped, 42 snapshots | 138 passed, 12 skipped, 42 snapshots |
+| `policies.ts` | Core / min-RxJS / GraphQL 16 | 153 passed, 78 snapshots | 153 passed, 78 snapshots |
 
 These are targeted compatibility results, not a claim for the complete corpus.
 The remaining `useQuery` mismatch is timing-sensitive and has moved between
 React 18 and 19 on isolated reruns; it is not counted as compatible. A fresh
-full 563-suite capture with all repairs and strict comparison remains in
-progress. The initial run is also much slower than Jest, but correctness is
+full 563-suite capture with all repairs and strict comparison is still required.
+The completed second capture is also much slower than Jest, but correctness is
 still the priority and no performance claim is inferred from mismatched runs.
 
 ## Compatibility pressure
@@ -152,6 +193,6 @@ The pinned suite combines:
 - nearly ten thousand registered tests under repeated dependency variants;
 - forced garbage collection and a roughly 3 GB official-Jest peak RSS.
 
-This report records an authoritative baseline, exact discovery, the first full
-Rjest convergence capture, and repaired multi-project execution slices. It does
-not yet claim Apollo Client can switch to Rjest.
+This report records an authoritative baseline, two full Rjest convergence
+captures, an automated real-corpus status score, and repaired multi-project
+execution slices. It does not yet claim Apollo Client can switch to Rjest.

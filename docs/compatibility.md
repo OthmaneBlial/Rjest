@@ -359,17 +359,21 @@ all suite/test identities across the three Core variants after repairing
 parity for another 435 registered statuses (411 passed and 24 skipped) after
 completing Apollo's matcher-context utilities. `ApolloClient.ts` then matches
 all 243 statuses (225 passed and 18 skipped) and 60/60 snapshots after adding
-mock-function snapshot serialization. The first full Rjest capture reported
-6,030 passing, 2,225 failing, and 406 skipped tests before those repairs. A
-current `useQuery.test.tsx` probe now executes all 477 statuses and passes 476;
-the `HttpLink` development-warning probe matches all 255 statuses across the
-three Core projects (9 selected passes and 246 skips) after isolating custom
-JSDOM from Node's host `fetch`. Four React 19 query-key render mismatches also
-disappear when host-only scheduler globals are isolated: the focused
-probe led to exact full-file parity for `useSuspenseQuery.test.tsx`, with all
-318 tests passing across React 18 and 19. The fresh full rerun is still
-required, so these results remain progress evidence rather than a corpus-wide
-parity claim.
+mock-function snapshot serialization. The second full Rjest capture, taken at
+commit `1ce28ab`, has exact suite paths, 9,974/9,974 test identities, all 476
+skipped identities/statuses, 519/519 snapshots, and zero file-level errors. The
+real-corpus comparator measures 9,938/9,974 exact identity/status records, or
+99.639%, for that capture. This percentage is generated from the full result
+files and is separate from the bounded differential-fixture score.
+
+Later exact targeted probes repair 28 of that capture's 30 Rjest-only failures:
+custom-JSDOM event forwarding, host `fetch` and scheduler isolation, nested
+`objectContaining`, and asymmetric matcher identity. The focused
+`useSuspenseQuery.test.tsx` probe now has exact 318/318 parity across React 18
+and 19; the development-warning probe matches all 255 statuses; `mockLink.ts`
+matches 150 statuses and 42 snapshots; and `policies.ts` matches 153 statuses
+and 78 snapshots. A latest-source full rerun is still required, so these
+results remain progress evidence rather than a corpus-wide parity claim.
 
 Executable configuration runs with the user's normal Node permissions, just like
 Jest config. Rjest currently accepts the supported normalized subset and fails on

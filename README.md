@@ -203,16 +203,13 @@ including the same single upstream macOS path failure.
 
 The pinned [Apollo Client corpus](docs/corpus/apollo-client.md) establishes a
 much larger Jest 30 baseline across six Core/React projects: 563 suites, 9,974
-tests, and 519 snapshots. Its first Rjest attempt exposed and repaired native
-ESM semantics for `jest.config.ts` inside a type-module package. Rjest now lists
-the same 196 unique paths and matches targeted Core (78/78) and React
-(123/123) multi-project probes, plus a 30/30 Core response-stream probe. The
-Core `ObservableQuery.ts` probe also matches all 435 statuses (411 passed, 24
-skipped), while `ApolloClient.ts` matches 243 statuses and all 60 snapshots. The
-first full Rjest convergence capture reported 6,030 passing tests before the
-subsequent concentrated matcher, snapshot, failing-test, and timer repairs. A
-current `useQuery.test.tsx` probe now executes all 477 statuses and passes 476.
-A fresh full capture remains active, so this is not a corpus-parity claim.
+tests, and 519 snapshots. Its second complete Rjest capture found the exact 563
+suite paths and all 9,974 test identities, matched every snapshot, and had zero
+file-level errors. The automated comparator measured 9,938/9,974 exact
+identity/status records (99.639%) at commit `1ce28ab`. Five later targeted
+repairs have exact focused evidence for 28 of that capture's 30 Rjest-only
+failures. A latest-source full rerun is still required, so this is not a
+corpus-parity claim.
 
 No GitHub-hosted CI is used. See [local development](docs/development.md), the
 [compatibility matrix](compat/jest-compatibility.json), current

@@ -362,6 +362,11 @@ Last updated: 2026-08-30
   boundary so ecosystem serializers do not recursively flatten away matcher
   methods. Apollo's `MockedProvider` `maxUsageCount` regression matches 3
   selected passes and 84 skips across React 17, 18, and 19.
+- The real-corpus comparator now reports normalized test-identity and
+  identity/status multiset percentages. Apollo's second complete capture has
+  exact 9,974/9,974 identities and 9,938/9,974 identity/status matches
+  (99.639%), with exact suite paths, skips, and 519 snapshots and no file-level
+  errors.
 
 ## Current work
 
@@ -376,13 +381,14 @@ Last updated: 2026-08-30
   suite paths and test identities/statuses. `ObservableQuery.ts` also matches
   all 435 identities/statuses across the Core variants, with 411 passing and 24
   skipped. `ApolloClient.ts` matches another 225 passing and 18 skipped tests
-  plus 60 snapshots. The first full 563-suite Rjest capture completed from the
-  earlier `593933e` baseline with 6,030 passing, 2,225 failing, and 406 skipped
-  tests out of 8,661 reported; 383 snapshots matched and 66 mismatched. Its
-  largest failure classes were subsequently repaired. The current unchanged
+  plus 60 snapshots. A second full 563-suite Rjest capture from `1ce28ab`
+  registers all 9,974 tests, with 9,465 passing, 33 failing, 476 skipped, all
+  519 snapshots matched, and zero file errors. Its automated test-identity
+  score is 100.000%; identity/status parity is 99.639%. Later exact probes
+  repair 28 of the 30 captured Rjest-only failures. The current unchanged
   `useQuery.test.tsx` probe executes all 477 statuses, passing 476 rather than
-  timing out before reporting any tests. A fresh full run is the current
-  compatibility measurement.
+  timing out before reporting any tests. A latest-source full run is now the
+  highest-priority compatibility measurement.
 
 - The unchanged Amplify API GraphQL package matches 8/8 suites, 149/149 tests,
   and 15/15 snapshots. Its strict full-corpus result remains open because a
@@ -405,14 +411,19 @@ is 26/26 (100.0%), CLI is 6/6 (100.0%), resolution is 12/12 (100.0%), snapshots
 are 13/13 (100.0%), Expect is 7/7 (100.0%), environments are 7/7 (100.0%), and
 coverage is 3/3 in
 their bounded scenario categories. Fake timers are 10/10 (100.0%).
+The separate real-project comparator now emits automated identity and
+identity/status percentages from complete corpus result files; Apollo's second
+capture is 9,938/9,974 (99.639%) on the latter metric.
 
 ## Known blockers
 
 - Inline object entries in Jest `projects` are normalized and scheduled, but
   string project paths/globs and every multi-project coverage, sharding, bail,
-  display-color, and reporter edge remain incomplete. A fresh Apollo capture
-  after the concentrated matcher, snapshot, failing-test, and timer repairs is
-  required before this surface can be described as corpus-compatible.
+  display-color, and reporter edge remain incomplete. The second full Apollo
+  capture measures 99.639% identity/status parity at `1ce28ab`; a latest-source
+  capture after five subsequent targeted repairs is required before this
+  surface can be described as corpus-compatible. The remaining captured
+  Rjest-only cases are in `useLazyQuery` and timing-sensitive `useQuery` tests.
 - Jest extglob syntax is recognized for the two default patterns; complete custom
   Jest glob semantics are not yet implemented.
 - Configured synchronous, processAsync-only, and implicit `babel-jest`
@@ -445,11 +456,12 @@ their bounded scenario categories. Fake timers are 10/10 (100.0%).
 
 ## Next highest-value tasks
 
-1. Run and machine-compare a fresh Apollo Client six-project capture with the
-   repaired matcher, snapshot, failing-test, and timer semantics, then reduce
-   the largest remaining mismatch class against its 9,974-test oracle.
-2. Turn deterministic failures from that full Apollo run into permanent
-   official-Jest differential scenarios.
+1. Run and machine-compare a latest-source Apollo Client six-project capture
+   after the custom-JSDOM and equality repairs, then recalculate its automated
+   9,974-test status-parity score.
+2. Reproduce and fix the remaining `useLazyQuery` manual-trigger and `useQuery`
+   stale-variable failures against official Jest, preserving deterministic
+   differential scenarios.
 3. Run an independent Yarn PnP monorepo with zip-backed dependencies unchanged.
 4. Add broader timer edge-case probes and modern timer tick-mode controls.
 5. Replace per-file Node/JSDOM/transformer startup after correctness remains
