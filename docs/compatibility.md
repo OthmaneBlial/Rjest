@@ -364,7 +364,10 @@ commit `1ce28ab`, has exact suite paths, 9,974/9,974 test identities, all 476
 skipped identities/statuses, 519/519 snapshots, and zero file-level errors. The
 real-corpus comparator measures 9,938/9,974 exact identity/status records, or
 99.639%, for that capture. This percentage is generated from the full result
-files and is separate from the bounded differential-fixture score.
+files and is separate from the bounded differential-fixture score. The same
+report derives suite/test status counts and emits each official-only and
+Rjest-only identity/status record and its multiplicity for deterministic
+failure classification.
 
 Later exact targeted probes repair 28 of that capture's 30 Rjest-only failures:
 custom-JSDOM event forwarding, host `fetch` and scheduler isolation, nested

@@ -33,6 +33,15 @@ const identityParity = multisetParity(
   rjestResult.tests,
   test => JSON.stringify([test.file, test.fullName]),
 );
+const identityStatusDifferences = multisetDifferences(
+  officialResult.tests,
+  rjestResult.tests,
+  test => JSON.stringify([test.file, test.fullName, test.status]),
+  key => {
+    const [file, fullName, status] = JSON.parse(key);
+    return {file, fullName, status};
+  },
+);
 const testsCompatible =
   testsExact ||
   (compareSkippedByFileCount && executedTestsExact && skippedCountsExact);
@@ -54,16 +63,25 @@ const report = {
     official: officialResult.suites.length,
     rjest: rjestResult.suites.length,
     pathsExact: suitePathsExact,
+    statusCounts: {
+      official: statusCounts(officialResult.suiteStatuses),
+      rjest: statusCounts(rjestResult.suiteStatuses),
+    },
   },
   tests: {
     official: officialResult.tests.length,
     rjest: rjestResult.tests.length,
+    statusCounts: {
+      official: statusCounts(officialResult.tests.map(test => test.status)),
+      rjest: statusCounts(rjestResult.tests.map(test => test.status)),
+    },
     namesAndStatusesExact: testsExact,
     executedNamesAndStatusesExact: executedTestsExact,
     skippedNamesAndStatusesExact: skippedTestsExact,
     skippedCountsByFileExact: skippedCountsExact,
     identityParity,
     identityStatusParity,
+    identityStatusDifferences,
     compatible: testsCompatible,
     skippedComparison: compareSkippedByFileCount
       ? 'per-file-count'
@@ -129,6 +147,12 @@ function skippedCountsByFile(tests) {
 
 function normalizeOfficial(result) {
   const suites = result.testResults.map(file => normalizePath(file.name)).sort();
+  const suiteStatuses = result.testResults.map(file =>
+    suiteStatus(
+      file.assertionResults,
+      Boolean(file.failureMessage ?? file.testExecError),
+    ),
+  );
   const tests = result.testResults
     .flatMap(file =>
       file.assertionResults.map(test => ({
@@ -140,6 +164,7 @@ function normalizeOfficial(result) {
     .sort(compareTests);
   return {
     suites,
+    suiteStatuses,
     tests,
     snapshots: {
       added: result.snapshot?.added ?? 0,
@@ -163,6 +188,9 @@ function normalizeRjest(result) {
   }
   return {
     suites: result.testResults.map(file => normalizePath(file.testPath)).sort(),
+    suiteStatuses: result.testResults.map(file =>
+      suiteStatus(file.tests, Boolean(file.errors?.length)),
+    ),
     tests: result.testResults
       .flatMap(file =>
         file.tests.map(test => ({
@@ -253,6 +281,26 @@ function normalizeStatus(status) {
   return status === 'pending' || status === 'disabled' ? 'skipped' : status;
 }
 
+function suiteStatus(tests, hasFileError) {
+  const statuses = tests.map(test => normalizeStatus(test.status));
+  if (hasFileError || statuses.includes('failed')) return 'failed';
+  if (
+    statuses.length > 0 &&
+    statuses.every(status => status === 'skipped' || status === 'todo')
+  ) {
+    return 'skipped';
+  }
+  return 'passed';
+}
+
+function statusCounts(statuses) {
+  const counts = {passed: 0, failed: 0, skipped: 0, todo: 0};
+  for (const status of statuses) {
+    counts[status] = (counts[status] ?? 0) + 1;
+  }
+  return counts;
+}
+
 function compareTests(left, right) {
   return `${left.file}\0${left.fullName}\0${left.status}`.localeCompare(
     `${right.file}\0${right.fullName}\0${right.status}`,
@@ -282,6 +330,27 @@ function countBy(values, keyOf) {
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return counts;
+}
+
+function multisetDifferences(left, right, keyOf, valueOf) {
+  const leftCounts = countBy(left, keyOf);
+  const rightCounts = countBy(right, keyOf);
+  return {
+    officialOnly: countDifferences(leftCounts, rightCounts, valueOf),
+    rjestOnly: countDifferences(rightCounts, leftCounts, valueOf),
+  };
+}
+
+function countDifferences(primary, comparison, valueOf) {
+  return [...primary]
+    .map(([key, count]) => ({
+      ...valueOf(key),
+      count: Math.max(0, count - (comparison.get(key) ?? 0)),
+    }))
+    .filter(value => value.count > 0)
+    .sort((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right)),
+    );
 }
 
 function same(left, right) {

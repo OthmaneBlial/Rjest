@@ -24,6 +24,24 @@ test('requires explicit policy for randomized skipped test names', () => {
       percentage: 50,
       total: 2,
     });
+    assert.deepEqual(strictReport.tests.identityStatusDifferences, {
+      officialOnly: [
+        {
+          count: 1,
+          file: 'test.js',
+          fullName: 'random official',
+          status: 'skipped',
+        },
+      ],
+      rjestOnly: [
+        {
+          count: 1,
+          file: 'test.js',
+          fullName: 'random rjest',
+          status: 'skipped',
+        },
+      ],
+    });
 
     const relaxed = compare(fixture, '--compare-skipped-by-file-count');
     assert.equal(relaxed.status, 0);
@@ -53,6 +71,41 @@ test('reports 100 percent identity and status parity for exact results', () => {
       percentage: 100,
       total: 2,
     });
+    assert.deepEqual(report.tests.identityStatusDifferences, {
+      officialOnly: [],
+      rjestOnly: [],
+    });
+    assert.deepEqual(report.suites.statusCounts, {
+      official: {failed: 0, passed: 1, skipped: 0, todo: 0},
+      rjest: {failed: 0, passed: 1, skipped: 0, todo: 0},
+    });
+    assert.deepEqual(report.tests.statusCounts, {
+      official: {failed: 0, passed: 1, skipped: 1, todo: 0},
+      rjest: {failed: 0, passed: 1, skipped: 1, todo: 0},
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('classifies all-skipped suites independently from passing suites', () => {
+  const fixture = comparisonFixture({
+    officialPassedStatus: 'pending',
+    rjestPassedStatus: 'skipped',
+    rjestSkippedName: 'random official',
+  });
+  try {
+    const comparison = compare(fixture);
+    assert.equal(comparison.status, 0);
+    const report = JSON.parse(comparison.stdout);
+    assert.deepEqual(report.suites.statusCounts, {
+      official: {failed: 0, passed: 0, skipped: 1, todo: 0},
+      rjest: {failed: 0, passed: 0, skipped: 1, todo: 0},
+    });
+    assert.deepEqual(report.tests.statusCounts, {
+      official: {failed: 0, passed: 0, skipped: 2, todo: 0},
+      rjest: {failed: 0, passed: 0, skipped: 2, todo: 0},
+    });
   } finally {
     fixture.cleanup();
   }
@@ -76,6 +129,54 @@ test('distinguishes identity coverage from identity and status parity', () => {
       matching: 1,
       percentage: 50,
       total: 2,
+    });
+    assert.deepEqual(report.tests.identityStatusDifferences, {
+      officialOnly: [
+        {
+          count: 1,
+          file: 'test.js',
+          fullName: 'runs',
+          status: 'passed',
+        },
+      ],
+      rjestOnly: [
+        {
+          count: 1,
+          file: 'test.js',
+          fullName: 'runs',
+          status: 'failed',
+        },
+      ],
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('reports duplicate identity and status multiplicities', () => {
+  const fixture = comparisonFixture({
+    duplicateRjestPassed: true,
+    rjestSkippedName: 'random official',
+  });
+  try {
+    const comparison = compare(fixture);
+    assert.equal(comparison.status, 1);
+    const report = JSON.parse(comparison.stdout);
+    assert.deepEqual(report.tests.identityStatusParity, {
+      matching: 2,
+      percentage: 66.667,
+      total: 3,
+    });
+    assert.deepEqual(report.tests.identityStatusDifferences, {
+      officialOnly: [],
+      rjestOnly: [
+        {
+          count: 1,
+          file: 'test.js',
+          fullName: 'runs',
+          status: 'passed',
+        },
+      ],
     });
   } finally {
     fixture.cleanup();
@@ -111,7 +212,10 @@ function comparisonFixture(options = {}) {
     testResults: [
       {
         assertionResults: [
-          {fullName: 'runs', status: 'passed'},
+          {
+            fullName: 'runs',
+            status: options.officialPassedStatus ?? 'passed',
+          },
           {fullName: 'random official', status: 'pending'},
         ],
         name: testPath,
@@ -130,6 +234,9 @@ function comparisonFixture(options = {}) {
   ];
   if (options.extraRjestSkipped) {
     tests.push({fullName: 'another random rjest', status: 'skipped'});
+  }
+  if (options.duplicateRjestPassed) {
+    tests.push({fullName: 'runs', status: 'passed'});
   }
   const rjest = {
     coverageMap: {},

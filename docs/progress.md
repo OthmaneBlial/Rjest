@@ -363,10 +363,11 @@ Last updated: 2026-08-30
   methods. Apollo's `MockedProvider` `maxUsageCount` regression matches 3
   selected passes and 84 skips across React 17, 18, and 19.
 - The real-corpus comparator now reports normalized test-identity and
-  identity/status multiset percentages. Apollo's second complete capture has
-  exact 9,974/9,974 identities and 9,938/9,974 identity/status matches
-  (99.639%), with exact suite paths, skips, and 519 snapshots and no file-level
-  errors.
+  identity/status multiset percentages, derived suite/test status counts, and
+  the exact official-only and Rjest-only records with multiplicities. Apollo's
+  second complete capture has exact 9,974/9,974 identities and 9,938/9,974
+  identity/status matches (99.639%), with exact suite paths, skips, and 519
+  snapshots and no file-level errors.
 
 ## Current work
 

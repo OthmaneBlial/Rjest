@@ -113,7 +113,10 @@ The suite outcome split is derived from the registered test statuses; Rjest's
 compact reporter counts the 18 all-skipped suite executions among its 545
 non-failing suites. The automated comparator treats test records as multisets
 of normalized project path, full test name, and status. This prevents duplicate
-project executions or reordered results from inflating the score.
+project executions or reordered results from inflating the score. It also emits
+derived suite/test status counts and the exact official-only and Rjest-only
+records with multiplicities, so every lost match becomes a reproducible backlog
+item.
 
 Three of the 33 Rjest failures reproduce official Jest's WHATWG stream
 failures. Of the remaining 30 Rjest-only failures, 28 now have later exact
