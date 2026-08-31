@@ -398,6 +398,34 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-test-match',
+    category: 'CLI',
+    expectedExit: 0,
+    testMatch: ['**/*.cli.cjs'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-test-regex',
+    category: 'CLI',
+    expectedExit: 0,
+    testRegex: ['selected\\.oracle\\.cjs$'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-test-path-ignore-patterns',
+    category: 'CLI',
+    expectedExit: 0,
+    testPathIgnorePatterns: ['skip-this\\.test\\.cjs$'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-roots',
+    category: 'CLI',
+    expectedExit: 0,
+    roots: ['./cli-root'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1910,6 +1938,18 @@ function compareCase(testCase) {
     for (const pattern of testCase.testPathPatternOptions ?? []) {
       jestArguments.push(`--testPathPatterns=${pattern}`);
     }
+    for (const pattern of testCase.testMatch ?? []) {
+      jestArguments.push(`--testMatch=${pattern}`);
+    }
+    for (const pattern of testCase.testRegex ?? []) {
+      jestArguments.push(`--testRegex=${pattern}`);
+    }
+    for (const pattern of testCase.testPathIgnorePatterns ?? []) {
+      jestArguments.push(`--testPathIgnorePatterns=${pattern}`);
+    }
+    for (const root of testCase.roots ?? []) {
+      jestArguments.push(`--roots=${root}`);
+    }
     if (testCase.runTestsByPath) jestArguments.push('--runTestsByPath');
     jestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
@@ -2078,6 +2118,18 @@ function compareCase(testCase) {
     }
     for (const pattern of testCase.testPathPatternOptions ?? []) {
       rjestArguments.push(`--testPathPatterns=${pattern}`);
+    }
+    for (const pattern of testCase.testMatch ?? []) {
+      rjestArguments.push(`--testMatch=${pattern}`);
+    }
+    for (const pattern of testCase.testRegex ?? []) {
+      rjestArguments.push(`--testRegex=${pattern}`);
+    }
+    for (const pattern of testCase.testPathIgnorePatterns ?? []) {
+      rjestArguments.push(`--testPathIgnorePatterns=${pattern}`);
+    }
+    for (const root of testCase.roots ?? []) {
+      rjestArguments.push(`--roots=${root}`);
     }
     if (testCase.runTestsByPath) rjestArguments.push('--runTestsByPath');
     rjestArguments.push(...(testCase.testPathPatterns ?? []));

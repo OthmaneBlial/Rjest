@@ -109,6 +109,42 @@ struct Cli {
     )]
     run_tests_by_path: bool,
 
+    /// Glob patterns used to discover test files.
+    #[arg(
+        long = "testMatch",
+        visible_alias = "test-match",
+        value_name = "GLOB",
+        num_args = 1..,
+        action = ArgAction::Append,
+        conflicts_with = "test_regex"
+    )]
+    test_match: Vec<String>,
+
+    /// Regular expressions used to discover test files.
+    #[arg(
+        long = "testRegex",
+        visible_alias = "test-regex",
+        value_name = "REGEX",
+        num_args = 1..,
+        action = ArgAction::Append,
+        conflicts_with = "test_match"
+    )]
+    test_regex: Vec<String>,
+
+    /// Regular expressions excluding discovered test paths.
+    #[arg(
+        long = "testPathIgnorePatterns",
+        visible_alias = "test-path-ignore-patterns",
+        value_name = "REGEX",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    test_path_ignore_patterns: Vec<String>,
+
+    /// Root directories scanned for tests and modules.
+    #[arg(long, value_name = "PATH", num_args = 1.., action = ArgAction::Append)]
+    roots: Vec<String>,
+
     /// Path to a Jest configuration file or an inline JSON object.
     #[arg(long, value_name = "PATH|JSON")]
     config: Option<String>,
@@ -1833,6 +1869,7 @@ fn run() -> Result<(bool, i32)> {
     let project_dir = std::env::current_dir().context("cannot determine current directory")?;
     let mut config = load_execution_config(&cli, &project_dir)?;
     apply_cli_config_overrides(&mut config, &cli);
+    validate_cli_test_patterns(&config)?;
     let failure_exit_code = config.test_failure_exit_code;
 
     if cli.show_config {
@@ -2692,11 +2729,35 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
             })
             .collect();
     }
+    apply_discovery_overrides(config, cli);
     if cli.test_location_in_results {
         config.test_location_in_results = true;
     }
     for project in &mut config.projects {
         apply_global_execution_overrides(project, cli);
+    }
+}
+
+fn apply_discovery_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if !cli.roots.is_empty() {
+        config.roots = cli
+            .roots
+            .iter()
+            .map(|root| normalize_cli_root(root, &config.root_dir))
+            .collect();
+    }
+    if !cli.test_match.is_empty() {
+        config.test_match = normalize_cli_root_patterns(&cli.test_match, &config.root_dir, false);
+    }
+    if !cli.test_regex.is_empty() {
+        if config.test_regex.is_empty() && uses_default_test_match(&config.test_match) {
+            config.test_match.clear();
+        }
+        config.test_regex = normalize_cli_root_patterns(&cli.test_regex, &config.root_dir, false);
+    }
+    if !cli.test_path_ignore_patterns.is_empty() {
+        config.test_path_ignore_patterns =
+            normalize_cli_root_patterns(&cli.test_path_ignore_patterns, &config.root_dir, true);
     }
 }
 
@@ -2727,6 +2788,41 @@ fn normalize_cli_cache_directory(directory: &str, root_dir: &Path) -> PathBuf {
     } else {
         root_dir.join(path)
     }
+}
+
+fn normalize_cli_root(value: &str, root_dir: &Path) -> PathBuf {
+    normalize_cli_cache_directory(value, root_dir)
+}
+
+fn normalize_cli_root_patterns(patterns: &[String], root_dir: &Path, posix: bool) -> Vec<String> {
+    let root = if posix {
+        root_dir.to_string_lossy().replace('\\', "/")
+    } else {
+        root_dir.to_string_lossy().into_owned()
+    };
+    patterns
+        .iter()
+        .map(|pattern| pattern.replace("<rootDir>", &root))
+        .collect()
+}
+
+fn uses_default_test_match(patterns: &[String]) -> bool {
+    patterns
+        == [
+            "**/__tests__/**/*.?([mc])[jt]s?(x)",
+            "**/?(*.)+(spec|test).?([mc])[jt]s?(x)",
+        ]
+}
+
+fn validate_cli_test_patterns(config: &ProjectConfig) -> Result<()> {
+    ensure!(
+        config.test_match.is_empty() || config.test_regex.is_empty(),
+        "Configuration options testMatch and testRegex cannot be used together."
+    );
+    for project in &config.projects {
+        validate_cli_test_patterns(project)?;
+    }
+    Ok(())
 }
 
 fn clear_configured_caches(config: &ProjectConfig) -> Result<()> {
@@ -3861,6 +3957,50 @@ mod tests {
                 PathBuf::from("beta"),
             ]
         );
+    }
+
+    #[test]
+    fn applies_jest_discovery_overrides_from_each_project_root() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--roots=./cli-root",
+            "--testRegex=<rootDir>/selected\\.oracle\\.cjs$",
+            "--testPathIgnorePatterns=<rootDir>/ignored",
+        ])
+        .expect("Jest discovery overrides");
+
+        let temp = tempdir().expect("temp dir");
+        let child_root = temp.path().join("child");
+        fs::create_dir_all(&child_root).expect("child root");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(&child_root).expect("child config"));
+        super::apply_cli_config_overrides(&mut config, &cli);
+
+        for project in [&config, &config.projects[0]] {
+            assert_eq!(project.roots, [project.root_dir.join("cli-root")]);
+            assert!(project.test_match.is_empty());
+            assert_eq!(
+                project.test_regex,
+                [format!(
+                    "{}/selected\\.oracle\\.cjs$",
+                    project.root_dir.display()
+                )]
+            );
+            assert_eq!(
+                project.test_path_ignore_patterns,
+                [format!("{}/ignored", project.root_dir.display())]
+            );
+        }
+        super::validate_cli_test_patterns(&config).expect("valid regex override");
+
+        let match_cli = Cli::try_parse_from(["rjest", "--testMatch=**/*.test.cjs"])
+            .expect("Jest testMatch override");
+        config.test_match.clear();
+        config.test_regex = vec!["configured".into()];
+        super::apply_cli_config_overrides(&mut config, &match_cli);
+        assert!(super::validate_cli_test_patterns(&config).is_err());
     }
 
     #[test]
