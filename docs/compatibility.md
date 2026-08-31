@@ -9,10 +9,10 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 231/231 (100.0%) across its explicitly listed
+The current generated matrix is 232/232 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
-49/49 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
+50/50 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
 Expect is 14/14 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
@@ -324,6 +324,9 @@ outside this bounded claim.
 `injectGlobals: false` keeps `test`, `expect`, `jest`, and the suite/hook APIs
 off `globalThis` while preserving explicit CommonJS imports from
 `@jest/globals`; the default remains Jest's global-injection behavior.
+`testFailureExitCode` controls the process status for completed unsuccessful
+runs while successful runs remain zero and configuration/runtime errors retain
+their own failure boundary.
 `jest.isEnvironmentTornDown()` is false while test code runs and flips before
 the custom environment teardown hook, matching the official runtime boundary.
 The differential probe preserves both observations through one captured Jest

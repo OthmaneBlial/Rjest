@@ -11,7 +11,7 @@
 [Website](https://othmaneblial.github.io/rjest/) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![Jest differential: 231/231](https://img.shields.io/badge/Jest_differential-231%2F231-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Jest differential: 232/232](https://img.shields.io/badge/Jest_differential-232%2F232-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111511?style=for-the-badge)](LICENSE)
@@ -47,7 +47,7 @@ under official Jest and Rjest.
 | Does it use existing Jest tests?                                 | Yes, across the measured surface                   |
 | Does it read Jest configuration?                                 | Yes, with explicit errors for unsupported options  |
 | Are snapshots, mocks, timers, ESM, JSDOM, and coverage included? | Yes, within the documented boundaries              |
-| Is compatibility measured against official Jest?                 | **231 / 231 executable scenarios pass**            |
+| Is compatibility measured against official Jest?                 | **232 / 232 executable scenarios pass**            |
 | Has it run serious public projects?                              | **25 pinned corpus reports**                       |
 | Is it production-ready everywhere?                               | No. Current directional readiness is **about 90%** |
 | Is it already faster than Jest?                                  | No published claim yet; correctness comes first    |
@@ -65,7 +65,7 @@ Jest 29.7.0.
 | Area                 |       Passing | Measured score |
 | -------------------- | ------------: | -------------: |
 | CLI                  |       36 / 36 |           100% |
-| Configuration        |       49 / 49 |           100% |
+| Configuration        |       50 / 50 |           100% |
 | Core API             |       16 / 16 |           100% |
 | Coverage             |       19 / 19 |           100% |
 | Environment          |         7 / 7 |           100% |
@@ -78,7 +78,7 @@ Jest 29.7.0.
 | Snapshots            |       16 / 16 |           100% |
 | Transforms           |         7 / 7 |           100% |
 | Watch                |         4 / 4 |           100% |
-| **Versioned matrix** | **231 / 231** |       **100%** |
+| **Versioned matrix** | **232 / 232** |       **100%** |
 
 The 100% above means every scenario currently in the versioned matrix passes.
 It does not mean Rjest implements 100% of Jest. The matrix is deliberately
@@ -223,7 +223,7 @@ that skips behavior does not get to call itself fast. See the
 
 The current project-readiness estimate is approximately **90%**. This is a
 directional engineering estimate, not an automated percentage of the Jest API.
-The automated number is the 231-scenario matrix above.
+The automated number is the 232-scenario matrix above.
 
 - Watch plugins, Mercurial/Sapling changed-file selection, and some terminal
   output details remain open.
@@ -245,7 +245,7 @@ make check
 That command runs Rust formatting, strict Clippy, all workspace tests,
 JavaScript syntax and comparator tests, and every differential fixture against
 the pinned official Jest oracles. The current local Rust suite is 117/117, and
-the generated compatibility matrix is 231/231.
+the generated compatibility matrix is 232/232.
 
 ## Help close the next gap
 

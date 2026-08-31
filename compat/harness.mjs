@@ -194,6 +194,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-test-failure-exit-code',
+    category: 'Configuration',
+    expectedExit: 7,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,

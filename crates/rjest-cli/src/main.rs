@@ -1541,8 +1541,8 @@ fn write_watch_usage() {
 
 fn main() {
     match run() {
-        Ok(true) => {}
-        Ok(false) => std::process::exit(1),
+        Ok((true, _)) => {}
+        Ok((false, failure_exit_code)) => std::process::exit(failure_exit_code),
         Err(error) => {
             eprintln!("Error: {error:#}");
             std::process::exit(1);
@@ -1550,7 +1550,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<bool> {
+fn run() -> Result<(bool, i32)> {
     let mut cli = Cli::parse();
     ensure!(
         !cli.find_related_tests || !cli.test_path_patterns.is_empty(),
@@ -1560,13 +1560,14 @@ fn run() -> Result<bool> {
     let project_dir = std::env::current_dir().context("cannot determine current directory")?;
     let mut config = load_execution_config(&cli, &project_dir)?;
     apply_cli_config_overrides(&mut config, &cli);
+    let failure_exit_code = config.test_failure_exit_code;
 
     if cli.show_config {
         println!("{}", serde_json::to_string_pretty(&config)?);
-        return Ok(true);
+        return Ok((true, failure_exit_code));
     }
     if cli.clear_cache {
-        return clear_configured_caches(&config).map(|()| true);
+        return clear_configured_caches(&config).map(|()| (true, failure_exit_code));
     }
 
     let seed = cli
@@ -1590,7 +1591,8 @@ fn run() -> Result<bool> {
             false,
             related.as_ref(),
             None,
-        );
+        )
+        .map(|success| (success, failure_exit_code));
     }
     if cli.watch_all || cli.watch {
         return run_watch_mode(
@@ -1600,7 +1602,8 @@ fn run() -> Result<bool> {
             seed,
             randomize,
             show_seed,
-        );
+        )
+        .map(|success| (success, failure_exit_code));
     }
     let related = active_related_test_selection(&cli, &config, &project_dir, changed_selection)?;
     write_changed_selection_message(&cli, related.as_ref());
@@ -1615,6 +1618,7 @@ fn run() -> Result<bool> {
         related.as_ref(),
         None,
     )
+    .map(|success| (success, failure_exit_code))
 }
 
 fn run_watch_mode(
