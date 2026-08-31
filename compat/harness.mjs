@@ -247,6 +247,30 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-test-environment-short',
+    fixtureName: 'cli-test-environment',
+    category: 'CLI',
+    expectedExit: 0,
+    testEnvironment: 'jsdom',
+    testEnvironmentFlag: 'env',
+    testEnvironmentOptions: {
+      url: 'https://rjest.test/cli-environment?mode=proof',
+    },
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-test-environment-long',
+    fixtureName: 'cli-test-environment',
+    category: 'CLI',
+    expectedExit: 0,
+    testEnvironment: 'jsdom',
+    testEnvironmentFlag: 'testEnvironment',
+    testEnvironmentOptions: {
+      url: 'https://rjest.test/cli-environment?mode=proof',
+    },
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1773,6 +1797,14 @@ function compareCase(testCase) {
       jestArguments.push(`--testTimeout=${testCase.testTimeout}`);
     }
     if (testCase.detectOpenHandles) jestArguments.push('--detectOpenHandles');
+    if (testCase.testEnvironment) {
+      jestArguments.push(`--${testCase.testEnvironmentFlag}=${testCase.testEnvironment}`);
+    }
+    if (testCase.testEnvironmentOptions) {
+      jestArguments.push(
+        `--testEnvironmentOptions=${JSON.stringify(testCase.testEnvironmentOptions)}`,
+      );
+    }
     if (testCase.cache) jestArguments.push('--cache');
     if (testCase.noCache) jestArguments.push('--no-cache');
     if (testCase.forceExit) jestArguments.push('--forceExit');
@@ -1906,6 +1938,14 @@ function compareCase(testCase) {
       rjestArguments.push(`--testTimeout=${testCase.testTimeout}`);
     }
     if (testCase.detectOpenHandles) rjestArguments.push('--detectOpenHandles');
+    if (testCase.testEnvironment) {
+      rjestArguments.push(`--${testCase.testEnvironmentFlag}=${testCase.testEnvironment}`);
+    }
+    if (testCase.testEnvironmentOptions) {
+      rjestArguments.push(
+        `--testEnvironmentOptions=${JSON.stringify(testCase.testEnvironmentOptions)}`,
+      );
+    }
     if (testCase.cache) rjestArguments.push('--cache');
     if (testCase.noCache) rjestArguments.push('--no-cache');
     if (testCase.forceExit) rjestArguments.push('--forceExit');

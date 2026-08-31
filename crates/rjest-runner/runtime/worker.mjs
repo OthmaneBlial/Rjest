@@ -6151,10 +6151,10 @@ function installJsdomEnvironment() {
     Object.defineProperty(globalThis, key, {
       configurable: true,
       enumerable: true,
-      get: () => window[key],
+      get: () => globalThis,
       set: value => {
         try {
-          window[key] = value;
+          window[key] = value === globalThis ? window : value;
         } catch {
           // JSDOM exposes `window` as read-only in recent releases.
         }

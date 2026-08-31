@@ -9,11 +9,11 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 239/239 (100.0%) across its explicitly listed
+The current generated matrix is 241/241 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
 51/51 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
-Expect is 14/14 (100.0%), CLI is 42/42 (100.0%), and environments are 7/7
+Expect is 14/14 (100.0%), CLI is 44/44 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -64,6 +64,10 @@ Jest's requested `maxWorkers` value in reporter configuration; explicit
 timeout overrides a shorter configured timeout. A two-project fixture combines
 the globals, timeout, and location switches to prove that they reach every
 normalized child project.
+`--env` and its `--testEnvironment` alias override a configured Node environment
+with JSDOM, while `--testEnvironmentOptions` passes an exact URL object through
+to the environment. The built-in JSDOM projection now also preserves Jest's
+`window === self === globalThis` identity while keeping live browser bindings.
 
 The Watch probes start official Jest and Rjest as independent processes. The
 long-lived `--watchAll` case compares the initial suite set, a deliberately
@@ -344,7 +348,8 @@ without requiring a configuration edit.
 the custom environment teardown hook, matching the official runtime boundary.
 The differential probe preserves both observations through one captured Jest
 object rather than treating method presence alone as compatibility.
-Bespoke JSDOM environment globals preserve `window === globalThis` while
+Both built-in and bespoke JSDOM environment globals preserve
+`window === globalThis` while
 forwarding Window event-target methods to the environment realm, including
 listener registration, removal, and dispatch. Configurable Node host `fetch`,
 `setImmediate`, `clearImmediate`, and `MessageChannel` are removed before user

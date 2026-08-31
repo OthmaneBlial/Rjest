@@ -115,6 +115,11 @@ and `detectOpenHandles` for every normalized child project. Open-handle
 detection sets the effective scheduler width to one, while reporter
 `globalConfig.maxWorkers` keeps the user-requested value to match Jest's public
 configuration object.
+CLI `--env`/`--testEnvironment` values are normalized from each project root,
+and the validated `--testEnvironmentOptions` JSON object is cloned into every
+child config. Built-in JSDOM keeps the real JSDOM Window behind projected
+bindings, but its public `window` and `self` aliases return the Node worker
+global so browser-global identity matches Jest.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

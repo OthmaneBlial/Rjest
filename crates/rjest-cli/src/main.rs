@@ -360,6 +360,23 @@ struct Cli {
     )]
     test_timeout: Option<u64>,
 
+    /// Test environment used for all tests.
+    #[arg(
+        long = "env",
+        visible_aliases = ["testEnvironment", "test-environment"],
+        value_name = "ENVIRONMENT"
+    )]
+    test_environment: Option<String>,
+
+    /// JSON options passed to the configured test environment.
+    #[arg(
+        long = "testEnvironmentOptions",
+        visible_alias = "test-environment-options",
+        value_name = "JSON",
+        value_parser = parse_cli_json_object
+    )]
+    test_environment_options: Option<serde_json::Value>,
+
     /// Suppress captured console output.
     #[arg(long, action = ArgAction::SetTrue)]
     silent: bool,
@@ -1595,6 +1612,15 @@ fn watch_action_for_key(key: KeyEvent) -> Option<WatchAction> {
     }
 }
 
+fn parse_cli_json_object(value: &str) -> std::result::Result<serde_json::Value, String> {
+    let parsed = serde_json::from_str::<serde_json::Value>(value)
+        .map_err(|error| format!("invalid JSON object: {error}"))?;
+    if !parsed.is_object() {
+        return Err("expected a JSON object".into());
+    }
+    Ok(parsed)
+}
+
 fn write_watch_usage() {
     eprintln!(
         "\nWatch Usage\n\
@@ -2414,6 +2440,13 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
     }
     if let Some(test_timeout) = cli.test_timeout {
         config.test_timeout = test_timeout;
+    }
+    if let Some(test_environment) = cli.test_environment.as_deref() {
+        config.test_environment =
+            rjest_config::normalize_module_reference(test_environment, &config.root_dir);
+    }
+    if let Some(test_environment_options) = cli.test_environment_options.as_ref() {
+        config.test_environment_options = test_environment_options.clone();
     }
     if cli.test_location_in_results {
         config.test_location_in_results = true;
@@ -3747,6 +3780,37 @@ mod tests {
             assert!(!project.detect_open_handles);
             assert!(!project.inject_globals);
         }
+    }
+
+    #[test]
+    fn applies_jest_environment_overrides_to_every_project() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--env=jsdom",
+            r#"--testEnvironmentOptions={"url":"https://rjest.test/cli"}"#,
+        ])
+        .expect("Jest environment overrides");
+        assert_eq!(cli.test_environment.as_deref(), Some("jsdom"));
+
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(temp.path()).expect("child config"));
+
+        super::apply_cli_config_overrides(&mut config, &cli);
+        for project in [&config, &config.projects[0]] {
+            assert_eq!(project.test_environment, "jsdom");
+            assert_eq!(
+                project.test_environment_options,
+                serde_json::json!({"url": "https://rjest.test/cli"})
+            );
+        }
+
+        let alias = Cli::try_parse_from(["rjest", "--testEnvironment=node"])
+            .expect("Jest testEnvironment alias");
+        assert_eq!(alias.test_environment.as_deref(), Some("node"));
+        assert!(Cli::try_parse_from(["rjest", "--testEnvironmentOptions=[]"]).is_err());
     }
 
     #[test]

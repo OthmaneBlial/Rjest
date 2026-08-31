@@ -1,3 +1,9 @@
+test('shares Jest browser global identity', () => {
+  expect(window).toBe(globalThis);
+  expect(self).toBe(globalThis);
+  expect(global).toBe(globalThis);
+});
+
 test('protects the JSDOM document binding from replacement', () => {
   const originalDocument = document;
   const originalBody = document.body;
