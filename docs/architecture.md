@@ -110,6 +110,11 @@ captures the final process boundary, while configuration and runtime errors
 remain status 1 because they do not produce a completed test result.
 `--testLocationInResults` similarly enables the normalized worker-protocol
 location field before project runs are derived.
+The same recursive override boundary handles `injectGlobals`, `testTimeout`,
+and `detectOpenHandles` for every normalized child project. Open-handle
+detection sets the effective scheduler width to one, while reporter
+`globalConfig.maxWorkers` keeps the user-requested value to match Jest's public
+configuration object.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

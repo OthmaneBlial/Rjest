@@ -302,6 +302,48 @@ struct Cli {
     )]
     force_exit: bool,
 
+    /// Detect remaining asynchronous resources after the test run.
+    #[arg(
+        long = "detectOpenHandles",
+        visible_alias = "detect-open-handles",
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        conflicts_with = "no_detect_open_handles"
+    )]
+    detect_open_handles: Option<bool>,
+
+    /// Disable open-handle detection enabled by configuration.
+    #[arg(
+        long = "no-detectOpenHandles",
+        visible_alias = "no-detect-open-handles",
+        action = ArgAction::SetTrue,
+        conflicts_with = "detect_open_handles"
+    )]
+    no_detect_open_handles: bool,
+
+    /// Inject Jest framework APIs into the test global object.
+    #[arg(
+        long = "injectGlobals",
+        visible_alias = "inject-globals",
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        conflicts_with = "no_inject_globals"
+    )]
+    inject_globals: Option<bool>,
+
+    /// Keep Jest framework APIs off the test global object.
+    #[arg(
+        long = "no-injectGlobals",
+        visible_alias = "no-inject-globals",
+        action = ArgAction::SetTrue,
+        conflicts_with = "inject_globals"
+    )]
+    no_inject_globals: bool,
+
     /// Only run tests whose full names match this regular expression.
     #[arg(
         long = "testNamePattern",
@@ -309,6 +351,14 @@ struct Cli {
         value_name = "REGEX"
     )]
     test_name_pattern: Option<String>,
+
+    /// Default timeout for each test case in milliseconds.
+    #[arg(
+        long = "testTimeout",
+        visible_alias = "test-timeout",
+        value_name = "MILLISECONDS"
+    )]
+    test_timeout: Option<u64>,
 
     /// Suppress captured console output.
     #[arg(long, action = ArgAction::SetTrue)]
@@ -1209,7 +1259,12 @@ fn jest_global_config(
     let object = global_config
         .as_object_mut()
         .context("normalized Jest config is not an object")?;
-    object.insert("maxWorkers".into(), max_workers.into());
+    let reported_max_workers = if config.detect_open_handles && !cli.run_in_band {
+        parse_max_workers(cli.max_workers.as_deref().or(config.max_workers.as_deref()))?
+    } else {
+        max_workers
+    };
+    object.insert("maxWorkers".into(), reported_max_workers.into());
     object.insert("runInBand".into(), (max_workers == 1).into());
     object.insert("json".into(), cli.json.into());
     object.insert("listTests".into(), cli.list_tests.into());
@@ -2316,9 +2371,6 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
     if let Some(test_failure_exit_code) = cli.test_failure_exit_code {
         config.test_failure_exit_code = test_failure_exit_code;
     }
-    if cli.test_location_in_results {
-        config.test_location_in_results = true;
-    }
     apply_selection_overrides(config, cli);
     apply_global_execution_overrides(config, cli);
     apply_cache_overrides(config, cli);
@@ -2349,6 +2401,22 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
     }
     if cli.no_watchman {
         config.watchman = false;
+    }
+    if cli.no_detect_open_handles {
+        config.detect_open_handles = false;
+    } else if let Some(detect_open_handles) = cli.detect_open_handles {
+        config.detect_open_handles = detect_open_handles;
+    }
+    if cli.no_inject_globals {
+        config.inject_globals = false;
+    } else if let Some(inject_globals) = cli.inject_globals {
+        config.inject_globals = inject_globals;
+    }
+    if let Some(test_timeout) = cli.test_timeout {
+        config.test_timeout = test_timeout;
+    }
+    if cli.test_location_in_results {
+        config.test_location_in_results = true;
     }
     for project in &mut config.projects {
         apply_global_execution_overrides(project, cli);
@@ -3629,10 +3697,56 @@ mod tests {
 
         let temp = tempdir().expect("temp dir");
         let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(temp.path()).expect("child config"));
         assert!(!config.test_location_in_results);
+        assert!(!config.projects[0].test_location_in_results);
 
         super::apply_cli_config_overrides(&mut config, &cli);
         assert!(config.test_location_in_results);
+        assert!(config.projects[0].test_location_in_results);
+    }
+
+    #[test]
+    fn applies_common_jest_runtime_overrides_to_every_project() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--detectOpenHandles",
+            "--no-injectGlobals",
+            "--maxWorkers=2",
+            "--testTimeout=500",
+        ])
+        .expect("Jest runtime overrides");
+        assert_eq!(cli.detect_open_handles, Some(true));
+        assert!(cli.no_inject_globals);
+        assert_eq!(cli.test_timeout, Some(500));
+
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(temp.path()).expect("child config"));
+
+        super::apply_cli_config_overrides(&mut config, &cli);
+        for project in [&config, &config.projects[0]] {
+            assert!(project.detect_open_handles);
+            assert!(!project.inject_globals);
+            assert_eq!(project.test_timeout, 500);
+        }
+        let reporter_config =
+            super::jest_global_config(&config, &cli, 1, 123, 1).expect("reporter config");
+        assert_eq!(reporter_config["maxWorkers"], 2);
+        assert_eq!(reporter_config["runInBand"], true);
+
+        let negated =
+            Cli::try_parse_from(["rjest", "--no-detectOpenHandles", "--injectGlobals=false"])
+                .expect("negated Jest runtime overrides");
+        super::apply_cli_config_overrides(&mut config, &negated);
+        for project in [&config, &config.projects[0]] {
+            assert!(!project.detect_open_handles);
+            assert!(!project.inject_globals);
+        }
     }
 
     #[test]

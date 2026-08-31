@@ -7,7 +7,9 @@ module.exports = class CliOverridesReporter {
       join(globalConfig.rootDir, 'cli-overrides.json'),
       `${JSON.stringify({
         collectCoverage: globalConfig.collectCoverage,
+        detectOpenHandles: globalConfig.detectOpenHandles,
         forceExit: globalConfig.forceExit,
+        maxWorkers: globalConfig.maxWorkers,
       })}\n`,
     );
   }

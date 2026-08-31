@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 235,
-    "total": 235,
+    "passing": 239,
+    "total": 239,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 38,
-      "total": 38,
+      "passing": 42,
+      "total": 42,
       "percentage": 100
     },
     "Configuration": {
@@ -255,6 +255,24 @@
       "differences": []
     },
     {
+      "name": "cli-inject-globals",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-test-timeout",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-project-runtime-overrides",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
       "name": "config-pass-with-no-tests",
       "category": "Configuration",
       "compatible": true,
@@ -358,6 +376,12 @@
     },
     {
       "name": "cli-force-exit-no-coverage",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-detect-open-handles",
       "category": "CLI",
       "compatible": true,
       "differences": []

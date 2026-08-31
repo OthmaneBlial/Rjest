@@ -9,11 +9,11 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 235/235 (100.0%) across its explicitly listed
+The current generated matrix is 239/239 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
 51/51 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
-Expect is 14/14 (100.0%), CLI is 38/38 (100.0%), and environments are 7/7
+Expect is 14/14 (100.0%), CLI is 42/42 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -57,6 +57,13 @@ A CLI runtime-override probe starts an open interval under `--forceExit` and
 disables config-enabled coverage with `--no-coverage`. Both runners exit
 successfully, and a custom reporter observes identical `forceExit: true` and
 `collectCoverage: false` global configuration.
+Additional CLI probes cover `--detectOpenHandles`, `--no-injectGlobals`, and
+`--testTimeout`. Open-handle detection forces serial execution while retaining
+Jest's requested `maxWorkers` value in reporter configuration; explicit
+`@jest/globals` imports remain available with globals disabled; and the CLI
+timeout overrides a shorter configured timeout. A two-project fixture combines
+the globals, timeout, and location switches to prove that they reach every
+normalized child project.
 
 The Watch probes start official Jest and Rjest as independent processes. The
 long-lived `--watchAll` case compares the initial suite set, a deliberately

@@ -223,6 +223,30 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-inject-globals',
+    category: 'CLI',
+    expectedExit: 0,
+    injectGlobals: false,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-test-timeout',
+    category: 'CLI',
+    expectedExit: 0,
+    testTimeout: 500,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-project-runtime-overrides',
+    category: 'CLI',
+    compareLocation: true,
+    expectedExit: 0,
+    injectGlobals: false,
+    testLocationInResults: true,
+    testTimeout: 500,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -365,6 +389,19 @@ const cases = [
     expectedExit: 0,
     forceExit: true,
     noCoverage: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-detect-open-handles',
+    fixtureName: 'cli-force-exit-no-coverage',
+    category: 'CLI',
+    compareArtifacts: ['cli-overrides.json'],
+    detectOpenHandles: true,
+    expectedExit: 0,
+    forceExit: true,
+    jestMaxWorkers: 2,
+    noCoverage: true,
+    rjestMaxWorkers: 2,
     useFixtureConfig: true,
   },
   {
@@ -1730,6 +1767,12 @@ function compareCase(testCase) {
       jestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
     }
     if (testCase.testLocationInResults) jestArguments.push('--testLocationInResults');
+    if (testCase.injectGlobals === false) jestArguments.push('--no-injectGlobals');
+    if (testCase.injectGlobals === true) jestArguments.push('--injectGlobals');
+    if (testCase.testTimeout !== undefined) {
+      jestArguments.push(`--testTimeout=${testCase.testTimeout}`);
+    }
+    if (testCase.detectOpenHandles) jestArguments.push('--detectOpenHandles');
     if (testCase.cache) jestArguments.push('--cache');
     if (testCase.noCache) jestArguments.push('--no-cache');
     if (testCase.forceExit) jestArguments.push('--forceExit');
@@ -1857,6 +1900,12 @@ function compareCase(testCase) {
       rjestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
     }
     if (testCase.testLocationInResults) rjestArguments.push('--testLocationInResults');
+    if (testCase.injectGlobals === false) rjestArguments.push('--no-injectGlobals');
+    if (testCase.injectGlobals === true) rjestArguments.push('--injectGlobals');
+    if (testCase.testTimeout !== undefined) {
+      rjestArguments.push(`--testTimeout=${testCase.testTimeout}`);
+    }
+    if (testCase.detectOpenHandles) rjestArguments.push('--detectOpenHandles');
     if (testCase.cache) rjestArguments.push('--cache');
     if (testCase.noCache) rjestArguments.push('--no-cache');
     if (testCase.forceExit) rjestArguments.push('--forceExit');
