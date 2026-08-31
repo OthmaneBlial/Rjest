@@ -561,6 +561,11 @@ const cases = [
     expectedExit: 0,
     useFixtureConfig: true,
   },
+  {
+    name: 'core-each-template',
+    category: 'Core API',
+    expectedExit: 0,
+  },
   {name: 'core-test-failing-failure', category: 'Core API', expectedExit: 1},
   {
     name: 'runtime-environment-torn-down',

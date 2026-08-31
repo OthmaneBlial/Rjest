@@ -9,8 +9,8 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 229/229 (100.0%) across its explicitly listed
-scenarios and categories. Core API is 15/15 (100.0%), ESM is 8/8 (100.0%),
+The current generated matrix is 230/230 (100.0%) across its explicitly listed
+scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
 48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
 Expect is 14/14 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7

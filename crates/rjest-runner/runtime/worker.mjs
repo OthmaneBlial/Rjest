@@ -353,15 +353,6 @@ function describe(name, callback) {
 }
 describe.only = (name, callback) => defineSuite(name, callback, 'only');
 describe.skip = (name, callback) => defineSuite(name, callback, 'skip');
-describe.each = table => (name, callback) =>
-  table.forEach((row, index) => {
-    const values = Array.isArray(row) ? row : [row];
-    defineSuite(
-      interpolateName(name, values, index),
-      () => callback(...values),
-      undefined,
-    );
-  });
 
 function test(name, callback, timeout) {
   defineTest(name, callback, undefined, timeout);
@@ -378,8 +369,8 @@ test.concurrent.only = (name, callback, timeout) =>
 test.concurrent.skip = test.skip;
 
 function bindEach(declaration) {
-  return table => (name, callback, timeout) =>
-    table.forEach((row, index) => {
+  return (table, ...taggedValues) => (name, callback, timeout) =>
+    normalizeEachTable(table, taggedValues).forEach((row, index) => {
       const values = Array.isArray(row) ? row : [row];
       declaration(
         interpolateName(name, values, index),
@@ -387,6 +378,40 @@ function bindEach(declaration) {
         timeout,
       );
     });
+}
+
+function normalizeEachTable(table, taggedValues) {
+  if (!Array.isArray(table) || !Object.hasOwn(table, 'raw')) return table;
+
+  const markerPrefix = '\u0000RJEST_EACH_VALUE_';
+  const markerSuffix = '_VALUE\u0000';
+  let source = '';
+  for (let index = 0; index < table.length; index += 1) {
+    source += table[index];
+    if (index < taggedValues.length) {
+      source += `${markerPrefix}${index}${markerSuffix}`;
+    }
+  }
+
+  const lines = source
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const headings = lines[0].split('|').map(heading => heading.trim());
+  return lines.slice(1).map(line => {
+    const cells = line.split('|').map(cell => cell.trim());
+    const row = {};
+    headings.forEach((heading, index) => {
+      const cell = cells[index] ?? '';
+      const marker = new RegExp(
+        `^${markerPrefix}(\\d+)${markerSuffix}$`,
+      ).exec(cell);
+      row[heading] = marker ? taggedValues[Number(marker[1])] : cell;
+    });
+    return row;
+  });
 }
 
 function bindFailing(mode, concurrent = false) {
@@ -399,6 +424,9 @@ function bindFailing(mode, concurrent = false) {
 test.each = bindEach(test);
 test.only.each = bindEach(test.only);
 test.skip.each = bindEach(test.skip);
+describe.each = bindEach(describe);
+describe.only.each = bindEach(describe.only);
+describe.skip.each = bindEach(describe.skip);
 test.failing = bindFailing(undefined);
 test.only.failing = bindFailing('only');
 test.skip.failing = bindFailing('skip');
