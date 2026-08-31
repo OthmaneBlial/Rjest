@@ -14,7 +14,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 27;
+const PROTOCOL_VERSION = 28;
 const supportsSyncEvaluate =
   typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
@@ -141,6 +141,10 @@ let configuredRetryImmediately;
 let configuredLogErrorsBeforeRetry;
 let processErrorGeneration = 0;
 const activeTestStorage = new AsyncLocalStorage();
+const activeHookStorage = new AsyncLocalStorage();
+const fileUnhandledRejections = new Map();
+const unhandledRejectionMaps = new Set([fileUnhandledRejections]);
+const unhandledRejectionTargets = new WeakMap();
 let activeModulePath = request.testPath;
 let effectiveTestEnvironment = request.testEnvironment;
 let effectiveTestEnvironmentOptions = request.testEnvironmentOptions ?? {};
@@ -7788,6 +7792,22 @@ function errorText(error) {
   return `Thrown: ${printable(error)}`;
 }
 
+function takeUnhandledRejectionErrors(errorsByPromise) {
+  const errors = [...errorsByPromise.values()];
+  for (const promise of errorsByPromise.keys()) {
+    unhandledRejectionTargets.delete(promise);
+  }
+  errorsByPromise.clear();
+  return errors;
+}
+
+async function settleUnhandledRejections(errorsByPromise) {
+  if (request.waitForUnhandledRejections) {
+    await new Promise(resolve => nativeSetTimeout(resolve, 0));
+  }
+  return takeUnhandledRejectionErrors(errorsByPromise);
+}
+
 async function callAsync(callback, timeout, label) {
   const timeoutMs = Number(timeout ?? defaultTimeout);
   let timer;
@@ -7839,7 +7859,13 @@ async function callAsync(callback, timeout, label) {
 async function callEnvironmentHook(hook, label, context = {}) {
   await dispatchCustomEnvironmentEvent({hook, name: 'hook_start'});
   try {
-    await callAsync(hook.callback, hook.timeout, label);
+    await activeHookStorage.run(
+      hook,
+      callAsync,
+      hook.callback,
+      hook.timeout,
+      label,
+    );
     await dispatchCustomEnvironmentEvent({
       ...context,
       hook,
@@ -7957,6 +7983,8 @@ async function runTestWithContext(
   node.expectedAssertionsError = undefined;
   node.requiresAssertions = false;
   node.isExpectingAssertionsError = undefined;
+  node.unhandledRejections = new Map();
+  unhandledRejectionMaps.add(node.unhandledRejections);
   expectState.assertionCalls = 0;
   expectState.currentTestName = result.fullName;
   expectState.expectedAssertionsNumber = null;
@@ -7986,8 +8014,11 @@ async function runTestWithContext(
         await callEnvironmentHook(hook, 'beforeEach hook', {test: node});
       } catch (error) {
         failures.push(error);
-        break;
       }
+      failures.push(
+        ...(await settleUnhandledRejections(node.unhandledRejections)),
+      );
+      if (failures.length > 0) break;
     }
     if (failures.length === 0) {
       await dispatchCustomEnvironmentEvent({name: 'test_fn_start', test: node});
@@ -8028,6 +8059,9 @@ async function runTestWithContext(
           });
         }
       }
+      failures.push(
+        ...(await settleUnhandledRejections(node.unhandledRejections)),
+      );
     }
     for (const hook of node.concurrent ? [] : hookChain(node, 'afterEach')) {
       try {
@@ -8035,6 +8069,9 @@ async function runTestWithContext(
       } catch (error) {
         failures.push(error);
       }
+      failures.push(
+        ...(await settleUnhandledRejections(node.unhandledRejections)),
+      );
     }
     if (
       node.expectedAssertions !== undefined &&
@@ -8220,14 +8257,20 @@ async function runSuiteOnce(
   let beforeAllError = inheritedBeforeAllError;
   if (!beforeAllError) {
     for (const hook of suite.hooks.beforeAll) {
+      hook.unhandledRejections = new Map();
+      unhandledRejectionMaps.add(hook.unhandledRejections);
       try {
         await callEnvironmentHook(hook, 'beforeAll hook', {
           describeBlock: suite,
         });
       } catch (error) {
         beforeAllError = error;
-        break;
       }
+      const unhandledErrors = await settleUnhandledRejections(
+        hook.unhandledRejections,
+      );
+      beforeAllError ??= unhandledErrors[0];
+      if (beforeAllError) break;
     }
   }
   const executeTest = async child => {
@@ -8316,6 +8359,8 @@ async function runSuiteOnce(
     );
   }
   for (const hook of suite.hooks.afterAll) {
+    hook.unhandledRejections = new Map();
+    unhandledRejectionMaps.add(hook.unhandledRejections);
     try {
       await callEnvironmentHook(hook, 'afterAll hook', {
         describeBlock: suite,
@@ -8323,6 +8368,11 @@ async function runSuiteOnce(
     } catch (error) {
       fileErrors.push(errorText(error));
     }
+    fileErrors.push(
+      ...(await settleUnhandledRejections(hook.unhandledRejections)).map(
+        errorText,
+      ),
+    );
   }
   await dispatchCustomEnvironmentEvent({
     describeBlock: suite,
@@ -8331,9 +8381,22 @@ async function runSuiteOnce(
   return results;
 }
 
-process.on('unhandledRejection', error => {
-  processErrorGeneration += 1;
-  fileErrors.push(errorText(error));
+process.on('unhandledRejection', (error, promise) => {
+  const activeTest = currentTestNode();
+  const activeHook = activeHookStorage.getStore();
+  const target =
+    activeTest?.unhandledRejections ??
+    activeHook?.unhandledRejections ??
+    fileUnhandledRejections;
+  target.set(promise, error);
+  unhandledRejectionMaps.add(target);
+  unhandledRejectionTargets.set(promise, target);
+  if (!activeTest && !activeHook) processErrorGeneration += 1;
+});
+process.on('rejectionHandled', promise => {
+  const target = unhandledRejectionTargets.get(promise);
+  target?.delete(promise);
+  unhandledRejectionTargets.delete(promise);
 });
 process.on('uncaughtException', error => {
   processErrorGeneration += 1;
@@ -8432,7 +8495,16 @@ try {
   await dispatchCustomEnvironmentEvent({name: 'run_start'});
   tests = await runSuite(rootSuite, hasOnly(rootSuite));
   await dispatchCustomEnvironmentEvent({name: 'run_finish'});
-  await Promise.resolve();
+  if (request.waitForUnhandledRejections) {
+    await new Promise(resolve => nativeSetTimeout(resolve, 0));
+  } else {
+    await Promise.resolve();
+  }
+  for (const errorsByPromise of unhandledRejectionMaps) {
+    fileErrors.push(
+      ...takeUnhandledRejectionErrors(errorsByPromise).map(errorText),
+    );
+  }
   await collectUncoveredCoverage();
 } catch (error) {
   fileErrors.push(errorText(error));

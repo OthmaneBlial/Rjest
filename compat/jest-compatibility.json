@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 280,
-    "total": 280,
+    "passing": 286,
+    "total": 286,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 52,
-      "total": 52,
+      "passing": 58,
+      "total": 58,
       "percentage": 100
     },
     "Core API": {
@@ -226,6 +226,42 @@
     },
     {
       "name": "config-test-runner-circus",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-wait-unhandled-rejections",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-wait-unhandled-rejections-failure",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-wait-unhandled-rejections-hooks",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-wait-unhandled-rejections-before-all-failure",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-wait-unhandled-rejections-after-all-failure",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-no-wait-unhandled-rejections",
       "category": "Configuration",
       "compatible": true,
       "differences": []

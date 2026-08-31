@@ -8,10 +8,11 @@
 
 **Keep your tests. Change the engine.**
 
-[Website](https://othmaneblial.github.io/rjest/) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
+[Website](https://othmaneblial.github.io/rjest/) · [**Project status: ≈91% directional readiness**](docs/project-status.md) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![Jest differential: 280/280](https://img.shields.io/badge/Jest_differential-280%2F280-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Jest differential: 286/286](https://img.shields.io/badge/Jest_differential-286%2F286-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Readiness: about 91%](https://img.shields.io/badge/readiness-about_91%25_directional-f4b942?style=for-the-badge)](docs/project-status.md)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111511?style=for-the-badge)](LICENSE)
@@ -40,6 +41,10 @@ under official Jest and Rjest.
 > does not cover the entire Jest surface yet, and the npm package is not
 > published. Build it from source and keep Jest as your release gate for now.
 
+> [Read the honest project status](docs/project-status.md): what **≈91%** means,
+> what is proven automatically, and what remains before a universal drop-in
+> claim would be justified.
+
 ## The short version
 
 | What you probably want to know                                   | Verified answer                                    |
@@ -47,9 +52,9 @@ under official Jest and Rjest.
 | Does it use existing Jest tests?                                 | Yes, across the measured surface                   |
 | Does it read Jest configuration?                                 | Yes, with explicit errors for unsupported options  |
 | Are snapshots, mocks, timers, ESM, JSDOM, and coverage included? | Yes, within the documented boundaries              |
-| Is compatibility measured against official Jest?                 | **280 / 280 executable scenarios pass**            |
+| Is compatibility measured against official Jest?                 | **286 / 286 executable scenarios pass**            |
 | Has it run serious public projects?                              | **25 pinned corpus reports**                       |
-| Is it production-ready everywhere?                               | No. Current directional readiness is **about 90%** |
+| Is it production-ready everywhere?                               | No. Current directional readiness is **about 91%** |
 | Is it already faster than Jest?                                  | No published claim yet; correctness comes first    |
 
 ## Compatibility with receipts
@@ -65,7 +70,7 @@ Jest 29.7.0.
 | Area                 |       Passing | Measured score |
 | -------------------- | ------------: | -------------: |
 | CLI                  |       76 / 76 |           100% |
-| Configuration        |       52 / 52 |           100% |
+| Configuration        |       58 / 58 |           100% |
 | Core API             |       16 / 16 |           100% |
 | Coverage             |       19 / 19 |           100% |
 | Environment          |         7 / 7 |           100% |
@@ -78,7 +83,7 @@ Jest 29.7.0.
 | Snapshots            |       16 / 16 |           100% |
 | Transforms           |         7 / 7 |           100% |
 | Watch                |         4 / 4 |           100% |
-| **Versioned matrix** | **280 / 280** |       **100%** |
+| **Versioned matrix** | **286 / 286** |       **100%** |
 
 The 100% above means every scenario currently in the versioned matrix passes.
 It does not mean Rjest implements 100% of Jest. The matrix is deliberately
@@ -224,9 +229,10 @@ that skips behavior does not get to call itself fast. See the
 
 ## Honest alpha boundaries
 
-The current project-readiness estimate is approximately **90%**. This is a
+The current project-readiness estimate is approximately **91%**. This is a
 directional engineering estimate, not an automated percentage of the Jest API.
-The automated number is the 280-scenario matrix above.
+The automated number is the 286-scenario matrix above. The distinction and the
+remaining work are recorded in the [project status](docs/project-status.md).
 
 - Watch plugins, Mercurial/Sapling changed-file selection, and some terminal
   output details remain open.
@@ -247,8 +253,8 @@ make check
 
 That command runs Rust formatting, strict Clippy, all workspace tests,
 JavaScript syntax and comparator tests, and every differential fixture against
-the pinned official Jest oracles. The current local Rust suite is 132/132, and
-the generated compatibility matrix is 280/280.
+the pinned official Jest oracles. The current local Rust suite is 133/133, and
+the generated compatibility matrix is 286/286.
 
 ## Help close the next gap
 
@@ -268,6 +274,7 @@ precise mismatch is enough to move the project forward.
 ## Project map
 
 - [Compatibility matrix](docs/compatibility.md)
+- [Honest project status](docs/project-status.md)
 - [Migration from Jest](docs/migration-from-jest.md)
 - [Architecture](docs/architecture.md)
 - [Benchmarks](docs/benchmarks.md)

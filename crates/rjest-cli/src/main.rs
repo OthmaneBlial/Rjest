@@ -3403,6 +3403,7 @@ fn runner_options(
         test_environment: run.config.test_environment.clone(),
         test_environment_options: run.config.test_environment_options.clone(),
         test_location_in_results: run.config.test_location_in_results,
+        wait_for_unhandled_rejections: run.config.wait_for_unhandled_rejections,
         setup_files: run.config.setup_files.clone(),
         setup_files_after_env: run.config.setup_files_after_env.clone(),
         snapshot_serializers: run.config.snapshot_serializers.clone(),

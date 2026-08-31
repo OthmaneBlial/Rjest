@@ -130,6 +130,7 @@ pub struct ProjectConfig {
     pub test_environment_options: Value,
     pub test_failure_exit_code: i32,
     pub test_location_in_results: bool,
+    pub wait_for_unhandled_rejections: bool,
     pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
@@ -216,6 +217,7 @@ struct RawProjectConfig {
     test_environment_options: Option<Value>,
     test_failure_exit_code: Option<i32>,
     test_location_in_results: Option<bool>,
+    wait_for_unhandled_rejections: Option<bool>,
     setup_files: Option<Vec<String>>,
     setup_files_after_env: Option<Vec<String>>,
     snapshot_serializers: Option<Vec<String>>,
@@ -407,6 +409,7 @@ impl ProjectConfig {
             test_environment_options: serde_json::json!({}),
             test_failure_exit_code: 1,
             test_location_in_results: false,
+            wait_for_unhandled_rejections: false,
             setup_files: Vec::new(),
             setup_files_after_env: Vec::new(),
             snapshot_serializers: Vec::new(),
@@ -737,6 +740,7 @@ fn merge_preset(
         test_environment_options,
         test_failure_exit_code,
         test_location_in_results,
+        wait_for_unhandled_rejections,
         snapshot_serializers,
         snapshot_format,
         transform_ignore_patterns,
@@ -1045,6 +1049,9 @@ fn normalize(
         test_location_in_results: raw
             .test_location_in_results
             .unwrap_or(defaults.test_location_in_results),
+        wait_for_unhandled_rejections: raw
+            .wait_for_unhandled_rejections
+            .unwrap_or(defaults.wait_for_unhandled_rejections),
         setup_files,
         setup_files_after_env,
         snapshot_serializers: raw
@@ -2736,6 +2743,17 @@ mod tests {
         );
         assert_eq!(config.coverage_reporters, ["json-summary", "lcov"]);
         assert_eq!(config.worker_idle_memory_limit.as_deref(), Some("45MiB"));
+    }
+
+    #[test]
+    fn normalizes_wait_for_unhandled_rejections() {
+        let temp = tempdir().expect("temp dir");
+        let defaults = load_inline_json(temp.path(), r"{}").expect("default config");
+        let enabled = load_inline_json(temp.path(), r#"{"waitForUnhandledRejections":true}"#)
+            .expect("enabled config");
+
+        assert!(!defaults.wait_for_unhandled_rejections);
+        assert!(enabled.wait_for_unhandled_rejections);
     }
 
     #[test]

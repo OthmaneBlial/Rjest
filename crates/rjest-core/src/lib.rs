@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 27;
+pub const WORKER_PROTOCOL_VERSION: u32 = 28;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -142,6 +142,7 @@ pub struct WorkerRequest {
     pub test_environment: String,
     pub test_environment_options: serde_json::Value,
     pub test_location_in_results: bool,
+    pub wait_for_unhandled_rejections: bool,
     pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
