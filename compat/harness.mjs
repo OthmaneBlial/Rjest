@@ -974,6 +974,7 @@ const cases = [
   {name: 'module-mock-cjs', category: 'Mocks', expectedExit: 0},
   {name: 'mock-reference-semantics', category: 'Mocks', expectedExit: 0},
   {name: 'mock-with-implementation', category: 'Mocks', expectedExit: 0},
+  {name: 'mock-when-called-with', category: 'Mocks', expectedExit: 0},
   {name: 'mock-reset-restore-contracts', category: 'Mocks', expectedExit: 0},
   {name: 'mock-module-scoped-jest', category: 'Mocks', expectedExit: 0},
   {name: 'gap-automock-prototype', category: 'Mocks', expectedExit: 0},

@@ -128,6 +128,7 @@ const randomGenerator = request.randomize
   ? createRandomGenerator(request.seed)
   : undefined;
 const mockRegistry = new Set();
+const mockMetadata = new WeakMap();
 const restoreRegistry = new Set();
 const replacedPropertyRegistry = new WeakMap();
 const customMatchers = new Map();
@@ -2796,10 +2797,28 @@ function matchMockArity(callback, length) {
 function createMock(implementation) {
   let defaultImplementation = implementation;
   let once = [];
+  let whenCalledWithRegistrations = [];
+  let whenCalledWithRouting = false;
   let name = 'jest.fn()';
   let restore;
   let state = newMockState();
   let mock;
+
+  function matchingWhenCalledWithBranch(args) {
+    const matching = whenCalledWithRegistrations.filter(branch =>
+      jestEquals(branch.matchers, args),
+    );
+    const onceBranch = matching.find(branch =>
+      mockMetadata.get(branch.subMock)?.hasOnceImplementation(),
+    );
+    if (onceBranch) return onceBranch;
+    for (let index = matching.length - 1; index >= 0; index -= 1) {
+      const branch = matching[index];
+      if (mockMetadata.get(branch.subMock)?.hasImplementation()) return branch;
+    }
+    return undefined;
+  }
+
   const mockConstructor = function (...args) {
     const context = this;
     state.calls.push(args);
@@ -2814,9 +2833,19 @@ function createMock(implementation) {
     let callDidThrowError = false;
     try {
       finalReturnValue = (() => {
-        let selected = once.shift();
-        if (selected === undefined) selected = defaultImplementation;
-        return selected ? selected.apply(context, args) : undefined;
+        const selectedOnce = once.length > 0 ? once.shift() : undefined;
+        if (selectedOnce !== undefined) {
+          return selectedOnce.apply(context, args);
+        }
+        if (whenCalledWithRouting) {
+          const branch = matchingWhenCalledWithBranch(args);
+          if (branch) return branch.subMock.apply(context, args);
+        }
+        if (defaultImplementation !== undefined) {
+          return defaultImplementation.apply(context, args);
+        }
+        if (mock._protoImpl) return mock._protoImpl.apply(context, args);
+        return undefined;
       })();
       return finalReturnValue;
     } catch (error) {
@@ -2829,6 +2858,10 @@ function createMock(implementation) {
     }
   };
   mock = matchMockArity(mockConstructor, implementation?.length ?? 0);
+  mockMetadata.set(mock, {
+    hasImplementation: () => defaultImplementation !== undefined,
+    hasOnceImplementation: () => once.length > 0,
+  });
   Object.defineProperties(mock, {
     _isMockFunction: {value: true},
     mock: {get: () => state},
@@ -2841,6 +2874,11 @@ function createMock(implementation) {
     state = newMockState();
     once.length = 0;
     defaultImplementation = undefined;
+    for (const branch of whenCalledWithRegistrations) {
+      branch.subMock.mockReset();
+    }
+    whenCalledWithRegistrations = [];
+    whenCalledWithRouting = false;
     name = 'jest.fn()';
     return mock;
   };
@@ -2858,6 +2896,7 @@ function createMock(implementation) {
     defaultImplementation = fn;
     return mock;
   };
+  mock.getMockImplementation = () => defaultImplementation;
   mock.mockImplementationOnce = fn => {
     once.push(fn);
     return mock;
@@ -2865,13 +2904,16 @@ function createMock(implementation) {
   mock.withImplementation = (temporaryImplementation, callback) => {
     const previousImplementation = defaultImplementation;
     const previousOnce = once;
+    const previousWhenCalledWithRouting = whenCalledWithRouting;
     defaultImplementation = temporaryImplementation;
     once = [];
+    whenCalledWithRouting = false;
 
     const returnedValue = callback();
     const restoreImplementation = () => {
       defaultImplementation = previousImplementation;
       once = previousOnce;
+      whenCalledWithRouting = previousWhenCalledWithRouting;
     };
     if (returnedValue && typeof returnedValue.then === 'function') {
       return returnedValue.then(() => {
@@ -2879,6 +2921,12 @@ function createMock(implementation) {
       });
     }
     restoreImplementation();
+  };
+  mock.whenCalledWith = (...matchers) => {
+    whenCalledWithRouting = true;
+    const subMock = createMock();
+    whenCalledWithRegistrations.push({matchers, subMock});
+    return subMock;
   };
   mock.mockReturnValue = value => mock.mockImplementation(() => value);
   mock.mockReturnValueOnce = value =>
