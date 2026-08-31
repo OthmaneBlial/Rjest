@@ -155,6 +155,10 @@ requests are derived. `transform` replaces the complete pattern map and marks
 the transform as explicit, `transformIgnorePatterns` replaces the ignore list,
 and `snapshotSerializers` replaces the serializer modules. Transformer and
 serializer `<rootDir>` references are expanded from each owning project.
+Tooling overrides use the same boundary. CLI `haste` replaces platform
+resolution metadata, while repeated `reporters` entries replace the normalized
+reporter list. Built-in reporter names remain symbolic; custom reporter paths
+are resolved independently from each project root.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

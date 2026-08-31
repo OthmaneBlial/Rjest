@@ -495,6 +495,21 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-haste',
+    category: 'CLI',
+    expectedExit: 0,
+    haste: {defaultPlatform: 'native', platforms: ['ios', 'native']},
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-reporters',
+    category: 'CLI',
+    compareOutput: true,
+    expectedExit: 0,
+    reporters: ['<rootDir>/reporter.cjs'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -2041,6 +2056,10 @@ function compareCase(testCase) {
     for (const serializer of testCase.snapshotSerializers ?? []) {
       jestArguments.push(`--snapshotSerializers=${serializer}`);
     }
+    if (testCase.haste) jestArguments.push(`--haste=${JSON.stringify(testCase.haste)}`);
+    for (const reporter of testCase.reporters ?? []) {
+      jestArguments.push(`--reporters=${reporter}`);
+    }
     if (testCase.runTestsByPath) jestArguments.push('--runTestsByPath');
     jestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
@@ -2246,6 +2265,10 @@ function compareCase(testCase) {
     }
     for (const serializer of testCase.snapshotSerializers ?? []) {
       rjestArguments.push(`--snapshotSerializers=${serializer}`);
+    }
+    if (testCase.haste) rjestArguments.push(`--haste=${JSON.stringify(testCase.haste)}`);
+    for (const reporter of testCase.reporters ?? []) {
+      rjestArguments.push(`--reporters=${reporter}`);
     }
     if (testCase.runTestsByPath) rjestArguments.push('--runTestsByPath');
     rjestArguments.push(...(testCase.testPathPatterns ?? []));

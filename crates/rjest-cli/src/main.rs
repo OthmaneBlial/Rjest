@@ -19,7 +19,7 @@ use crossterm::{
 };
 use rjest_config::ProjectConfig;
 use rjest_core::{
-    AggregatedResult, ExecutionOrderConfig, GlobalExecutionConfig, ModuleNameMapper,
+    AggregatedResult, ExecutionOrderConfig, GlobalExecutionConfig, HasteConfig, ModuleNameMapper,
     SnapshotUpdate, TestFile, TestStatus,
 };
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
@@ -221,6 +221,14 @@ struct Cli {
         action = ArgAction::Append
     )]
     snapshot_serializers: Vec<String>,
+
+    /// JSON object configuring Jest's Haste platform resolution.
+    #[arg(long, value_name = "JSON", value_parser = parse_cli_haste)]
+    haste: Option<CliHaste>,
+
+    /// Reporter module or built-in reporter; may be specified more than once.
+    #[arg(long, value_name = "REPORTER", num_args = 1.., action = ArgAction::Append)]
+    reporters: Vec<String>,
 
     /// Path to a Jest configuration file or an inline JSON object.
     #[arg(long, value_name = "PATH|JSON")]
@@ -776,6 +784,9 @@ struct CliModuleNameMapper(Vec<ModuleNameMapper>);
 
 #[derive(Clone, Debug)]
 struct CliTransform(BTreeMap<String, serde_json::Value>);
+
+#[derive(Clone, Debug)]
+struct CliHaste(HasteConfig);
 
 struct CoverageRunnerSettings {
     enabled: bool,
@@ -1960,6 +1971,48 @@ fn parse_cli_transform(value: &str) -> std::result::Result<CliTransform, String>
     Ok(CliTransform(transforms))
 }
 
+fn parse_cli_haste(value: &str) -> std::result::Result<CliHaste, String> {
+    let parsed = parse_cli_json_object(value)?;
+    let entries = parsed.as_object().expect("validated JSON object");
+    for key in entries.keys() {
+        if !matches!(key.as_str(), "defaultPlatform" | "platforms") {
+            return Err(format!("unsupported haste.{key}"));
+        }
+    }
+    let default_platform = entries
+        .get("defaultPlatform")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| "haste.defaultPlatform must be a non-empty string".to_owned())
+        })
+        .transpose()?;
+    let platforms = entries
+        .get("platforms")
+        .map(|value| {
+            value
+                .as_array()
+                .ok_or_else(|| "haste.platforms must be an array".to_owned())?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned)
+                        .ok_or_else(|| "haste.platforms must contain non-empty strings".to_owned())
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok(CliHaste(HasteConfig {
+        default_platform,
+        platforms,
+    }))
+}
+
 fn parse_positive_usize(value: &str) -> std::result::Result<usize, String> {
     let parsed = value
         .parse::<usize>()
@@ -2869,6 +2922,7 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
     apply_discovery_overrides(config, cli);
     apply_resolution_overrides(config, cli);
     apply_transform_overrides(config, cli);
+    apply_tooling_overrides(config, cli);
     if cli.test_location_in_results {
         config.test_location_in_results = true;
     }
@@ -2981,6 +3035,30 @@ fn apply_transform_overrides(config: &mut ProjectConfig, cli: &Cli) {
                 rjest_config::normalize_module_reference(serializer, &config.root_dir)
             })
             .collect();
+    }
+}
+
+fn apply_tooling_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if let Some(haste) = cli.haste.as_ref() {
+        config.haste.clone_from(&haste.0);
+    }
+    if !cli.reporters.is_empty() {
+        config.reporters = Some(
+            cli.reporters
+                .iter()
+                .map(|reporter| {
+                    let reporter = if matches!(
+                        reporter.as_str(),
+                        "agent" | "default" | "github-actions" | "summary"
+                    ) {
+                        reporter.clone()
+                    } else {
+                        rjest_config::normalize_module_reference(reporter, &config.root_dir)
+                    };
+                    (reporter, serde_json::json!({}))
+                })
+                .collect(),
+        );
     }
 }
 
@@ -4319,6 +4397,44 @@ mod tests {
 
         assert!(Cli::try_parse_from(["rjest", "--transform={\"pattern\":[]}"]).is_err());
         assert!(Cli::try_parse_from(["rjest", "--transform={\"pattern\":true}"]).is_err());
+    }
+
+    #[test]
+    fn applies_jest_haste_and_reporter_overrides_from_each_project_root() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            r#"--haste={"defaultPlatform":"native","platforms":["ios","native"]}"#,
+            "--reporters=default",
+            "--reporters=<rootDir>/reporter.cjs",
+        ])
+        .expect("Jest tooling overrides");
+
+        let temp = tempdir().expect("temp dir");
+        let child_root = temp.path().join("child");
+        fs::create_dir_all(&child_root).expect("child root");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(&child_root).expect("child config"));
+        super::apply_cli_config_overrides(&mut config, &cli);
+
+        for project in [&config, &config.projects[0]] {
+            assert_eq!(project.haste.default_platform.as_deref(), Some("native"));
+            assert_eq!(project.haste.platforms, ["ios", "native"]);
+            assert_eq!(
+                project.reporters,
+                Some(vec![
+                    ("default".into(), serde_json::json!({})),
+                    (
+                        format!("{}/reporter.cjs", project.root_dir.display()),
+                        serde_json::json!({}),
+                    ),
+                ])
+            );
+        }
+
+        assert!(Cli::try_parse_from(["rjest", "--haste={\"platforms\":[\"\"]}"]).is_err());
+        assert!(Cli::try_parse_from(["rjest", "--haste={\"computeSha1\":true}"]).is_err());
     }
 
     #[test]

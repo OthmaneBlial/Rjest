@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 270,
-    "total": 270,
+    "passing": 272,
+    "total": 272,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 73,
-      "total": 73,
+      "passing": 75,
+      "total": 75,
       "percentage": 100
     },
     "Configuration": {
@@ -454,6 +454,18 @@
     },
     {
       "name": "cli-snapshot-serializers",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-haste",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-reporters",
       "category": "CLI",
       "compatible": true,
       "differences": []
