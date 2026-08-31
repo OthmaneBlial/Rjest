@@ -2380,16 +2380,79 @@ expect.assertions = expected => {
   if (!activeTest) {
     throw new Error('expect.assertions() must be called from within a test.');
   }
+  const error = new Error();
+  if (Error.captureStackTrace) Error.captureStackTrace(error, expect.assertions);
   activeTest.expectedAssertions = expected;
+  activeTest.expectedAssertionsError = error;
   expectState.expectedAssertionsNumber = expected;
+  expectState.expectedAssertionsNumberError = error;
 };
-expect.hasAssertions = () => {
+expect.hasAssertions = (...arguments_) => {
+  if (arguments_.length > 0) {
+    throw new Error('This matcher must not have an expected argument');
+  }
   const activeTest = currentTestNode();
   if (!activeTest) {
     throw new Error('expect.hasAssertions() must be called from within a test.');
   }
+  const error = new Error();
+  if (Error.captureStackTrace) Error.captureStackTrace(error, expect.hasAssertions);
   activeTest.requiresAssertions = true;
+  activeTest.isExpectingAssertionsError = error;
   expectState.isExpectingAssertions = true;
+  expectState.isExpectingAssertionsError = error;
+};
+expect.extractExpectedAssertionsErrors = () => {
+  const activeTest = currentTestNode();
+  const assertionCalls = activeTest?.assertionCalls ?? expectState.assertionCalls;
+  const expectedAssertionsNumber =
+    activeTest?.expectedAssertions ?? expectState.expectedAssertionsNumber;
+  const isExpectingAssertions =
+    activeTest?.requiresAssertions ?? expectState.isExpectingAssertions;
+  const result = [];
+
+  if (
+    typeof expectedAssertionsNumber === 'number' &&
+    assertionCalls !== expectedAssertionsNumber
+  ) {
+    const error =
+      activeTest?.expectedAssertionsError ??
+      expectState.expectedAssertionsNumberError ??
+      new Error();
+    error.message =
+      `expect.assertions(${expectedAssertionsNumber})\n\n` +
+      `Expected ${expectedAssertionsNumber} assertion${expectedAssertionsNumber === 1 ? '' : 's'} to be called but received ${assertionCalls} assertion call${assertionCalls === 1 ? '' : 's'}.`;
+    result.push({
+      actual: String(assertionCalls),
+      error,
+      expected: String(expectedAssertionsNumber),
+    });
+  }
+  if (isExpectingAssertions && assertionCalls === 0) {
+    const error =
+      activeTest?.isExpectingAssertionsError ??
+      expectState.isExpectingAssertionsError ??
+      new Error();
+    error.message =
+      'expect.hasAssertions()\n\nExpected at least one assertion to be called but received none.';
+    result.push({actual: 'none', error, expected: 'at least one'});
+  }
+
+  expectState.assertionCalls = 0;
+  expectState.expectedAssertionsNumber = null;
+  expectState.expectedAssertionsNumberError = undefined;
+  expectState.isExpectingAssertions = false;
+  expectState.isExpectingAssertionsError = undefined;
+  expectState.numPassingAsserts = 0;
+  if (activeTest) {
+    activeTest.assertionCalls = 0;
+    activeTest.expectedAssertions = undefined;
+    activeTest.expectedAssertionsError = undefined;
+    activeTest.requiresAssertions = false;
+    activeTest.isExpectingAssertionsError = undefined;
+    activeTest.numPassingAsserts = 0;
+  }
+  return result;
 };
 
 function hasObjectTag(value, tag) {
@@ -7796,11 +7859,15 @@ async function runTestWithContext(
   node.assertionCalls = 0;
   node.numPassingAsserts = 0;
   node.expectedAssertions = undefined;
+  node.expectedAssertionsError = undefined;
   node.requiresAssertions = false;
+  node.isExpectingAssertionsError = undefined;
   expectState.assertionCalls = 0;
   expectState.currentTestName = result.fullName;
   expectState.expectedAssertionsNumber = null;
+  expectState.expectedAssertionsNumberError = undefined;
   expectState.isExpectingAssertions = false;
+  expectState.isExpectingAssertionsError = undefined;
   expectState.numPassingAsserts = 0;
   expectState.suppressedErrors = [];
   expectState.testFailing = node.failing;

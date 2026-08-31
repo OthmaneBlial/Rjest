@@ -187,6 +187,10 @@ Assertion invocation and success counts are maintained separately on the active
 test identity. Every matcher increments `assertionCalls`; only a completed
 positive or negated outcome increments `numPassingAsserts`, which is projected
 through Expect state and the worker result protocol.
+The same state boundary implements Jest's assertion-error extraction API.
+Extraction formats pending exact-count and at-least-one failures from the
+errors captured at declaration time, then resets both public state and the
+active test contract so integrations can consume it once.
 
 Global setup and teardown use another persistent line protocol. Rust derives
 the active hook set only after project filtering, sharding, and sequencing, so

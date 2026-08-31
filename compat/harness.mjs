@@ -1571,6 +1571,11 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'expect-extract-assertion-errors',
+    category: 'Expect',
+    expectedExit: 0,
+  },
+  {
     name: 'expect-mock-matcher-contracts',
     category: 'Expect',
     expectedExit: 0,
