@@ -299,6 +299,52 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-clear-mocks',
+    category: 'CLI',
+    clearMocks: true,
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-reset-mocks',
+    category: 'CLI',
+    expectedExit: 0,
+    resetMocks: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-restore-mocks',
+    category: 'CLI',
+    expectedExit: 0,
+    restoreMocks: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-automock',
+    automock: true,
+    category: 'CLI',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-reset-modules',
+    category: 'CLI',
+    expectedExit: 0,
+    resetModules: true,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-mock-runtime-negation',
+    automock: false,
+    category: 'CLI',
+    clearMocks: false,
+    expectedExit: 0,
+    resetMocks: false,
+    resetModules: false,
+    restoreMocks: false,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1839,6 +1885,16 @@ function compareCase(testCase) {
     if (testCase.maxConcurrency !== undefined) {
       jestArguments.push(`--maxConcurrency=${testCase.maxConcurrency}`);
     }
+    for (const option of [
+      'automock',
+      'clearMocks',
+      'resetMocks',
+      'restoreMocks',
+      'resetModules',
+    ]) {
+      if (testCase[option] === true) jestArguments.push(`--${option}`);
+      if (testCase[option] === false) jestArguments.push(`--no-${option}`);
+    }
     for (const setupFile of testCase.setupFiles ?? []) {
       jestArguments.push(`--setupFiles=${setupFile}`);
     }
@@ -1991,6 +2047,16 @@ function compareCase(testCase) {
     }
     if (testCase.maxConcurrency !== undefined) {
       rjestArguments.push(`--maxConcurrency=${testCase.maxConcurrency}`);
+    }
+    for (const option of [
+      'automock',
+      'clearMocks',
+      'resetMocks',
+      'restoreMocks',
+      'resetModules',
+    ]) {
+      if (testCase[option] === true) rjestArguments.push(`--${option}`);
+      if (testCase[option] === false) rjestArguments.push(`--no-${option}`);
     }
     for (const setupFile of testCase.setupFiles ?? []) {
       rjestArguments.push(`--setupFiles=${setupFile}`);

@@ -1,0 +1,7 @@
+module.exports = {
+  automock: false,
+  rootDir: __dirname,
+  testEnvironment: 'node',
+  testMatch: ['<rootDir>/**/*.test.cjs'],
+  transform: {},
+};

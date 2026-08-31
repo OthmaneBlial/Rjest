@@ -394,6 +394,105 @@ struct Cli {
     )]
     max_concurrency: Option<usize>,
 
+    /// Automatically mock imported modules.
+    #[arg(
+        long,
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        conflicts_with = "no_automock"
+    )]
+    automock: Option<bool>,
+
+    /// Disable automatic module mocking enabled by configuration.
+    #[arg(long = "no-automock", action = ArgAction::SetTrue, conflicts_with = "automock")]
+    no_automock: bool,
+
+    /// Clear mock usage data before every test.
+    #[arg(
+        long = "clearMocks",
+        visible_alias = "clear-mocks",
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        conflicts_with = "no_clear_mocks"
+    )]
+    clear_mocks: Option<bool>,
+
+    /// Disable automatic clearing of mock usage data.
+    #[arg(
+        long = "no-clearMocks",
+        visible_alias = "no-clear-mocks",
+        action = ArgAction::SetTrue,
+        conflicts_with = "clear_mocks"
+    )]
+    no_clear_mocks: bool,
+
+    /// Reset mock usage data and implementations before every test.
+    #[arg(
+        long = "resetMocks",
+        visible_alias = "reset-mocks",
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        conflicts_with = "no_reset_mocks"
+    )]
+    reset_mocks: Option<bool>,
+
+    /// Disable automatic resetting of mock state.
+    #[arg(
+        long = "no-resetMocks",
+        visible_alias = "no-reset-mocks",
+        action = ArgAction::SetTrue,
+        conflicts_with = "reset_mocks"
+    )]
+    no_reset_mocks: bool,
+
+    /// Restore replaced properties and spies before every test.
+    #[arg(
+        long = "restoreMocks",
+        visible_alias = "restore-mocks",
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        conflicts_with = "no_restore_mocks"
+    )]
+    restore_mocks: Option<bool>,
+
+    /// Disable automatic restoration of replaced properties and spies.
+    #[arg(
+        long = "no-restoreMocks",
+        visible_alias = "no-restore-mocks",
+        action = ArgAction::SetTrue,
+        conflicts_with = "restore_mocks"
+    )]
+    no_restore_mocks: bool,
+
+    /// Reset the module registry before every test.
+    #[arg(
+        long = "resetModules",
+        visible_alias = "reset-modules",
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        conflicts_with = "no_reset_modules"
+    )]
+    reset_modules: Option<bool>,
+
+    /// Disable per-test module-registry resets.
+    #[arg(
+        long = "no-resetModules",
+        visible_alias = "no-reset-modules",
+        action = ArgAction::SetTrue,
+        conflicts_with = "reset_modules"
+    )]
+    no_reset_modules: bool,
+
     /// Modules loaded before the test framework is installed.
     #[arg(
         long = "setupFiles",
@@ -2501,6 +2600,31 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
     if let Some(max_concurrency) = cli.max_concurrency {
         config.max_concurrency = max_concurrency;
     }
+    if cli.no_automock {
+        config.automock = false;
+    } else if let Some(automock) = cli.automock {
+        config.automock = automock;
+    }
+    if cli.no_clear_mocks {
+        config.mock_lifecycle.clear_mocks = false;
+    } else if let Some(clear_mocks) = cli.clear_mocks {
+        config.mock_lifecycle.clear_mocks = clear_mocks;
+    }
+    if cli.no_reset_mocks {
+        config.mock_lifecycle.reset_mocks = false;
+    } else if let Some(reset_mocks) = cli.reset_mocks {
+        config.mock_lifecycle.reset_mocks = reset_mocks;
+    }
+    if cli.no_restore_mocks {
+        config.mock_lifecycle.restore_mocks = false;
+    } else if let Some(restore_mocks) = cli.restore_mocks {
+        config.mock_lifecycle.restore_mocks = restore_mocks;
+    }
+    if cli.no_reset_modules {
+        config.reset_modules = false;
+    } else if let Some(reset_modules) = cli.reset_modules {
+        config.reset_modules = reset_modules;
+    }
     if !cli.setup_files.is_empty() {
         config.setup_files = cli
             .setup_files
@@ -3921,6 +4045,51 @@ mod tests {
             );
         }
         assert!(Cli::try_parse_from(["rjest", "--maxConcurrency=0"]).is_err());
+    }
+
+    #[test]
+    fn applies_jest_mock_runtime_overrides_to_every_project() {
+        let enabled = Cli::try_parse_from([
+            "rjest",
+            "--automock",
+            "--clearMocks",
+            "--resetMocks",
+            "--restoreMocks",
+            "--resetModules",
+        ])
+        .expect("Jest mock runtime overrides");
+
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(temp.path()).expect("child config"));
+        super::apply_cli_config_overrides(&mut config, &enabled);
+        for project in [&config, &config.projects[0]] {
+            assert!(project.automock);
+            assert!(project.mock_lifecycle.clear_mocks);
+            assert!(project.mock_lifecycle.reset_mocks);
+            assert!(project.mock_lifecycle.restore_mocks);
+            assert!(project.reset_modules);
+        }
+
+        let disabled = Cli::try_parse_from([
+            "rjest",
+            "--no-automock",
+            "--no-clearMocks",
+            "--no-resetMocks",
+            "--no-restoreMocks",
+            "--no-resetModules",
+        ])
+        .expect("negated Jest mock runtime overrides");
+        super::apply_cli_config_overrides(&mut config, &disabled);
+        for project in [&config, &config.projects[0]] {
+            assert!(!project.automock);
+            assert!(!project.mock_lifecycle.clear_mocks);
+            assert!(!project.mock_lifecycle.reset_mocks);
+            assert!(!project.mock_lifecycle.restore_mocks);
+            assert!(!project.reset_modules);
+        }
     }
 
     #[test]

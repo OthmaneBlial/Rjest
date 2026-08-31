@@ -125,6 +125,10 @@ The same recursive boundary replaces configured `globals`, `maxConcurrency`,
 Setup module references are normalized independently from each project root;
 the override lists replace configured lists rather than being appended, which
 matches Jest's invocation precedence.
+Mock-runtime overrides use the same recursion for `automock`, `clearMocks`,
+`resetMocks`, `restoreMocks`, and `resetModules`. Their positive, explicit
+boolean, and `--no-*` forms replace normalized values before worker requests are
+built, so project configuration never wins over the current invocation.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

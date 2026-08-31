@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 245,
-    "total": 245,
+    "passing": 251,
+    "total": 251,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 48,
-      "total": 48,
+      "passing": 54,
+      "total": 54,
       "percentage": 100
     },
     "Configuration": {
@@ -304,6 +304,42 @@
     },
     {
       "name": "cli-setup-files-after-env",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-clear-mocks",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-reset-mocks",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-restore-mocks",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-automock",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-reset-modules",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-mock-runtime-negation",
       "category": "CLI",
       "compatible": true,
       "differences": []
