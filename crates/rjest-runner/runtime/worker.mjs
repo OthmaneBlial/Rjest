@@ -528,7 +528,7 @@ function printable(value) {
 }
 
 class RjestAsymmetricMatcher {
-  constructor(match, description, sample, inverse, formatter) {
+  constructor(match, description, sample, inverse, formatter, expectedType) {
     this.$$typeof = Symbol.for('jest.asymmetricMatcher');
     this.sample = sample;
     this.inverse = inverse;
@@ -538,6 +538,11 @@ class RjestAsymmetricMatcher {
       description: {value: description},
       formatter: {value: formatter},
     });
+    if (expectedType !== undefined) {
+      Object.defineProperty(this, 'getExpectedType', {
+        value: () => expectedType,
+      });
+    }
   }
 
   asymmetricMatch(other) {
@@ -556,13 +561,21 @@ class RjestAsymmetricMatcher {
   }
 }
 
-function asymmetric(match, description, sample, inverse = false, formatter) {
+function asymmetric(
+  match,
+  description,
+  sample,
+  inverse = false,
+  formatter,
+  expectedType,
+) {
   return new RjestAsymmetricMatcher(
     match,
     description,
     sample,
     inverse,
     formatter,
+    expectedType,
   );
 }
 
@@ -2491,6 +2504,8 @@ function makeArrayContaining(sample, inverse) {
     description,
     sample,
     inverse,
+    undefined,
+    'array',
   );
 }
 
@@ -2506,6 +2521,8 @@ function makeArrayOf(sample, inverse) {
     description,
     sample,
     inverse,
+    undefined,
+    'array',
   );
 }
 
@@ -2523,6 +2540,8 @@ function makeStringContaining(sample, inverse) {
     description,
     sample,
     inverse,
+    undefined,
+    'string',
   );
 }
 
@@ -2540,6 +2559,8 @@ function makeStringMatching(sample, inverse) {
     description,
     pattern,
     inverse,
+    undefined,
+    'string',
   );
 }
 
@@ -2580,7 +2601,18 @@ function makeCloseTo(expected, precision = 2, inverse = false) {
       `${description} ${String(expected)} (${numericPrecision} ${
         numericPrecision === 1 ? 'digit' : 'digits'
       })`,
+    'number',
   );
+}
+
+function anyExpectedType(constructor) {
+  if (constructor === String) return 'string';
+  if (constructor === Number) return 'number';
+  if (constructor === Function) return 'function';
+  if (constructor === Object) return 'object';
+  if (constructor === Boolean) return 'boolean';
+  if (constructor === Array) return 'array';
+  return constructor?.name ?? 'anonymous';
 }
 
 expect.anything = () =>
@@ -2594,29 +2626,36 @@ expect.any = constructor => {
       'any() expects to be passed a constructor function. Please pass one or use anything() to match any object.',
     );
   }
-  return asymmetric(value => {
-    if (constructor === String) {
-      return typeof value === 'string' || value instanceof String;
-    }
-    if (constructor === Number) {
-      return typeof value === 'number' || value instanceof Number;
-    }
-    if (constructor === Boolean) {
-      return typeof value === 'boolean' || value instanceof Boolean;
-    }
-    if (constructor === Function) {
-      return typeof value === 'function' || value instanceof Function;
-    }
-    if (constructor === BigInt) {
-      return typeof value === 'bigint' || value instanceof BigInt;
-    }
-    if (constructor === Symbol) {
-      return typeof value === 'symbol' || value instanceof Symbol;
-    }
-    if (constructor === Object) return typeof value === 'object';
-    if (constructor === Array) return Array.isArray(value);
-    return value instanceof constructor;
-  }, 'Any', constructor);
+  return asymmetric(
+    value => {
+      if (constructor === String) {
+        return typeof value === 'string' || value instanceof String;
+      }
+      if (constructor === Number) {
+        return typeof value === 'number' || value instanceof Number;
+      }
+      if (constructor === Boolean) {
+        return typeof value === 'boolean' || value instanceof Boolean;
+      }
+      if (constructor === Function) {
+        return typeof value === 'function' || value instanceof Function;
+      }
+      if (constructor === BigInt) {
+        return typeof value === 'bigint' || value instanceof BigInt;
+      }
+      if (constructor === Symbol) {
+        return typeof value === 'symbol' || value instanceof Symbol;
+      }
+      if (constructor === Object) return typeof value === 'object';
+      if (constructor === Array) return Array.isArray(value);
+      return value instanceof constructor;
+    },
+    'Any',
+    constructor,
+    false,
+    undefined,
+    anyExpectedType(constructor),
+  );
 };
 expect.arrayContaining = sample => makeArrayContaining(sample, false);
 expect.arrayOf = sample => makeArrayOf(sample, false);
@@ -2627,6 +2666,9 @@ expect.objectContaining = sample =>
     value => objectContainingEqual(value, sample, 'ObjectContaining'),
     'ObjectContaining',
     sample,
+    false,
+    undefined,
+    'object',
   );
 expect.stringContaining = sample => makeStringContaining(sample, false);
 expect.stringMatching = sample => makeStringMatching(sample, false);
@@ -2661,6 +2703,9 @@ expect.extend = extensions => {
         `${inverse ? 'not.' : ''}${name}`,
         sample,
         inverse,
+        () =>
+          `${inverse ? 'not.' : ''}${name}<${sample.map(String).join(', ')}>`,
+        'any',
       );
     expect[name] = customAsymmetric(false);
     expect.not[name] = customAsymmetric(true);
@@ -2691,6 +2736,8 @@ expect.not = {
       'ObjectNotContaining',
       sample,
       true,
+      undefined,
+      'object',
     ),
   stringContaining: sample => makeStringContaining(sample, true),
   stringMatching: sample => makeStringMatching(sample, true),

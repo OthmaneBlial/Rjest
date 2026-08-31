@@ -1576,6 +1576,11 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'expect-asymmetric-expected-types',
+    category: 'Expect',
+    expectedExit: 0,
+  },
+  {
     name: 'expect-mock-matcher-contracts',
     category: 'Expect',
     expectedExit: 0,
