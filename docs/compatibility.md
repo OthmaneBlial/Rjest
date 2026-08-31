@@ -9,10 +9,10 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 230/230 (100.0%) across its explicitly listed
+The current generated matrix is 231/231 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
-48/48 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
+49/49 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
 Expect is 14/14 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
@@ -321,6 +321,9 @@ the shared realm makes JSDOM call itself recursively; the environment's
 `window` functions remain available.
 Exact custom VM-context identity and every mutable circus state field remain
 outside this bounded claim.
+`injectGlobals: false` keeps `test`, `expect`, `jest`, and the suite/hook APIs
+off `globalThis` while preserving explicit CommonJS imports from
+`@jest/globals`; the default remains Jest's global-injection behavior.
 `jest.isEnvironmentTornDown()` is false while test code runs and flips before
 the custom environment teardown hook, matching the official runtime boundary.
 The differential probe preserves both observations through one captured Jest

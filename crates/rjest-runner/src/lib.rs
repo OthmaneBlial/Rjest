@@ -53,6 +53,7 @@ impl CancellationToken {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct RunnerOptions {
     pub node_binary: PathBuf,
     pub max_workers: usize,
@@ -75,6 +76,7 @@ pub struct RunnerOptions {
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
     pub globals: serde_json::Value,
+    pub inject_globals: bool,
     pub haste: HasteConfig,
     pub global_execution: GlobalExecutionConfig,
     pub test_environment: String,
@@ -123,6 +125,7 @@ impl Default for RunnerOptions {
             mock_lifecycle: MockLifecycleConfig::default(),
             fake_timers: FakeTimersConfig::default(),
             globals: serde_json::json!({}),
+            inject_globals: true,
             haste: HasteConfig::default(),
             global_execution: GlobalExecutionConfig::default(),
             test_environment: "node".into(),
@@ -729,6 +732,7 @@ fn run_file(
         mock_lifecycle: options.mock_lifecycle.clone(),
         fake_timers: options.fake_timers.clone(),
         globals: options.globals.clone(),
+        inject_globals: options.inject_globals,
         haste: options.haste.clone(),
         global_execution: options.global_execution,
         test_environment: options.test_environment.clone(),

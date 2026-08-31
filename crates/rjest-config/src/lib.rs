@@ -120,6 +120,7 @@ pub struct ProjectConfig {
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
     pub globals: Value,
+    pub inject_globals: bool,
     pub haste: HasteConfig,
     pub detect_open_handles: bool,
     pub force_exit: bool,
@@ -202,6 +203,7 @@ struct RawProjectConfig {
     restore_mocks: Option<bool>,
     fake_timers: Option<RawFakeTimersConfig>,
     globals: Option<Value>,
+    inject_globals: Option<bool>,
     haste: Option<RawHasteConfig>,
     detect_open_handles: Option<bool>,
     force_exit: Option<bool>,
@@ -389,6 +391,7 @@ impl ProjectConfig {
             mock_lifecycle: MockLifecycleConfig::default(),
             fake_timers: FakeTimersConfig::default(),
             globals: serde_json::json!({}),
+            inject_globals: true,
             haste: HasteConfig::default(),
             detect_open_handles: false,
             force_exit: false,
@@ -715,6 +718,7 @@ fn merge_preset(
         reset_mocks,
         restore_mocks,
         fake_timers,
+        inject_globals,
         haste,
         detect_open_handles,
         force_exit,
@@ -1004,6 +1008,7 @@ fn normalize(
         mock_lifecycle,
         fake_timers,
         globals,
+        inject_globals: raw.inject_globals.unwrap_or(defaults.inject_globals),
         haste,
         detect_open_handles: raw
             .detect_open_handles
@@ -1913,6 +1918,7 @@ mod tests {
         assert!(!config.only_failures);
         assert_eq!(config.max_concurrency, 5);
         assert!(!config.pass_with_no_tests);
+        assert!(config.inject_globals);
         assert!(config.watch_path_ignore_patterns.is_empty());
         assert!(config.watchman);
     }
@@ -1986,6 +1992,7 @@ mod tests {
               "haste":{"defaultPlatform":"ios","platforms":["android","ios","native"]},
               "detectOpenHandles":true,
               "forceExit":true,
+              "injectGlobals":false,
               "maxConcurrency":1,
               "onlyChanged":true,
               "onlyFailures":true,
@@ -2000,6 +2007,7 @@ mod tests {
         assert_eq!(config.haste.platforms, ["android", "ios", "native"]);
         assert!(config.detect_open_handles);
         assert!(config.force_exit);
+        assert!(!config.inject_globals);
         assert_eq!(config.max_concurrency, 1);
         assert!(config.only_changed);
         assert!(config.only_failures);
@@ -2007,6 +2015,7 @@ mod tests {
 
         let serialized = serde_json::to_value(config).expect("serialized config");
         assert_eq!(serialized["maxConcurrency"], 1);
+        assert_eq!(serialized["injectGlobals"], false);
         assert_eq!(serialized["onlyChanged"], true);
         assert_eq!(serialized["onlyFailures"], true);
         assert_eq!(serialized["haste"]["defaultPlatform"], "ios");

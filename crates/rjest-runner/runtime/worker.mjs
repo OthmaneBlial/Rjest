@@ -14,7 +14,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 25;
+const PROTOCOL_VERSION = 26;
 const supportsSyncEvaluate =
   typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
@@ -491,20 +491,22 @@ function afterEach(callback, timeout) {
   defineHook('afterEach', callback, timeout);
 }
 
-Object.assign(globalThis, {
-  describe,
-  fdescribe: describe.only,
-  xdescribe: describe.skip,
-  test,
-  it,
-  fit: test.only,
-  xit: test.skip,
-  xtest: test.skip,
-  beforeAll,
-  afterAll,
-  beforeEach,
-  afterEach,
-});
+if (request.injectGlobals !== false) {
+  Object.assign(globalThis, {
+    describe,
+    fdescribe: describe.only,
+    xdescribe: describe.skip,
+    test,
+    it,
+    fit: test.only,
+    xit: test.skip,
+    xtest: test.skip,
+    beforeAll,
+    afterAll,
+    beforeEach,
+    afterEach,
+  });
+}
 
 class RjestAssertionError extends Error {
   constructor(message) {
@@ -2593,7 +2595,7 @@ expect.not = {
   stringContaining: sample => makeStringContaining(sample, true),
   stringMatching: sample => makeStringMatching(sample, true),
 };
-globalThis.expect = expect;
+if (request.injectGlobals !== false) globalThis.expect = expect;
 
 function isMock(value) {
   return typeof value === 'function' && value._isMockFunction === true;
@@ -7469,7 +7471,7 @@ const jest = {
     return setRetryTimes(numTestRetries, options, jest);
   },
 };
-globalThis.jest = jest;
+if (request.injectGlobals !== false) globalThis.jest = jest;
 
 function setRetryTimes(numTestRetries, options, receiver) {
   if (options?.entireDescribe) {
@@ -8202,7 +8204,9 @@ try {
     xtest: test.skip,
   };
   if (customTestEnvironment) {
-    Object.assign(customTestEnvironment.global, runtimeGlobals);
+    if (request.injectGlobals !== false) {
+      Object.assign(customTestEnvironment.global, runtimeGlobals);
+    }
     projectCustomEnvironmentGlobals();
   }
   await dispatchCustomEnvironmentEvent({

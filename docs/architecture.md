@@ -108,11 +108,12 @@ Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.
 
-Worker protocol v25 carries assertion ancestor titles/counts, optional live
-test-case lifecycle events used by reporter payloads, and raw V8 coverage plus
-transform metadata when that provider is active. Project identity
-remains coordinator-owned because a worker executes one fully normalized
-project/file pair and should not need root-configuration context. Custom
+Worker protocol v26 carries assertion ancestor titles/counts, the normalized
+`injectGlobals` mode, optional live test-case lifecycle events used by reporter
+payloads, and raw V8 coverage plus transform metadata when that provider is
+active. Project identity remains coordinator-owned because a worker executes
+one fully normalized project/file pair and should not need root-configuration
+context. Custom
 reporters use a separate persistent line protocol: Rust observes live file and
 case events while the Node bridge preserves plugin instances and dispatches
 awaited run, file, case, and completion callbacks. Worker event frames are

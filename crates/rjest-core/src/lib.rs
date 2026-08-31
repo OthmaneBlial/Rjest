@@ -11,7 +11,7 @@ pub struct TestFile {
     pub path: PathBuf,
 }
 
-pub const WORKER_PROTOCOL_VERSION: u32 = 25;
+pub const WORKER_PROTOCOL_VERSION: u32 = 26;
 
 /// Istanbul file coverage records keyed by canonical source path.
 pub type CoverageMap = BTreeMap<String, serde_json::Value>;
@@ -114,6 +114,7 @@ pub struct SnapshotFormat {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct WorkerRequest {
     pub protocol_version: u32,
     pub test_path: PathBuf,
@@ -134,6 +135,7 @@ pub struct WorkerRequest {
     pub mock_lifecycle: MockLifecycleConfig,
     pub fake_timers: FakeTimersConfig,
     pub globals: serde_json::Value,
+    pub inject_globals: bool,
     pub haste: HasteConfig,
     #[serde(flatten)]
     pub global_execution: GlobalExecutionConfig,

@@ -188,6 +188,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-inject-globals',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,

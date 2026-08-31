@@ -2595,6 +2595,7 @@ fn runner_options(
         mock_lifecycle: run.config.mock_lifecycle.clone(),
         fake_timers: run.config.fake_timers.clone(),
         globals: run.config.globals.clone(),
+        inject_globals: run.config.inject_globals,
         haste: run.config.haste.clone(),
         global_execution: GlobalExecutionConfig {
             detect_open_handles: run.config.detect_open_handles,
