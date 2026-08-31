@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 272,
-    "total": 272,
+    "passing": 273,
+    "total": 273,
     "percentage": 100
   },
   "categories": {
@@ -39,8 +39,8 @@
       "percentage": 100
     },
     "Expect": {
-      "passing": 14,
-      "total": 14,
+      "passing": 15,
+      "total": 15,
       "percentage": 100
     },
     "Fake timers": {
@@ -1384,6 +1384,12 @@
     },
     {
       "name": "expect-matcher-contracts",
+      "category": "Expect",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "expect-matcher-result",
       "category": "Expect",
       "compatible": true,
       "differences": []

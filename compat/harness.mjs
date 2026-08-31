@@ -1555,6 +1555,11 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'expect-matcher-result',
+    category: 'Expect',
+    expectedExit: 0,
+  },
+  {
     name: 'expect-mock-matcher-contracts',
     category: 'Expect',
     expectedExit: 0,

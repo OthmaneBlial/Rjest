@@ -512,9 +512,10 @@ if (request.injectGlobals !== false) {
 }
 
 class RjestAssertionError extends Error {
-  constructor(message) {
+  constructor(message, matcherResult) {
     super(message);
     this.name = 'RjestAssertionError';
+    if (matcherResult !== undefined) this.matcherResult = matcherResult;
   }
 }
 
@@ -1961,7 +1962,7 @@ function validateCustomMatcherOutcome(
       typeof outcome.message === 'function'
         ? outcome.message()
         : matcherMessage(name, received, expected, isNot);
-    throw new RjestAssertionError(message);
+    throw new RjestAssertionError(message, {...outcome, message});
   }
 }
 
@@ -2078,9 +2079,20 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
         }
         const pass = Boolean(matcher(matcherReceived, ...args));
         if (pass === isNot) {
-          throw new RjestAssertionError(
-            matcherMessage(name, received, expected, isNot),
-          );
+          const message = matcherMessage(name, received, expected, isNot);
+          const matcherResult = {message, pass};
+          if (
+            name === 'toBe' ||
+            name === 'toEqual' ||
+            name === 'toStrictEqual'
+          ) {
+            Object.assign(matcherResult, {
+              actual: received,
+              expected: expected[0],
+              name,
+            });
+          }
+          throw new RjestAssertionError(message, matcherResult);
         }
       };
       if (!promiseMode) return evaluate(actual);

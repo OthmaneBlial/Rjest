@@ -175,6 +175,13 @@ awaited run, file, case, and completion callbacks. Worker event frames are
 parsed concurrently with process execution, including after raw application
 stdout that does not end with a newline.
 
+Matcher failures keep a structured result on the thrown assertion error rather
+than reducing the failure to display text. Every built-in result retains its
+rendered message and pre-negation `pass` value; Jest's equality matchers also
+carry `actual`, `expected`, and `name`, while custom matcher result fields are
+preserved. This lets integrations inspect assertion failures without parsing
+terminal output.
+
 Global setup and teardown use another persistent line protocol. Rust derives
 the active hook set only after project filtering, sharding, and sequencing, so
 an inactive project cannot run its hook and a shared resolved module path runs
