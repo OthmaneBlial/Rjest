@@ -52,15 +52,40 @@ pub fn discover(
     config: &ProjectConfig,
     explicit_paths: &[PathBuf],
 ) -> Result<Vec<TestFile>, DiscoveryError> {
+    discover_with_mode(config, explicit_paths, true)
+}
+
+/// Selects test files by Jest-compatible regular-expression path patterns.
+///
+/// Unlike [`discover`], an input that names an existing file is still treated
+/// as a regular expression. Jest reserves literal path selection for
+/// `--runTestsByPath`.
+///
+/// # Errors
+///
+/// Returns [`DiscoveryError`] for invalid regular expressions, inaccessible
+/// roots, or paths that cannot be canonicalized.
+pub fn discover_patterns(
+    config: &ProjectConfig,
+    path_patterns: &[PathBuf],
+) -> Result<Vec<TestFile>, DiscoveryError> {
+    discover_with_mode(config, path_patterns, false)
+}
+
+fn discover_with_mode(
+    config: &ProjectConfig,
+    inputs: &[PathBuf],
+    exact_paths: bool,
+) -> Result<Vec<TestFile>, DiscoveryError> {
     let matcher = Matcher::new(config)?;
     let mut discovered = BTreeSet::new();
 
-    if explicit_paths.is_empty() {
+    if inputs.is_empty() {
         for root in &config.roots {
             walk(root, &matcher, false, &mut discovered)?;
         }
-    } else {
-        for input in explicit_paths {
+    } else if exact_paths {
+        for input in inputs {
             let path = if input.is_absolute() {
                 input.clone()
             } else {
@@ -73,17 +98,17 @@ pub fn discover(
             } else if path.is_dir() {
                 walk(&path, &matcher, false, &mut discovered)?;
             } else {
-                // Jest treats positional arguments as path patterns. Preserve
-                // that useful behavior after trying exact file/directory paths.
-                let needle = input.to_string_lossy().replace('\\', "/");
-                let mut any = false;
-                for root in &config.roots {
-                    walk_matching_path(root, &matcher, &needle, &mut discovered, &mut any)?;
-                }
-                if !any {
-                    return Err(DiscoveryError::MissingExplicitPath(input.clone()));
-                }
+                return Err(DiscoveryError::MissingExplicitPath(input.clone()));
             }
+        }
+    } else {
+        let patterns = RegexSet::new(
+            inputs
+                .iter()
+                .map(|pattern| pattern.to_string_lossy().replace('\\', "/")),
+        )?;
+        for root in &config.roots {
+            walk_matching_patterns(root, &matcher, &patterns, &mut discovered)?;
         }
     }
 
@@ -91,6 +116,32 @@ pub fn discover(
         .into_iter()
         .map(|path| TestFile { path })
         .collect())
+}
+
+fn walk_matching_patterns(
+    root: &Path,
+    matcher: &Matcher,
+    patterns: &RegexSet,
+    output: &mut BTreeSet<PathBuf>,
+) -> Result<(), DiscoveryError> {
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(should_descend)
+    {
+        let entry = entry.map_err(|source| DiscoveryError::Walk {
+            root: root.to_path_buf(),
+            source,
+        })?;
+        if entry.file_type().is_file()
+            && patterns.is_match(&normalize(entry.path()))
+            && !matcher.is_ignored(entry.path())
+            && matcher.is_test(entry.path())
+        {
+            insert_canonical(entry.path(), output)?;
+        }
+    }
+    Ok(())
 }
 
 fn walk(
@@ -112,35 +163,6 @@ fn walk(
             && !matcher.is_ignored(entry.path())
             && (include_all_files || matcher.is_test(entry.path()))
         {
-            insert_canonical(entry.path(), output)?;
-        }
-    }
-    Ok(())
-}
-
-fn walk_matching_path(
-    root: &Path,
-    matcher: &Matcher,
-    needle: &str,
-    output: &mut BTreeSet<PathBuf>,
-    any: &mut bool,
-) -> Result<(), DiscoveryError> {
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(should_descend)
-    {
-        let entry = entry.map_err(|source| DiscoveryError::Walk {
-            root: root.to_path_buf(),
-            source,
-        })?;
-        let normalized = normalize(entry.path());
-        if entry.file_type().is_file()
-            && normalized.contains(needle)
-            && !matcher.is_ignored(entry.path())
-            && matcher.is_test(entry.path())
-        {
-            *any = true;
             insert_canonical(entry.path(), output)?;
         }
     }
@@ -332,6 +354,24 @@ mod tests {
         let files = discover(&config, &[PathBuf::from("checks/custom.test.js")]).expect("discover");
         assert_eq!(files.len(), 1);
         assert!(files[0].path.ends_with("checks/custom.test.js"));
+    }
+
+    #[test]
+    fn path_patterns_remain_regular_expressions_for_existing_paths() {
+        let temp = tempdir().expect("temp dir");
+        touch(&temp.path().join("literal[1].test.js"));
+        touch(&temp.path().join("literal1.test.js"));
+        let config = ProjectConfig::defaults(temp.path()).expect("config");
+
+        let files = discover_patterns(&config, &[PathBuf::from("literal[1].test.js")])
+            .expect("pattern discovery");
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.ends_with("literal1.test.js"));
+
+        let files =
+            discover(&config, &[PathBuf::from("literal[1].test.js")]).expect("exact discovery");
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.ends_with("literal[1].test.js"));
     }
 
     #[test]

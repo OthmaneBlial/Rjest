@@ -373,6 +373,31 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-positional-test-path-pattern',
+    fixtureName: 'cli-test-path-selection',
+    category: 'CLI',
+    expectedExit: 0,
+    testPathPatterns: ['literal[1].test.cjs'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-test-path-patterns-option',
+    fixtureName: 'cli-test-path-selection',
+    category: 'CLI',
+    expectedExit: 0,
+    testPathPatternOptions: ['literal[1].test.cjs'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-run-tests-by-path',
+    fixtureName: 'cli-test-path-selection',
+    category: 'CLI',
+    expectedExit: 0,
+    runTestsByPath: true,
+    testPathPatterns: ['literal[1].test.cjs'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1882,6 +1907,10 @@ function compareCase(testCase) {
     if (!testCase.useFixtureConfig) {
       jestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(jestFixture))}`);
     }
+    for (const pattern of testCase.testPathPatternOptions ?? []) {
+      jestArguments.push(`--testPathPatterns=${pattern}`);
+    }
+    if (testCase.runTestsByPath) jestArguments.push('--runTestsByPath');
     jestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
     if (testCase.seed !== undefined) jestArguments.push(`--seed=${testCase.seed}`);
@@ -2047,6 +2076,10 @@ function compareCase(testCase) {
     if (!testCase.useFixtureConfig) {
       rjestArguments.push(`--config=${JSON.stringify(defaultProjectConfig(rjestFixture))}`);
     }
+    for (const pattern of testCase.testPathPatternOptions ?? []) {
+      rjestArguments.push(`--testPathPatterns=${pattern}`);
+    }
+    if (testCase.runTestsByPath) rjestArguments.push('--runTestsByPath');
     rjestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');
     if (testCase.seed !== undefined) rjestArguments.push(`--seed=${testCase.seed}`);

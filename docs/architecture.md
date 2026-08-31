@@ -133,6 +133,10 @@ Snapshot update mode is resolved at the coordinator boundary. Explicit `-u`
 wins first, then `--ci`/`--ci=false`, then common CI environment signals. CI
 mode sends `none` to workers and reporters so new snapshots fail without a
 filesystem write; ordinary local runs retain `new` mode.
+Discovery receives an explicit selection mode from the CLI. Positional and
+`--testPathPatterns` inputs compile into a regular-expression set and match
+normalized absolute paths. `--runTestsByPath` instead resolves literal files
+from the invocation directory before applying each project's test predicates.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

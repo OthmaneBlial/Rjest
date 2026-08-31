@@ -91,6 +91,24 @@ struct Cli {
     #[arg(value_name = "TEST_PATH_PATTERN")]
     test_path_patterns: Vec<PathBuf>,
 
+    /// Regular-expression patterns used to select test paths.
+    #[arg(
+        long = "testPathPatterns",
+        visible_aliases = ["testPathPattern", "test-path-patterns", "test-path-pattern"],
+        value_name = "PATTERN",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    test_path_pattern_options: Vec<PathBuf>,
+
+    /// Treat positional test paths as exact paths instead of regular expressions.
+    #[arg(
+        long = "runTestsByPath",
+        visible_alias = "run-tests-by-path",
+        action = ArgAction::SetTrue
+    )]
+    run_tests_by_path: bool,
+
     /// Path to a Jest configuration file or an inline JSON object.
     #[arg(long, value_name = "PATH|JSON")]
     config: Option<String>,
@@ -1441,8 +1459,9 @@ fn jest_global_config(
     );
     object.insert(
         "testPathPatterns".into(),
-        serde_json::to_value(&cli.test_path_patterns)?,
+        serde_json::to_value(cli_test_path_patterns(cli))?,
     );
+    object.insert("runTestsByPath".into(), cli.run_tests_by_path.into());
     let only_changed = changed_selection_enabled(cli, config);
     object.insert("onlyChanged".into(), only_changed.into());
     object.insert(
@@ -1807,7 +1826,7 @@ fn main() {
 fn run() -> Result<(bool, i32)> {
     let mut cli = Cli::parse();
     ensure!(
-        !cli.find_related_tests || !cli.test_path_patterns.is_empty(),
+        !cli.find_related_tests || !cli_test_path_patterns(&cli).is_empty(),
         "The --findRelatedTests option requires file paths to be specified.\n\
          Example usage: jest --findRelatedTests ./src/source.js ./src/index.js."
     );
@@ -2018,6 +2037,7 @@ fn apply_watch_action(
             cli.watch_all = true;
             cli.watch = false;
             cli.test_path_patterns.clear();
+            cli.test_path_pattern_options.clear();
             cli.test_name_pattern = None;
             set_only_changed(config, false);
         }
@@ -2025,6 +2045,7 @@ fn apply_watch_action(
             cli.watch = true;
             cli.watch_all = false;
             cli.test_path_patterns.clear();
+            cli.test_path_pattern_options.clear();
             cli.test_name_pattern = None;
             set_only_changed(config, true);
         }
@@ -2044,6 +2065,7 @@ fn apply_watch_action(
                 .map(PathBuf::from)
                 .into_iter()
                 .collect();
+            cli.test_path_pattern_options.clear();
             cli.watch = true;
             cli.watch_all = false;
             set_only_changed(config, true);
@@ -2088,7 +2110,7 @@ fn run_test_cycle(
     let test_path_patterns = if cli.find_related_tests {
         Vec::new()
     } else {
-        normalize_test_path_patterns(&cli.test_path_patterns, project_dir)
+        discovery_test_path_patterns(cli, project_dir)
     };
     let all_projects = execution_projects(config);
     let selected_projects =
@@ -2101,6 +2123,7 @@ fn run_test_cycle(
                 project_config,
                 &all_projects,
                 &test_path_patterns,
+                cli.run_tests_by_path,
                 related_selection,
             )
         })
@@ -2111,10 +2134,7 @@ fn run_test_cycle(
         finish_test_sequencers(&mut sequencer_session, &mut native_sequencer_cache, None)?;
         return Ok(true);
     }
-    let test_count = project_runs
-        .iter()
-        .map(|run| run.tests.len())
-        .sum::<usize>();
+    let test_count = project_test_count(&project_runs);
     let pass_with_no_tests = allows_no_tests(cli, config, watch_mode, related_selection.is_some());
     if cli.list_tests {
         return emit_test_list(
@@ -2227,9 +2247,14 @@ fn selected_project_run<'a>(
     project_config: &'a ProjectConfig,
     all_projects: &[&ProjectConfig],
     test_path_patterns: &[PathBuf],
+    run_tests_by_path: bool,
     related_selection: Option<&RelatedTestSelection>,
 ) -> Result<ProjectRun<'a>> {
-    let mut tests = rjest_discovery::discover(project_config, test_path_patterns)?;
+    let mut tests = if run_tests_by_path {
+        rjest_discovery::discover(project_config, test_path_patterns)?
+    } else {
+        rjest_discovery::discover_patterns(project_config, test_path_patterns)?
+    };
     let context_id = all_projects
         .iter()
         .position(|config| std::ptr::eq(*config, project_config))
@@ -2247,6 +2272,10 @@ fn selected_project_run<'a>(
         tests,
         changed_coverage_filter,
     })
+}
+
+fn project_test_count(project_runs: &[ProjectRun<'_>]) -> usize {
+    project_runs.iter().map(|run| run.tests.len()).sum()
 }
 
 fn watch_options(cli: &Cli, config: &ProjectConfig, project_dir: &Path) -> WatchOptions {
@@ -2306,13 +2335,17 @@ fn related_test_selection(
     }
     let resolver_engine_path = internal_node_module_path("unrs-resolver")
         .context("Rjest's internal unrs-resolver package is unavailable")?;
-    let test_path_patterns = normalize_test_path_patterns(&cli.test_path_patterns, project_dir);
+    let test_path_patterns = discovery_test_path_patterns(cli, project_dir);
     for project in selected_projects {
         let context_id = all_projects
             .iter()
             .position(|config| std::ptr::eq(*config, project))
             .expect("selected project belongs to the execution config");
-        let tests = rjest_discovery::discover(project, &test_path_patterns)?;
+        let tests = if cli.run_tests_by_path {
+            rjest_discovery::discover(project, &test_path_patterns)?
+        } else {
+            rjest_discovery::discover_patterns(project, &test_path_patterns)?
+        };
         let project_changes = changed
             .files
             .iter()
@@ -2352,14 +2385,13 @@ fn find_related_test_selection(
     let all_projects = execution_projects(config);
     let selected_projects =
         filter_projects(&all_projects, &cli.select_projects, &cli.ignore_projects);
-    let related_paths = cli
-        .test_path_patterns
-        .iter()
+    let related_paths = cli_test_path_patterns(cli)
+        .into_iter()
         .map(|path| {
             let absolute = if path.is_absolute() {
-                path.clone()
+                path
             } else {
-                project_dir.join(path)
+                project_dir.join(&path)
             };
             absolute.canonicalize().unwrap_or(absolute)
         })
@@ -2423,7 +2455,7 @@ fn changed_selection_enabled(cli: &Cli, config: &ProjectConfig) -> bool {
     if cli.all || cli.watch_all {
         return false;
     }
-    if !cli.test_path_patterns.is_empty() && !cli.watch {
+    if !cli_test_path_patterns(cli).is_empty() && !cli.watch {
         return false;
     }
     cli.watch
@@ -2816,6 +2848,23 @@ fn normalize_test_path_patterns(patterns: &[PathBuf], project_dir: &Path) -> Vec
             }
         })
         .collect()
+}
+
+fn cli_test_path_patterns(cli: &Cli) -> Vec<PathBuf> {
+    cli.test_path_patterns
+        .iter()
+        .chain(&cli.test_path_pattern_options)
+        .cloned()
+        .collect()
+}
+
+fn discovery_test_path_patterns(cli: &Cli, project_dir: &Path) -> Vec<PathBuf> {
+    let patterns = cli_test_path_patterns(cli);
+    if cli.run_tests_by_path {
+        normalize_test_path_patterns(&patterns, project_dir)
+    } else {
+        patterns
+    }
 }
 
 struct ProjectExecutionContext<'a> {
@@ -3779,9 +3828,10 @@ mod tests {
     use super::{
         Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard, WatchAction,
         apply_watch_action, changed_selection_enabled, clear_configured_caches,
-        coverage_runner_settings, filter_projects, native_context_key, native_reporter_mode,
-        parse_max_workers, sequence_project_runs_with_native, shard_tests, snapshot_update,
-        uses_modern_branches_true_summary, validate_seed, watch_action_for_key, watch_options,
+        cli_test_path_patterns, coverage_runner_settings, filter_projects, native_context_key,
+        native_reporter_mode, parse_max_workers, sequence_project_runs_with_native, shard_tests,
+        snapshot_update, uses_modern_branches_true_summary, validate_seed, watch_action_for_key,
+        watch_options,
     };
 
     #[test]
@@ -3790,6 +3840,27 @@ mod tests {
             .expect("Jest-compatible flags");
         assert_eq!(cli.max_workers.as_deref(), Some("1"));
         assert!(cli.log_heap_usage);
+    }
+
+    #[test]
+    fn accepts_jest_exact_and_regular_expression_path_selection() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--testPathPatterns=alpha[1]",
+            "--testPathPattern=beta",
+            "--runTestsByPath",
+            "literal[1].test.cjs",
+        ])
+        .expect("Jest test path selection flags");
+        assert!(cli.run_tests_by_path);
+        assert_eq!(
+            cli_test_path_patterns(&cli),
+            [
+                PathBuf::from("literal[1].test.cjs"),
+                PathBuf::from("alpha[1]"),
+                PathBuf::from("beta"),
+            ]
+        );
     }
 
     #[test]
