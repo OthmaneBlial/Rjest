@@ -268,6 +268,15 @@ struct Cli {
     )]
     clear_cache: bool,
 
+    /// Select Jest's Circus test lifecycle explicitly.
+    #[arg(
+        long = "testRunner",
+        visible_alias = "test-runner",
+        value_name = "MODULE",
+        value_parser = ["jest-circus/runner"]
+    )]
+    test_runner: Option<String>,
+
     /// Override the configured Jest test sequencer module.
     #[arg(
         long = "testSequencer",
@@ -2835,6 +2844,9 @@ fn apply_selection_overrides(config: &mut ProjectConfig, cli: &Cli) {
 }
 
 fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if let Some(test_runner) = cli.test_runner.as_deref() {
+        test_runner.clone_into(&mut config.test_runner);
+    }
     if cli.force_exit {
         config.force_exit = true;
     }
@@ -4814,6 +4826,25 @@ mod tests {
             ]
         );
         assert!(cli.run_in_band);
+    }
+
+    #[test]
+    fn accepts_only_the_equivalent_jest_test_runner_override() {
+        let cli = Cli::try_parse_from(["rjest", "--testRunner=jest-circus/runner", "--runInBand"])
+            .expect("Jest Circus runner override");
+
+        assert_eq!(cli.test_runner.as_deref(), Some("jest-circus/runner"));
+        assert!(cli.run_in_band);
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config.test_runner = "previous".into();
+        let mut child = ProjectConfig::defaults(temp.path()).expect("child config");
+        child.test_runner = "previous child".into();
+        config.projects.push(child);
+        super::apply_cli_config_overrides(&mut config, &cli);
+        assert_eq!(config.test_runner, "jest-circus/runner");
+        assert_eq!(config.projects[0].test_runner, "jest-circus/runner");
+        assert!(Cli::try_parse_from(["rjest", "--testRunner=./custom-runner.cjs"]).is_err());
     }
 
     #[test]

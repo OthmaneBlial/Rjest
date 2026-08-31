@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 279,
-    "total": 279,
+    "passing": 280,
+    "total": 280,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 75,
-      "total": 75,
+      "passing": 76,
+      "total": 76,
       "percentage": 100
     },
     "Configuration": {
@@ -227,6 +227,12 @@
     {
       "name": "config-test-runner-circus",
       "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-test-runner-circus",
+      "category": "CLI",
       "compatible": true,
       "differences": []
     },

@@ -194,6 +194,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-test-runner-circus',
+    fixtureName: 'config-test-runner-circus',
+    category: 'CLI',
+    expectedExit: 0,
+    testRunner: 'jest-circus/runner',
+  },
+  {
     name: 'config-inject-globals',
     category: 'Configuration',
     expectedExit: 0,
@@ -2042,6 +2049,9 @@ function compareCase(testCase) {
     if (testCase.testSequencer) {
       jestArguments.push(`--testSequencer=${testCase.testSequencer}`);
     }
+    if (testCase.testRunner) {
+      jestArguments.push(`--testRunner=${testCase.testRunner}`);
+    }
     if (testCase.testResultsProcessor) {
       jestArguments.push(`--testResultsProcessor=${testCase.testResultsProcessor}`);
     }
@@ -2248,6 +2258,9 @@ function compareCase(testCase) {
     }
     if (testCase.testSequencer) {
       rjestArguments.push(`--testSequencer=${testCase.testSequencer}`);
+    }
+    if (testCase.testRunner) {
+      rjestArguments.push(`--testRunner=${testCase.testRunner}`);
     }
     if (testCase.testResultsProcessor) {
       rjestArguments.push(`--testResultsProcessor=${testCase.testResultsProcessor}`);
