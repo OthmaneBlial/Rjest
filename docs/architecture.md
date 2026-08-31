@@ -120,6 +120,11 @@ and the validated `--testEnvironmentOptions` JSON object is cloned into every
 child config. Built-in JSDOM keeps the real JSDOM Window behind projected
 bindings, but its public `window` and `self` aliases return the Node worker
 global so browser-global identity matches Jest.
+The same recursive boundary replaces configured `globals`, `maxConcurrency`,
+`setupFiles`, and `setupFilesAfterEnv` values when their CLI forms are present.
+Setup module references are normalized independently from each project root;
+the override lists replace configured lists rather than being appended, which
+matches Jest's invocation precedence.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

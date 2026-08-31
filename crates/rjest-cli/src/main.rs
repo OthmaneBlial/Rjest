@@ -377,6 +377,43 @@ struct Cli {
     )]
     test_environment_options: Option<serde_json::Value>,
 
+    /// JSON object of global variables injected into test environments.
+    #[arg(
+        long,
+        value_name = "JSON",
+        value_parser = parse_cli_json_object
+    )]
+    globals: Option<serde_json::Value>,
+
+    /// Maximum number of concurrently executing test bodies.
+    #[arg(
+        long = "maxConcurrency",
+        visible_alias = "max-concurrency",
+        value_name = "NUMBER",
+        value_parser = parse_positive_usize
+    )]
+    max_concurrency: Option<usize>,
+
+    /// Modules loaded before the test framework is installed.
+    #[arg(
+        long = "setupFiles",
+        visible_alias = "setup-files",
+        value_name = "PATH",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    setup_files: Vec<String>,
+
+    /// Modules loaded after the test framework is installed.
+    #[arg(
+        long = "setupFilesAfterEnv",
+        visible_alias = "setup-files-after-env",
+        value_name = "PATH",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    setup_files_after_env: Vec<String>,
+
     /// Suppress captured console output.
     #[arg(long, action = ArgAction::SetTrue)]
     silent: bool,
@@ -1621,6 +1658,16 @@ fn parse_cli_json_object(value: &str) -> std::result::Result<serde_json::Value, 
     Ok(parsed)
 }
 
+fn parse_positive_usize(value: &str) -> std::result::Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|error| format!("expected a positive integer: {error}"))?;
+    if parsed == 0 {
+        return Err("expected a positive integer greater than zero".into());
+    }
+    Ok(parsed)
+}
+
 fn write_watch_usage() {
     eprintln!(
         "\nWatch Usage\n\
@@ -2447,6 +2494,36 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
     }
     if let Some(test_environment_options) = cli.test_environment_options.as_ref() {
         config.test_environment_options = test_environment_options.clone();
+    }
+    if let Some(globals) = cli.globals.as_ref() {
+        config.globals = globals.clone();
+    }
+    if let Some(max_concurrency) = cli.max_concurrency {
+        config.max_concurrency = max_concurrency;
+    }
+    if !cli.setup_files.is_empty() {
+        config.setup_files = cli
+            .setup_files
+            .iter()
+            .map(|path| {
+                PathBuf::from(rjest_config::normalize_module_reference(
+                    path,
+                    &config.root_dir,
+                ))
+            })
+            .collect();
+    }
+    if !cli.setup_files_after_env.is_empty() {
+        config.setup_files_after_env = cli
+            .setup_files_after_env
+            .iter()
+            .map(|path| {
+                PathBuf::from(rjest_config::normalize_module_reference(
+                    path,
+                    &config.root_dir,
+                ))
+            })
+            .collect();
     }
     if cli.test_location_in_results {
         config.test_location_in_results = true;
@@ -3811,6 +3888,39 @@ mod tests {
             .expect("Jest testEnvironment alias");
         assert_eq!(alias.test_environment.as_deref(), Some("node"));
         assert!(Cli::try_parse_from(["rjest", "--testEnvironmentOptions=[]"]).is_err());
+    }
+
+    #[test]
+    fn applies_jest_setup_and_concurrency_overrides_to_every_project() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            r#"--globals={"source":"cli","nested":{"proof":42}}"#,
+            "--maxConcurrency=2",
+            "--setupFiles=./before.cjs",
+            "--setupFilesAfterEnv=./after.cjs",
+        ])
+        .expect("Jest setup and concurrency overrides");
+
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(temp.path()).expect("child config"));
+
+        super::apply_cli_config_overrides(&mut config, &cli);
+        for project in [&config, &config.projects[0]] {
+            assert_eq!(
+                project.globals,
+                serde_json::json!({"source": "cli", "nested": {"proof": 42}})
+            );
+            assert_eq!(project.max_concurrency, 2);
+            assert_eq!(project.setup_files, [temp.path().join("before.cjs")]);
+            assert_eq!(
+                project.setup_files_after_env,
+                [temp.path().join("after.cjs")]
+            );
+        }
+        assert!(Cli::try_parse_from(["rjest", "--maxConcurrency=0"]).is_err());
     }
 
     #[test]

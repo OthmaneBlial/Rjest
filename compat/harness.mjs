@@ -271,6 +271,34 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-globals',
+    category: 'CLI',
+    expectedExit: 0,
+    globals: {source: 'cli', nested: {proof: 42}},
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-max-concurrency',
+    category: 'CLI',
+    expectedExit: 0,
+    maxConcurrency: 2,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-setup-files',
+    category: 'CLI',
+    expectedExit: 0,
+    setupFiles: ['./cli-before.cjs'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-setup-files-after-env',
+    category: 'CLI',
+    expectedExit: 0,
+    setupFilesAfterEnv: ['./cli-after.cjs'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1805,6 +1833,18 @@ function compareCase(testCase) {
         `--testEnvironmentOptions=${JSON.stringify(testCase.testEnvironmentOptions)}`,
       );
     }
+    if (testCase.globals) {
+      jestArguments.push(`--globals=${JSON.stringify(testCase.globals)}`);
+    }
+    if (testCase.maxConcurrency !== undefined) {
+      jestArguments.push(`--maxConcurrency=${testCase.maxConcurrency}`);
+    }
+    for (const setupFile of testCase.setupFiles ?? []) {
+      jestArguments.push(`--setupFiles=${setupFile}`);
+    }
+    for (const setupFile of testCase.setupFilesAfterEnv ?? []) {
+      jestArguments.push(`--setupFilesAfterEnv=${setupFile}`);
+    }
     if (testCase.cache) jestArguments.push('--cache');
     if (testCase.noCache) jestArguments.push('--no-cache');
     if (testCase.forceExit) jestArguments.push('--forceExit');
@@ -1945,6 +1985,18 @@ function compareCase(testCase) {
       rjestArguments.push(
         `--testEnvironmentOptions=${JSON.stringify(testCase.testEnvironmentOptions)}`,
       );
+    }
+    if (testCase.globals) {
+      rjestArguments.push(`--globals=${JSON.stringify(testCase.globals)}`);
+    }
+    if (testCase.maxConcurrency !== undefined) {
+      rjestArguments.push(`--maxConcurrency=${testCase.maxConcurrency}`);
+    }
+    for (const setupFile of testCase.setupFiles ?? []) {
+      rjestArguments.push(`--setupFiles=${setupFile}`);
+    }
+    for (const setupFile of testCase.setupFilesAfterEnv ?? []) {
+      rjestArguments.push(`--setupFilesAfterEnv=${setupFile}`);
     }
     if (testCase.cache) rjestArguments.push('--cache');
     if (testCase.noCache) rjestArguments.push('--no-cache');

@@ -1,0 +1,1 @@
+globalThis.cliSetupValue = 'before-framework';
