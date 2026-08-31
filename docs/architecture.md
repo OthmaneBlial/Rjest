@@ -183,6 +183,10 @@ preserved. This lets integrations inspect assertion failures without parsing
 terminal output. The runtime exports that same internal constructor as
 `JestAssertionError`; its constructor identity matches Jest while instances
 inherit the standard `Error` name.
+Assertion invocation and success counts are maintained separately on the active
+test identity. Every matcher increments `assertionCalls`; only a completed
+positive or negated outcome increments `numPassingAsserts`, which is projected
+through Expect state and the worker result protocol.
 
 Global setup and teardown use another persistent line protocol. Rust derives
 the active hook set only after project filtering, sharding, and sequencing, so

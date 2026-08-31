@@ -1566,6 +1566,11 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'expect-passing-assert-counts',
+    category: 'Expect',
+    expectedExit: 0,
+  },
+  {
     name: 'expect-mock-matcher-contracts',
     category: 'Expect',
     expectedExit: 0,

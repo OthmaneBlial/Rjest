@@ -1963,6 +1963,7 @@ function validateCustomMatcherOutcome(
         : matcherMessage(name, received, expected, isNot);
     throw new RjestAssertionError(message, {...outcome, message});
   }
+  recordPassingAssertion();
 }
 
 function recordAssertion() {
@@ -1970,6 +1971,16 @@ function recordAssertion() {
   if (activeTest) {
     activeTest.assertionCalls += 1;
     expectState.assertionCalls = activeTest.assertionCalls;
+  }
+}
+
+function recordPassingAssertion() {
+  const activeTest = currentTestNode();
+  if (activeTest) {
+    activeTest.numPassingAsserts += 1;
+    expectState.numPassingAsserts = activeTest.numPassingAsserts;
+  } else {
+    expectState.numPassingAsserts += 1;
   }
 }
 
@@ -2093,6 +2104,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
           }
           throw new RjestAssertionError(message, matcherResult);
         }
+        recordPassingAssertion();
       };
       if (!promiseMode) return evaluate(actual);
       let promise;
@@ -2202,6 +2214,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
           : applySnapshotProperties(received, properties);
       const outcome = matchSnapshot(snapshotReceived, hint);
       if (!outcome.pass) throw new RjestAssertionError(outcome.message);
+      recordPassingAssertion();
     };
     if (!promiseMode) return evaluate(actual);
     let promise;
@@ -2276,6 +2289,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
             inlineSnapshotFrame(callsiteError),
             serialized,
           );
+          recordPassingAssertion();
           return;
         }
         if (!testFailing) incrementSnapshotCount('unmatched');
@@ -2290,6 +2304,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
             inlineSnapshotFrame(callsiteError),
             serialized,
           );
+          recordPassingAssertion();
           return;
         }
         if (!testFailing) incrementSnapshotCount('unmatched');
@@ -2298,6 +2313,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
         );
       }
       if (!testFailing) incrementSnapshotCount('matched');
+      recordPassingAssertion();
     };
     if (!promiseMode) return evaluate(actual);
     return Promise.resolve(actual).then(evaluate);
@@ -2336,6 +2352,7 @@ function makeExpectation(actual, isNot = false, promiseMode = undefined) {
     }
     const outcome = matchSnapshot(thrown?.message ?? String(thrown), hint);
     if (!outcome.pass) throw new RjestAssertionError(outcome.message);
+    recordPassingAssertion();
   };
   return expectation;
 }
@@ -7777,6 +7794,7 @@ async function runTestWithContext(
   await dispatchCustomEnvironmentEvent({name: 'test_started', test: node});
   await emitTestCaseStart(node, result.startedAt);
   node.assertionCalls = 0;
+  node.numPassingAsserts = 0;
   node.expectedAssertions = undefined;
   node.requiresAssertions = false;
   expectState.assertionCalls = 0;
@@ -7886,7 +7904,7 @@ async function runTestWithContext(
     markSnapshotsChecked(result.fullName);
   }
   result.retryReasons = [...(node.retryReasons ?? [])];
-  result.numPassingAsserts = node.assertionCalls;
+  result.numPassingAsserts = node.numPassingAsserts;
   await dispatchCustomEnvironmentEvent({name: 'test_done', test: node});
   await emitTestCaseResult(result);
   expectState.testFailing = false;
