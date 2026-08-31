@@ -129,6 +129,10 @@ Mock-runtime overrides use the same recursion for `automock`, `clearMocks`,
 `resetMocks`, `restoreMocks`, and `resetModules`. Their positive, explicit
 boolean, and `--no-*` forms replace normalized values before worker requests are
 built, so project configuration never wins over the current invocation.
+Snapshot update mode is resolved at the coordinator boundary. Explicit `-u`
+wins first, then `--ci`/`--ci=false`, then common CI environment signals. CI
+mode sends `none` to workers and reporters so new snapshots fail without a
+filesystem write; ordinary local runs retain `new` mode.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

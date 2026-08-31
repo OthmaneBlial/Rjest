@@ -345,6 +345,34 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-ci-new-snapshot',
+    fixtureName: 'cli-ci-snapshots',
+    category: 'CLI',
+    ci: true,
+    compareSnapshots: true,
+    expectedExit: 1,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-ci-environment-new-snapshot',
+    fixtureName: 'cli-ci-snapshots',
+    category: 'CLI',
+    ciEnvironment: 'true',
+    compareSnapshots: true,
+    expectedExit: 1,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-ci-false-new-snapshot',
+    fixtureName: 'cli-ci-snapshots',
+    category: 'CLI',
+    ci: false,
+    ciEnvironment: 'true',
+    compareSnapshots: true,
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1865,6 +1893,8 @@ function compareCase(testCase) {
       jestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
     }
     if (testCase.testLocationInResults) jestArguments.push('--testLocationInResults');
+    if (testCase.ci === true) jestArguments.push('--ci');
+    if (testCase.ci === false) jestArguments.push('--ci=false');
     if (testCase.injectGlobals === false) jestArguments.push('--no-injectGlobals');
     if (testCase.injectGlobals === true) jestArguments.push('--injectGlobals');
     if (testCase.testTimeout !== undefined) {
@@ -1928,7 +1958,7 @@ function compareCase(testCase) {
     }
     const jestEnvironment = {
       ...process.env,
-      CI: '',
+      CI: testCase.ciEnvironment ?? '',
       RJEST_COMPAT_TYPESCRIPT_PRESET: typescriptPreset,
       RJEST_COMPAT_TOOL_NODE_MODULES: join(repository, 'node_modules'),
       RJEST_COMPAT_PRETTIER_PATH: testCase.prettierVersion === 2 ? prettierV2Path : prettierPath,
@@ -2028,6 +2058,8 @@ function compareCase(testCase) {
       rjestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
     }
     if (testCase.testLocationInResults) rjestArguments.push('--testLocationInResults');
+    if (testCase.ci === true) rjestArguments.push('--ci');
+    if (testCase.ci === false) rjestArguments.push('--ci=false');
     if (testCase.injectGlobals === false) rjestArguments.push('--no-injectGlobals');
     if (testCase.injectGlobals === true) rjestArguments.push('--injectGlobals');
     if (testCase.testTimeout !== undefined) {
@@ -2091,6 +2123,7 @@ function compareCase(testCase) {
     }
     const rjestEnvironment = {
       ...process.env,
+      CI: testCase.ciEnvironment ?? '',
       NODE_PATH: testCase.contaminateBabelJest
         ? contaminatedNodeModules
         : join(repository, 'node_modules'),

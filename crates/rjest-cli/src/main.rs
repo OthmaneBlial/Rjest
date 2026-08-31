@@ -95,6 +95,16 @@ struct Cli {
     #[arg(long, value_name = "PATH|JSON")]
     config: Option<String>,
 
+    /// Run with Jest's continuous-integration snapshot policy.
+    #[arg(
+        long,
+        value_name = "BOOLEAN",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true
+    )]
+    ci: Option<bool>,
+
     /// Enable Jest-compatible runtime caches.
     #[arg(long, action = ArgAction::SetTrue, conflicts_with = "no_cache")]
     cache: bool,
@@ -1467,6 +1477,7 @@ fn jest_global_config(
         "collectCoverage".into(),
         (cli.coverage || config.collect_coverage).into(),
     );
+    object.insert("ci".into(), ci_mode(cli).into());
     if let Some(pattern) = cli.test_name_pattern.as_ref() {
         object.insert("testNamePattern".into(), pattern.clone().into());
     }
@@ -1475,7 +1486,7 @@ fn jest_global_config(
     }
     object.insert(
         "updateSnapshot".into(),
-        serde_json::Value::String(if cli.update_snapshot { "all" } else { "new" }.into()),
+        serde_json::to_value(snapshot_update(cli))?,
     );
     Ok(global_config)
 }
@@ -3064,9 +3075,42 @@ fn project_selection_summary(cli: &Cli, selected: &[&ProjectConfig]) -> String {
 fn snapshot_update(cli: &Cli) -> SnapshotUpdate {
     if cli.update_snapshot {
         SnapshotUpdate::All
+    } else if ci_mode(cli) {
+        SnapshotUpdate::None
     } else {
         SnapshotUpdate::New
     }
+}
+
+fn ci_mode(cli: &Cli) -> bool {
+    cli.ci.unwrap_or_else(ci_environment_detected)
+}
+
+fn ci_environment_detected() -> bool {
+    if std::env::var_os("CI").is_some_and(|value| value == "false") {
+        return false;
+    }
+    [
+        "BUILD_ID",
+        "BUILD_NUMBER",
+        "CI",
+        "CI_APP_ID",
+        "CI_BUILD_ID",
+        "CI_BUILD_NUMBER",
+        "CI_NAME",
+        "CONTINUOUS_INTEGRATION",
+        "RUN_ID",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "CIRCLECI",
+        "TRAVIS",
+        "BUILDKITE",
+        "TF_BUILD",
+        "JENKINS_URL",
+        "TEAMCITY_VERSION",
+    ]
+    .iter()
+    .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
 }
 
 #[cfg(test)]
@@ -3736,7 +3780,7 @@ mod tests {
         Cli, NativeReporterMode, NativeSequencerCache, ProjectRun, Shard, WatchAction,
         apply_watch_action, changed_selection_enabled, clear_configured_caches,
         coverage_runner_settings, filter_projects, native_context_key, native_reporter_mode,
-        parse_max_workers, sequence_project_runs_with_native, shard_tests,
+        parse_max_workers, sequence_project_runs_with_native, shard_tests, snapshot_update,
         uses_modern_branches_true_summary, validate_seed, watch_action_for_key, watch_options,
     };
 
@@ -3746,6 +3790,20 @@ mod tests {
             .expect("Jest-compatible flags");
         assert_eq!(cli.max_workers.as_deref(), Some("1"));
         assert!(cli.log_heap_usage);
+    }
+
+    #[test]
+    fn applies_jest_ci_snapshot_policy_and_explicit_precedence() {
+        let ci = Cli::try_parse_from(["rjest", "--ci"]).expect("Jest CI mode");
+        assert_eq!(snapshot_update(&ci), rjest_core::SnapshotUpdate::None);
+
+        let disabled =
+            Cli::try_parse_from(["rjest", "--ci=false"]).expect("explicitly disabled Jest CI mode");
+        assert_eq!(snapshot_update(&disabled), rjest_core::SnapshotUpdate::New);
+
+        let update = Cli::try_parse_from(["rjest", "--ci", "--updateSnapshot"])
+            .expect("snapshot update in Jest CI mode");
+        assert_eq!(snapshot_update(&update), rjest_core::SnapshotUpdate::All);
     }
 
     #[test]
