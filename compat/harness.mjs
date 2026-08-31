@@ -215,6 +215,14 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-test-location-results',
+    category: 'CLI',
+    compareLocation: true,
+    expectedExit: 0,
+    testLocationInResults: true,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1721,6 +1729,7 @@ function compareCase(testCase) {
     if (testCase.testFailureExitCode !== undefined) {
       jestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
     }
+    if (testCase.testLocationInResults) jestArguments.push('--testLocationInResults');
     if (testCase.cache) jestArguments.push('--cache');
     if (testCase.noCache) jestArguments.push('--no-cache');
     if (testCase.forceExit) jestArguments.push('--forceExit');
@@ -1847,6 +1856,7 @@ function compareCase(testCase) {
     if (testCase.testFailureExitCode !== undefined) {
       rjestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
     }
+    if (testCase.testLocationInResults) rjestArguments.push('--testLocationInResults');
     if (testCase.cache) rjestArguments.push('--cache');
     if (testCase.noCache) rjestArguments.push('--no-cache');
     if (testCase.forceExit) rjestArguments.push('--forceExit');

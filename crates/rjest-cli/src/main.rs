@@ -265,6 +265,14 @@ struct Cli {
     )]
     test_failure_exit_code: Option<i32>,
 
+    /// Include one-based test declaration locations in JSON results.
+    #[arg(
+        long = "testLocationInResults",
+        visible_alias = "test-location-in-results",
+        action = ArgAction::SetTrue
+    )]
+    test_location_in_results: bool,
+
     /// Disable a bail threshold supplied by configuration.
     #[arg(long = "no-bail", action = ArgAction::SetTrue)]
     no_bail: bool,
@@ -2308,6 +2316,9 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
     if let Some(test_failure_exit_code) = cli.test_failure_exit_code {
         config.test_failure_exit_code = test_failure_exit_code;
     }
+    if cli.test_location_in_results {
+        config.test_location_in_results = true;
+    }
     apply_selection_overrides(config, cli);
     apply_global_execution_overrides(config, cli);
     apply_cache_overrides(config, cli);
@@ -3608,6 +3619,20 @@ mod tests {
 
         super::apply_cli_config_overrides(&mut config, &cli);
         assert_eq!(config.test_failure_exit_code, 9);
+    }
+
+    #[test]
+    fn enables_jest_test_locations_from_the_cli() {
+        let cli = Cli::try_parse_from(["rjest", "--testLocationInResults"])
+            .expect("Jest test location CLI flag");
+        assert!(cli.test_location_in_results);
+
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        assert!(!config.test_location_in_results);
+
+        super::apply_cli_config_overrides(&mut config, &cli);
+        assert!(config.test_location_in_results);
     }
 
     #[test]

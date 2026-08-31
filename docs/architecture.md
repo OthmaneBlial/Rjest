@@ -108,6 +108,8 @@ Global execution overrides are applied after normalization. In particular,
 `--testFailureExitCode` replaces the configured failure status before the CLI
 captures the final process boundary, while configuration and runtime errors
 remain status 1 because they do not produce a completed test result.
+`--testLocationInResults` similarly enables the normalized worker-protocol
+location field before project runs are derived.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.
