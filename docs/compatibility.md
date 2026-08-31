@@ -9,15 +9,20 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 278/278 (100.0%) across its explicitly listed
+The current generated matrix is 279/279 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 17/17 (100.0%), and configuration is
-51/51 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
+52/52 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
 Expect is 19/19 (100.0%), CLI is 75/75 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
 Jest API.
+
+An explicit `testRunner: "jest-circus/runner"` is accepted because Rjest's test
+lifecycle implements the equivalent Circus model. Resolved paths to Jest's
+installed Circus runner are accepted too. Custom or legacy runner modules
+remain explicit configuration errors rather than being silently ignored.
 
 Expect assertion failures now retain Jest's structured `matcherResult`
 contract. Built-in matcher failures expose their underlying `pass` value and

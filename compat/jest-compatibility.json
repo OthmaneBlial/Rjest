@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 278,
-    "total": 278,
+    "passing": 279,
+    "total": 279,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 51,
-      "total": 51,
+      "passing": 52,
+      "total": 52,
       "percentage": 100
     },
     "Core API": {
@@ -220,6 +220,12 @@
     },
     {
       "name": "config-runtime-options",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-runner-circus",
       "category": "Configuration",
       "compatible": true,
       "differences": []

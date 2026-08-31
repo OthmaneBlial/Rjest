@@ -141,6 +141,7 @@ pub struct ProjectConfig {
     pub transform_configured: bool,
     pub transform_ignore_patterns: Vec<String>,
     pub test_timeout: u64,
+    pub test_runner: String,
     pub test_sequencer: Option<String>,
     pub only_changed: bool,
     pub only_failures: bool,
@@ -224,6 +225,7 @@ struct RawProjectConfig {
     transform: Option<BTreeMap<String, Value>>,
     transform_ignore_patterns: Option<Vec<String>>,
     test_timeout: Option<u64>,
+    test_runner: Option<String>,
     test_sequencer: Option<String>,
     only_changed: Option<bool>,
     only_failures: Option<bool>,
@@ -414,6 +416,7 @@ impl ProjectConfig {
             transform_configured: false,
             transform_ignore_patterns: vec!["/node_modules/".into()],
             test_timeout: 5_000,
+            test_runner: "jest-circus/runner".into(),
             test_sequencer: None,
             only_changed: false,
             only_failures: false,
@@ -738,6 +741,7 @@ fn merge_preset(
         snapshot_format,
         transform_ignore_patterns,
         test_timeout,
+        test_runner,
         test_sequencer,
         only_changed,
         only_failures,
@@ -888,6 +892,7 @@ fn normalize(
 
     let test_environment =
         normalize_test_environment(raw.test_environment, &root_dir, &defaults.test_environment);
+    let test_runner = normalize_test_runner(raw.test_runner, defaults.test_runner.clone())?;
 
     let resolve_paths = |values: Option<Vec<String>>| {
         values
@@ -1051,6 +1056,7 @@ fn normalize(
         transform_configured,
         transform_ignore_patterns,
         test_timeout: raw.test_timeout.unwrap_or(defaults.test_timeout),
+        test_runner,
         test_sequencer,
         only_changed: raw.only_changed.unwrap_or(defaults.only_changed),
         only_failures: raw.only_failures.unwrap_or(defaults.only_failures),
@@ -1681,6 +1687,23 @@ fn normalize_test_environment(
     normalize_module_reference(&environment, root_dir)
 }
 
+fn normalize_test_runner(
+    configured: Option<String>,
+    fallback: String,
+) -> Result<String, ConfigError> {
+    let runner = configured.unwrap_or(fallback);
+    let normalized = runner.replace('\\', "/");
+    if normalized == "jest-circus/runner"
+        || normalized.ends_with("/node_modules/jest-circus/build/runner.js")
+    {
+        return Ok(runner);
+    }
+    Err(ConfigError::UnsupportedValue {
+        field: "testRunner".into(),
+        value: runner,
+    })
+}
+
 fn normalize_test_patterns(
     configured_match: Option<Vec<String>>,
     configured_regex: Option<OneOrMany>,
@@ -2242,6 +2265,35 @@ mod tests {
             package.test_results_processor.as_deref(),
             Some("fixture-processor")
         );
+    }
+
+    #[test]
+    fn accepts_only_the_equivalent_circus_test_runner() {
+        let temp = tempdir().expect("temp dir");
+        let configured = load_inline_json(temp.path(), r#"{"testRunner":"jest-circus/runner"}"#)
+            .expect("Circus runner");
+        assert_eq!(configured.test_runner, "jest-circus/runner");
+        assert_eq!(
+            serde_json::to_value(&configured).expect("serialized config")["testRunner"],
+            "jest-circus/runner"
+        );
+
+        let absolute = temp
+            .path()
+            .join("node_modules/jest-circus/build/runner.js")
+            .to_string_lossy()
+            .into_owned();
+        let configured = load_inline_json(
+            temp.path(),
+            &serde_json::json!({"testRunner": absolute.clone()}).to_string(),
+        )
+        .expect("resolved Circus runner");
+        assert_eq!(configured.test_runner, absolute);
+
+        let error = load_inline_json(temp.path(), r#"{"testRunner":"./custom-runner.cjs"}"#)
+            .expect_err("custom runners are not equivalent");
+        assert!(error.to_string().contains("testRunner"));
+        assert!(error.to_string().contains("custom-runner.cjs"));
     }
 
     #[test]

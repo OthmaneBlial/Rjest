@@ -188,6 +188,12 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-test-runner-circus',
+    category: 'Configuration',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-inject-globals',
     category: 'Configuration',
     expectedExit: 0,
