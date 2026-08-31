@@ -1,0 +1,3 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`loads the snapshot serializer supplied on the command line 1`] = `document-ready:cli`;

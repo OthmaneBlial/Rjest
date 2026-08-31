@@ -198,6 +198,30 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     resolver: Option<String>,
 
+    /// JSON object mapping source patterns to Jest transformers.
+    #[arg(long, value_name = "JSON", value_parser = parse_cli_transform)]
+    transform: Option<CliTransform>,
+
+    /// Regular expressions excluding source paths from transformation.
+    #[arg(
+        long = "transformIgnorePatterns",
+        visible_alias = "transform-ignore-patterns",
+        value_name = "REGEX",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    transform_ignore_patterns: Vec<String>,
+
+    /// Snapshot serializer modules loaded after the test environment.
+    #[arg(
+        long = "snapshotSerializers",
+        visible_alias = "snapshot-serializers",
+        value_name = "PATH",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    snapshot_serializers: Vec<String>,
+
     /// Path to a Jest configuration file or an inline JSON object.
     #[arg(long, value_name = "PATH|JSON")]
     config: Option<String>,
@@ -749,6 +773,9 @@ struct Cli {
 
 #[derive(Clone, Debug)]
 struct CliModuleNameMapper(Vec<ModuleNameMapper>);
+
+#[derive(Clone, Debug)]
+struct CliTransform(BTreeMap<String, serde_json::Value>);
 
 struct CoverageRunnerSettings {
     enabled: bool,
@@ -1913,6 +1940,26 @@ fn parse_cli_module_name_mapper(value: &str) -> std::result::Result<CliModuleNam
     Ok(CliModuleNameMapper(mappings))
 }
 
+fn parse_cli_transform(value: &str) -> std::result::Result<CliTransform, String> {
+    let parsed = parse_cli_json_object(value)?;
+    let entries = parsed.as_object().expect("validated JSON object");
+    let mut transforms = BTreeMap::new();
+    for (pattern, value) in entries {
+        match value {
+            serde_json::Value::String(_) => {}
+            serde_json::Value::Array(values)
+                if matches!(values.first(), Some(serde_json::Value::String(_))) => {}
+            _ => {
+                return Err(format!(
+                    "transform.{pattern} must be a string or an array starting with a string"
+                ));
+            }
+        }
+        transforms.insert(pattern.clone(), value.clone());
+    }
+    Ok(CliTransform(transforms))
+}
+
 fn parse_positive_usize(value: &str) -> std::result::Result<usize, String> {
     let parsed = value
         .parse::<usize>()
@@ -2821,6 +2868,7 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
     }
     apply_discovery_overrides(config, cli);
     apply_resolution_overrides(config, cli);
+    apply_transform_overrides(config, cli);
     if cli.test_location_in_results {
         config.test_location_in_results = true;
     }
@@ -2893,6 +2941,46 @@ fn apply_resolution_overrides(config: &mut ProjectConfig, cli: &Cli) {
             resolver,
             &config.root_dir,
         ));
+    }
+}
+
+fn apply_transform_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if let Some(transform) = cli.transform.as_ref() {
+        let root = config.root_dir.to_string_lossy();
+        config.transform = transform
+            .0
+            .iter()
+            .map(|(pattern, value)| {
+                let mut value = value.clone();
+                match &mut value {
+                    serde_json::Value::String(module) => {
+                        *module = module.replace("<rootDir>", &root);
+                    }
+                    serde_json::Value::Array(values) => {
+                        let serde_json::Value::String(module) = &mut values[0] else {
+                            unreachable!("validated transform module")
+                        };
+                        *module = module.replace("<rootDir>", &root);
+                    }
+                    _ => unreachable!("validated transform entry"),
+                }
+                (pattern.clone(), value)
+            })
+            .collect();
+        config.transform_configured = true;
+    }
+    if !cli.transform_ignore_patterns.is_empty() {
+        config.transform_ignore_patterns =
+            normalize_cli_root_patterns(&cli.transform_ignore_patterns, &config.root_dir, true);
+    }
+    if !cli.snapshot_serializers.is_empty() {
+        config.snapshot_serializers = cli
+            .snapshot_serializers
+            .iter()
+            .map(|serializer| {
+                rjest_config::normalize_module_reference(serializer, &config.root_dir)
+            })
+            .collect();
     }
 }
 
@@ -4192,6 +4280,45 @@ mod tests {
 
         assert!(Cli::try_parse_from(["rjest", "--moduleNameMapper={\"^@value$\":[]}"]).is_err());
         assert!(Cli::try_parse_from(["rjest", "--moduleNameMapper={\"^@value$\":[1]}"]).is_err());
+    }
+
+    #[test]
+    fn applies_jest_transform_overrides_from_each_project_root() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            r#"--transform={"^.+\\.special$":["<rootDir>/transformer.cjs",{"mode":"cli"}]}"#,
+            "--transformIgnorePatterns=<rootDir>/ignored",
+            "--snapshotSerializers=<rootDir>/serializer.cjs",
+        ])
+        .expect("Jest transform overrides");
+
+        let temp = tempdir().expect("temp dir");
+        let child_root = temp.path().join("child");
+        fs::create_dir_all(&child_root).expect("child root");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(&child_root).expect("child config"));
+        super::apply_cli_config_overrides(&mut config, &cli);
+
+        for project in [&config, &config.projects[0]] {
+            assert!(project.transform_configured);
+            assert_eq!(
+                project.transform["^.+\\.special$"][0],
+                format!("{}/transformer.cjs", project.root_dir.display())
+            );
+            assert_eq!(
+                project.transform_ignore_patterns,
+                [format!("{}/ignored", project.root_dir.display())]
+            );
+            assert_eq!(
+                project.snapshot_serializers,
+                [format!("{}/serializer.cjs", project.root_dir.display())]
+            );
+        }
+
+        assert!(Cli::try_parse_from(["rjest", "--transform={\"pattern\":[]}"]).is_err());
+        assert!(Cli::try_parse_from(["rjest", "--transform={\"pattern\":true}"]).is_err());
     }
 
     #[test]

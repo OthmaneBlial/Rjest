@@ -473,6 +473,28 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-transform',
+    category: 'CLI',
+    expectedExit: 0,
+    transform: {'^.+\\.special$': '<rootDir>/transformer.cjs'},
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-transform-ignore-patterns',
+    category: 'CLI',
+    expectedExit: 0,
+    transformIgnorePatterns: ['<rootDir>/ignored/'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-snapshot-serializers',
+    category: 'CLI',
+    compareSnapshots: true,
+    expectedExit: 0,
+    snapshotSerializers: ['<rootDir>/serializer.cjs'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -2010,6 +2032,15 @@ function compareCase(testCase) {
       jestArguments.push(`--moduleNameMapper=${JSON.stringify(testCase.moduleNameMapper)}`);
     }
     if (testCase.resolver) jestArguments.push(`--resolver=${testCase.resolver}`);
+    if (testCase.transform) {
+      jestArguments.push(`--transform=${JSON.stringify(testCase.transform)}`);
+    }
+    for (const pattern of testCase.transformIgnorePatterns ?? []) {
+      jestArguments.push(`--transformIgnorePatterns=${pattern}`);
+    }
+    for (const serializer of testCase.snapshotSerializers ?? []) {
+      jestArguments.push(`--snapshotSerializers=${serializer}`);
+    }
     if (testCase.runTestsByPath) jestArguments.push('--runTestsByPath');
     jestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
@@ -2207,6 +2238,15 @@ function compareCase(testCase) {
       rjestArguments.push(`--moduleNameMapper=${JSON.stringify(testCase.moduleNameMapper)}`);
     }
     if (testCase.resolver) rjestArguments.push(`--resolver=${testCase.resolver}`);
+    if (testCase.transform) {
+      rjestArguments.push(`--transform=${JSON.stringify(testCase.transform)}`);
+    }
+    for (const pattern of testCase.transformIgnorePatterns ?? []) {
+      rjestArguments.push(`--transformIgnorePatterns=${pattern}`);
+    }
+    for (const serializer of testCase.snapshotSerializers ?? []) {
+      rjestArguments.push(`--snapshotSerializers=${serializer}`);
+    }
     if (testCase.runTestsByPath) rjestArguments.push('--runTestsByPath');
     rjestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');

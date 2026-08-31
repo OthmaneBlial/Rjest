@@ -150,6 +150,11 @@ changed-file selection cannot reach an invisible module. Extensions admitted
 by `moduleFileExtensions` use the CommonJS compiler when no transform or native
 extension loader claims the file, matching Jest's behavior for custom
 JavaScript-like suffixes.
+Transform-related CLI overrides are also normalized per project before worker
+requests are derived. `transform` replaces the complete pattern map and marks
+the transform as explicit, `transformIgnorePatterns` replaces the ignore list,
+and `snapshotSerializers` replaces the serializer modules. Transformer and
+serializer `<rootDir>` references are expanded from each owning project.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.
