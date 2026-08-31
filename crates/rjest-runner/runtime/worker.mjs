@@ -5274,22 +5274,21 @@ function compileRuntimeModule(module, filename) {
   const selected = runtimeTransformerFor(filename);
   if (!selected) {
     const extension = filename.slice(filename.lastIndexOf('.'));
-    if (extension === '.js' || extension === '.cjs') {
-      const source = readFileSync(filename, 'utf8');
-      const previousModulePath = activeModulePath;
-      activeModulePath = filename;
-      try {
-        compileRuntimeCommonJs(module, source, filename);
-      } finally {
-        activeModulePath = previousModulePath;
-      }
-      return;
-    }
     const original =
       originalModuleExtensions.get(extension) ??
       (extension === '.cjs' ? originalModuleExtensions.get('.js') : undefined);
-    if (original) return original(module, filename);
-    throw new Error(`No configured transform can load ${filename}`);
+    if (original && extension !== '.js' && extension !== '.cjs') {
+      return original(module, filename);
+    }
+    const source = readFileSync(filename, 'utf8');
+    const previousModulePath = activeModulePath;
+    activeModulePath = filename;
+    try {
+      compileRuntimeCommonJs(module, source, filename);
+    } finally {
+      activeModulePath = previousModulePath;
+    }
+    return;
   }
   const source = readFileSync(filename, 'utf8');
   const transformed = transformRuntimeSource(

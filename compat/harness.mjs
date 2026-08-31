@@ -426,6 +426,41 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-module-directories',
+    category: 'CLI',
+    expectedExit: 0,
+    moduleDirectories: ['custom_modules', 'node_modules'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-module-paths',
+    category: 'CLI',
+    expectedExit: 0,
+    modulePaths: ['<rootDir>/extra_modules'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-module-file-extensions',
+    category: 'CLI',
+    expectedExit: 0,
+    moduleFileExtensions: ['special', 'cjs', 'js', 'json', 'node'],
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-module-name-mapper',
+    category: 'CLI',
+    expectedExit: 0,
+    moduleNameMapper: {'^@value$': '<rootDir>/cli-value.cjs'},
+    useFixtureConfig: true,
+  },
+  {
+    name: 'cli-resolver',
+    category: 'CLI',
+    expectedExit: 0,
+    resolver: './resolver.cjs',
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -1950,6 +1985,19 @@ function compareCase(testCase) {
     for (const root of testCase.roots ?? []) {
       jestArguments.push(`--roots=${root}`);
     }
+    for (const directory of testCase.moduleDirectories ?? []) {
+      jestArguments.push(`--moduleDirectories=${directory}`);
+    }
+    for (const extension of testCase.moduleFileExtensions ?? []) {
+      jestArguments.push(`--moduleFileExtensions=${extension}`);
+    }
+    for (const modulePath of testCase.modulePaths ?? []) {
+      jestArguments.push(`--modulePaths=${modulePath}`);
+    }
+    if (testCase.moduleNameMapper) {
+      jestArguments.push(`--moduleNameMapper=${JSON.stringify(testCase.moduleNameMapper)}`);
+    }
+    if (testCase.resolver) jestArguments.push(`--resolver=${testCase.resolver}`);
     if (testCase.runTestsByPath) jestArguments.push('--runTestsByPath');
     jestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) jestArguments.push('--updateSnapshot');
@@ -2131,6 +2179,19 @@ function compareCase(testCase) {
     for (const root of testCase.roots ?? []) {
       rjestArguments.push(`--roots=${root}`);
     }
+    for (const directory of testCase.moduleDirectories ?? []) {
+      rjestArguments.push(`--moduleDirectories=${directory}`);
+    }
+    for (const extension of testCase.moduleFileExtensions ?? []) {
+      rjestArguments.push(`--moduleFileExtensions=${extension}`);
+    }
+    for (const modulePath of testCase.modulePaths ?? []) {
+      rjestArguments.push(`--modulePaths=${modulePath}`);
+    }
+    if (testCase.moduleNameMapper) {
+      rjestArguments.push(`--moduleNameMapper=${JSON.stringify(testCase.moduleNameMapper)}`);
+    }
+    if (testCase.resolver) rjestArguments.push(`--resolver=${testCase.resolver}`);
     if (testCase.runTestsByPath) rjestArguments.push('--runTestsByPath');
     rjestArguments.push(...(testCase.testPathPatterns ?? []));
     if (testCase.updateSnapshots) rjestArguments.push('--updateSnapshot');

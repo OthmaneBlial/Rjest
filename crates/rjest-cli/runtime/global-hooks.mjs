@@ -187,7 +187,9 @@ async function createTransformRuntime(entry, request) {
         originalExtensions.get(extension) ??
         (extension === '.cjs' ? originalExtensions.get('.js') : undefined);
       if (original) return original(module, filename);
-      throw new Error(`No configured transform can load ${filename}`);
+      const source = readFileSync(filename, 'utf8');
+      module._compile(source, filename);
+      return;
     }
     const source = readFileSync(filename, 'utf8');
     const code = transformSourceSync(selected, source, filename, config);

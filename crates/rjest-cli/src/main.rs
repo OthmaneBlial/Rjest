@@ -19,8 +19,8 @@ use crossterm::{
 };
 use rjest_config::ProjectConfig;
 use rjest_core::{
-    AggregatedResult, ExecutionOrderConfig, GlobalExecutionConfig, SnapshotUpdate, TestFile,
-    TestStatus,
+    AggregatedResult, ExecutionOrderConfig, GlobalExecutionConfig, ModuleNameMapper,
+    SnapshotUpdate, TestFile, TestStatus,
 };
 use rjest_coverage::{CoverageOptions, CoverageReport, discover_sources, write_reports};
 use rjest_dependency::{
@@ -144,6 +144,49 @@ struct Cli {
     /// Root directories scanned for tests and modules.
     #[arg(long, value_name = "PATH", num_args = 1.., action = ArgAction::Append)]
     roots: Vec<String>,
+
+    /// Directory names searched upward when resolving modules.
+    #[arg(
+        long = "moduleDirectories",
+        visible_alias = "module-directories",
+        value_name = "DIRECTORY",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    module_directories: Vec<String>,
+
+    /// File extensions tried while resolving modules.
+    #[arg(
+        long = "moduleFileExtensions",
+        visible_alias = "module-file-extensions",
+        value_name = "EXTENSION",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    module_file_extensions: Vec<String>,
+
+    /// Absolute or project-relative module lookup roots.
+    #[arg(
+        long = "modulePaths",
+        visible_alias = "module-paths",
+        value_name = "PATH",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    module_paths: Vec<String>,
+
+    /// JSON object mapping module-name regular expressions to replacement paths.
+    #[arg(
+        long = "moduleNameMapper",
+        visible_alias = "module-name-mapper",
+        value_name = "JSON",
+        value_parser = parse_cli_module_name_mapper
+    )]
+    module_name_mapper: Option<CliModuleNameMapper>,
+
+    /// Custom Jest resolver module.
+    #[arg(long, value_name = "PATH")]
+    resolver: Option<String>,
 
     /// Path to a Jest configuration file or an inline JSON object.
     #[arg(long, value_name = "PATH|JSON")]
@@ -693,6 +736,9 @@ struct Cli {
     #[arg(long, value_name = "INDEX/COUNT")]
     shard: Option<Shard>,
 }
+
+#[derive(Clone, Debug)]
+struct CliModuleNameMapper(Vec<ModuleNameMapper>);
 
 struct CoverageRunnerSettings {
     enabled: bool,
@@ -1823,6 +1869,40 @@ fn parse_cli_json_object(value: &str) -> std::result::Result<serde_json::Value, 
     Ok(parsed)
 }
 
+fn parse_cli_module_name_mapper(value: &str) -> std::result::Result<CliModuleNameMapper, String> {
+    let parsed = parse_cli_json_object(value)?;
+    let entries = parsed.as_object().expect("validated JSON object");
+    let mappings = entries
+        .iter()
+        .map(|(pattern, value)| {
+            let replacements = match value {
+                serde_json::Value::String(value) => vec![value.clone()],
+                serde_json::Value::Array(values) => values
+                    .iter()
+                    .map(|value| {
+                        value.as_str().map(str::to_owned).ok_or_else(|| {
+                            format!("moduleNameMapper.{pattern} must contain strings")
+                        })
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()?,
+                _ => {
+                    return Err(format!(
+                        "moduleNameMapper.{pattern} must be a string or string array"
+                    ));
+                }
+            };
+            if replacements.is_empty() {
+                return Err(format!("moduleNameMapper.{pattern} must not be empty"));
+            }
+            Ok(ModuleNameMapper {
+                pattern: pattern.clone(),
+                replacements,
+            })
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(CliModuleNameMapper(mappings))
+}
+
 fn parse_positive_usize(value: &str) -> std::result::Result<usize, String> {
     let parsed = value
         .parse::<usize>()
@@ -2730,6 +2810,7 @@ fn apply_global_execution_overrides(config: &mut ProjectConfig, cli: &Cli) {
             .collect();
     }
     apply_discovery_overrides(config, cli);
+    apply_resolution_overrides(config, cli);
     if cli.test_location_in_results {
         config.test_location_in_results = true;
     }
@@ -2758,6 +2839,46 @@ fn apply_discovery_overrides(config: &mut ProjectConfig, cli: &Cli) {
     if !cli.test_path_ignore_patterns.is_empty() {
         config.test_path_ignore_patterns =
             normalize_cli_root_patterns(&cli.test_path_ignore_patterns, &config.root_dir, true);
+    }
+}
+
+fn apply_resolution_overrides(config: &mut ProjectConfig, cli: &Cli) {
+    if !cli.module_directories.is_empty() {
+        config.module_directories =
+            normalize_cli_root_patterns(&cli.module_directories, &config.root_dir, false);
+    }
+    if !cli.module_file_extensions.is_empty() {
+        config
+            .module_file_extensions
+            .clone_from(&cli.module_file_extensions);
+    }
+    if !cli.module_paths.is_empty() {
+        config.module_paths = cli
+            .module_paths
+            .iter()
+            .map(|path| normalize_cli_root(path, &config.root_dir))
+            .collect();
+    }
+    if let Some(module_name_mapper) = cli.module_name_mapper.as_ref() {
+        let root = config.root_dir.to_string_lossy();
+        config.module_name_mapper = module_name_mapper
+            .0
+            .iter()
+            .map(|mapper| ModuleNameMapper {
+                pattern: mapper.pattern.clone(),
+                replacements: mapper
+                    .replacements
+                    .iter()
+                    .map(|replacement| replacement.replace("<rootDir>", &root))
+                    .collect(),
+            })
+            .collect();
+    }
+    if let Some(resolver) = cli.resolver.as_deref() {
+        config.resolver = Some(rjest_config::normalize_module_reference(
+            resolver,
+            &config.root_dir,
+        ));
     }
 }
 
@@ -4001,6 +4122,57 @@ mod tests {
         config.test_regex = vec!["configured".into()];
         super::apply_cli_config_overrides(&mut config, &match_cli);
         assert!(super::validate_cli_test_patterns(&config).is_err());
+    }
+
+    #[test]
+    fn applies_jest_resolution_overrides_from_each_project_root() {
+        let cli = Cli::try_parse_from([
+            "rjest",
+            "--moduleDirectories=<rootDir>/vendor",
+            "--moduleFileExtensions=special",
+            "--moduleFileExtensions=cjs",
+            "--modulePaths=./extra",
+            r#"--moduleNameMapper={"^@value$":["<rootDir>/first.cjs","<rootDir>/second.cjs"]}"#,
+            "--resolver=./resolver.cjs",
+        ])
+        .expect("Jest resolution overrides");
+
+        let temp = tempdir().expect("temp dir");
+        let child_root = temp.path().join("child");
+        fs::create_dir_all(&child_root).expect("child root");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config
+            .projects
+            .push(ProjectConfig::defaults(&child_root).expect("child config"));
+        super::apply_cli_config_overrides(&mut config, &cli);
+
+        for project in [&config, &config.projects[0]] {
+            assert_eq!(
+                project.module_directories,
+                [format!("{}/vendor", project.root_dir.display())]
+            );
+            assert_eq!(project.module_file_extensions, ["special", "cjs"]);
+            assert_eq!(project.module_paths, [project.root_dir.join("extra")]);
+            assert_eq!(project.module_name_mapper.len(), 1);
+            assert_eq!(project.module_name_mapper[0].pattern, "^@value$");
+            assert_eq!(
+                project.module_name_mapper[0].replacements,
+                [
+                    format!("{}/first.cjs", project.root_dir.display()),
+                    format!("{}/second.cjs", project.root_dir.display()),
+                ]
+            );
+            assert_eq!(
+                project.resolver.as_deref(),
+                Some(
+                    rjest_config::normalize_module_reference("./resolver.cjs", &project.root_dir)
+                        .as_str()
+                )
+            );
+        }
+
+        assert!(Cli::try_parse_from(["rjest", "--moduleNameMapper={\"^@value$\":[]}"]).is_err());
+        assert!(Cli::try_parse_from(["rjest", "--moduleNameMapper={\"^@value$\":[1]}"]).is_err());
     }
 
     #[test]
