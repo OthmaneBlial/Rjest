@@ -180,7 +180,9 @@ than reducing the failure to display text. Every built-in result retains its
 rendered message and pre-negation `pass` value; Jest's equality matchers also
 carry `actual`, `expected`, and `name`, while custom matcher result fields are
 preserved. This lets integrations inspect assertion failures without parsing
-terminal output.
+terminal output. The runtime exports that same internal constructor as
+`JestAssertionError`; its constructor identity matches Jest while instances
+inherit the standard `Error` name.
 
 Global setup and teardown use another persistent line protocol. Rust derives
 the active hook set only after project filtering, sharding, and sequencing, so

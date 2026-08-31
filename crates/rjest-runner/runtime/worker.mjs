@@ -511,13 +511,12 @@ if (request.injectGlobals !== false) {
   });
 }
 
-class RjestAssertionError extends Error {
+const RjestAssertionError = class JestAssertionError extends Error {
   constructor(message, matcherResult) {
     super(message);
-    this.name = 'RjestAssertionError';
     if (matcherResult !== undefined) this.matcherResult = matcherResult;
   }
-}
+};
 
 function printable(value) {
   return inspect(value, {

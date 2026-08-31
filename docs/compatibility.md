@@ -9,11 +9,11 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 273/273 (100.0%) across its explicitly listed
+The current generated matrix is 274/274 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
 51/51 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
-Expect is 15/15 (100.0%), CLI is 75/75 (100.0%), and environments are 7/7
+Expect is 16/16 (100.0%), CLI is 75/75 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
 are scores for the bounded regression set, not claims about the unmeasured full
@@ -23,7 +23,10 @@ Expect assertion failures now retain Jest's structured `matcherResult`
 contract. Built-in matcher failures expose their underlying `pass` value and
 rendered message; `toBe`, `toEqual`, and `toStrictEqual` also preserve the
 actual value, expected value, and matcher name. Custom matcher result fields
-survive alongside the evaluated message, including for negated failures.
+survive alongside the evaluated message, including for negated failures. The
+exported error constructor is named `JestAssertionError`, while its instances
+retain Jest's public `name === "Error"` behavior for built-in and custom
+matcher failures.
 
 Snapshot probes now include a pinned Jest 29.7 oracle. Jest 29 preserves the
 historical `https://goo.gl/fbAQLP` v1 header during a matching run, while Jest

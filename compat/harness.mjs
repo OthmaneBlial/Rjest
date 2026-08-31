@@ -1560,6 +1560,12 @@ const cases = [
     expectedExit: 0,
   },
   {
+    name: 'expect-assertion-error-identity',
+    category: 'Expect',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'expect-mock-matcher-contracts',
     category: 'Expect',
     expectedExit: 0,
