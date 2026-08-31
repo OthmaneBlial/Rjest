@@ -257,6 +257,14 @@ struct Cli {
     #[arg(short = 'b', long, action = ArgAction::SetTrue)]
     bail: bool,
 
+    /// Process exit code used when a completed test run is unsuccessful.
+    #[arg(
+        long = "testFailureExitCode",
+        visible_alias = "test-failure-exit-code",
+        value_name = "NUMBER"
+    )]
+    test_failure_exit_code: Option<i32>,
+
     /// Disable a bail threshold supplied by configuration.
     #[arg(long = "no-bail", action = ArgAction::SetTrue)]
     no_bail: bool,
@@ -2297,6 +2305,9 @@ fn apply_cli_config_overrides(config: &mut ProjectConfig, cli: &Cli) {
             &config.root_dir,
         ));
     }
+    if let Some(test_failure_exit_code) = cli.test_failure_exit_code {
+        config.test_failure_exit_code = test_failure_exit_code;
+    }
     apply_selection_overrides(config, cli);
     apply_global_execution_overrides(config, cli);
     apply_cache_overrides(config, cli);
@@ -3583,6 +3594,20 @@ mod tests {
         super::apply_global_execution_overrides(&mut config, &cli);
         assert!(!config.watchman);
         assert!(!config.projects[0].watchman);
+    }
+
+    #[test]
+    fn applies_the_jest_test_failure_exit_code_override() {
+        let cli = Cli::try_parse_from(["rjest", "--testFailureExitCode=9"])
+            .expect("Jest failure exit code override");
+        assert_eq!(cli.test_failure_exit_code, Some(9));
+
+        let temp = tempdir().expect("temp dir");
+        let mut config = ProjectConfig::defaults(temp.path()).expect("config");
+        config.test_failure_exit_code = 7;
+
+        super::apply_cli_config_overrides(&mut config, &cli);
+        assert_eq!(config.test_failure_exit_code, 9);
     }
 
     #[test]

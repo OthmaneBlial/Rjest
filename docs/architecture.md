@@ -104,6 +104,10 @@ CLI `--projects` paths use the same child loader without glob expansion; the
 first child supplies coordinator defaults when several paths are provided.
 Display-name selection and ignore predicates filter the normalized matrix before
 discovery, sharding, or worker scheduling.
+Global execution overrides are applied after normalization. In particular,
+`--testFailureExitCode` replaces the configured failure status before the CLI
+captures the final process boundary, while configuration and runtime errors
+remain status 1 because they do not produce a completed test result.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

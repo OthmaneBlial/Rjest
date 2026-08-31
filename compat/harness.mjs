@@ -200,6 +200,14 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-test-failure-exit-code',
+    fixtureName: 'config-test-failure-exit-code',
+    category: 'CLI',
+    expectedExit: 9,
+    testFailureExitCode: 9,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-test-location-results',
     category: 'Configuration',
     compareLocation: true,
@@ -1710,6 +1718,9 @@ function compareCase(testCase) {
     if (testCase.shard) jestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.bail === true) jestArguments.push('--bail');
     if (testCase.bail === false) jestArguments.push('--no-bail');
+    if (testCase.testFailureExitCode !== undefined) {
+      jestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
+    }
     if (testCase.cache) jestArguments.push('--cache');
     if (testCase.noCache) jestArguments.push('--no-cache');
     if (testCase.forceExit) jestArguments.push('--forceExit');
@@ -1833,6 +1844,9 @@ function compareCase(testCase) {
     if (testCase.shard) rjestArguments.push(`--shard=${testCase.shard}`);
     if (testCase.bail === true) rjestArguments.push('--bail');
     if (testCase.bail === false) rjestArguments.push('--no-bail');
+    if (testCase.testFailureExitCode !== undefined) {
+      rjestArguments.push(`--testFailureExitCode=${testCase.testFailureExitCode}`);
+    }
     if (testCase.cache) rjestArguments.push('--cache');
     if (testCase.noCache) rjestArguments.push('--no-cache');
     if (testCase.forceExit) rjestArguments.push('--forceExit');
