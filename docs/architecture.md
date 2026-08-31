@@ -143,10 +143,13 @@ resolved against each owning project, and the default `testMatch` is removed
 when a CLI `testRegex` supplies the active discovery strategy.
 Module-resolution overrides cross that same recursive boundary.
 `moduleDirectories`, `modulePaths`, `moduleFileExtensions`, `moduleNameMapper`,
-and `resolver` replace configured values from each owning project root before
-worker requests are built. Extensions admitted by `moduleFileExtensions` use
-the CommonJS compiler when no transform or native extension loader claims the
-file, matching Jest's behavior for custom JavaScript-like suffixes.
+`modulePathIgnorePatterns`, and `resolver` replace configured values from each
+owning project root before worker requests are built. Ignored paths are removed
+both from dependency-graph discovery and from resolved dependency edges, so
+changed-file selection cannot reach an invisible module. Extensions admitted
+by `moduleFileExtensions` use the CommonJS compiler when no transform or native
+extension loader claims the file, matching Jest's behavior for custom
+JavaScript-like suffixes.
 Default sharding then hashes each selected test relative to its owning project
 root across one combined matrix; it does not reuse the coordinator's root for
 child projects.

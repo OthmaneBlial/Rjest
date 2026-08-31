@@ -3,14 +3,14 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 266,
-    "total": 266,
+    "passing": 267,
+    "total": 267,
     "percentage": 100
   },
   "categories": {
     "CLI": {
-      "passing": 69,
-      "total": 69,
+      "passing": 70,
+      "total": 70,
       "percentage": 100
     },
     "Configuration": {
@@ -430,6 +430,12 @@
     },
     {
       "name": "cli-resolver",
+      "category": "CLI",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "cli-module-path-ignore-patterns",
       "category": "CLI",
       "compatible": true,
       "differences": []

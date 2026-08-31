@@ -461,6 +461,18 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'cli-module-path-ignore-patterns',
+    fixtureName: 'find-related',
+    category: 'CLI',
+    expectedExit: 1,
+    findRelatedTests: true,
+    modulePathIgnorePatterns: ['<rootDir>/a.js'],
+    requiredOutputPatterns: ['No tests found'],
+    skipResultComparison: true,
+    testPathPatterns: ['a.js'],
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -2057,6 +2069,9 @@ function compareCase(testCase) {
     if (testCase.findRelatedTests) jestArguments.push('--findRelatedTests');
     if (testCase.passWithNoTests) jestArguments.push('--passWithNoTests');
     jestArguments.push(...(testCase.changedSelectionArgs ?? []));
+    for (const pattern of testCase.modulePathIgnorePatterns ?? []) {
+      jestArguments.push(`--modulePathIgnorePatterns=${pattern}`);
+    }
     if (testCase.coverage) {
       jestArguments.push(
         '--coverage',
@@ -2251,6 +2266,9 @@ function compareCase(testCase) {
     if (testCase.findRelatedTests) rjestArguments.push('--findRelatedTests');
     if (testCase.passWithNoTests) rjestArguments.push('--passWithNoTests');
     rjestArguments.push(...(testCase.changedSelectionArgs ?? []));
+    for (const pattern of testCase.modulePathIgnorePatterns ?? []) {
+      rjestArguments.push(`--modulePathIgnorePatterns=${pattern}`);
+    }
     if (testCase.coverage) {
       rjestArguments.push(
         '--coverage',

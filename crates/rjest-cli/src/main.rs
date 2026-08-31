@@ -175,6 +175,16 @@ struct Cli {
     )]
     module_paths: Vec<String>,
 
+    /// Regular expressions excluding paths from the module graph.
+    #[arg(
+        long = "modulePathIgnorePatterns",
+        visible_alias = "module-path-ignore-patterns",
+        value_name = "REGEX",
+        num_args = 1..,
+        action = ArgAction::Append
+    )]
+    module_path_ignore_patterns: Vec<String>,
+
     /// JSON object mapping module-name regular expressions to replacement paths.
     #[arg(
         long = "moduleNameMapper",
@@ -2859,6 +2869,10 @@ fn apply_resolution_overrides(config: &mut ProjectConfig, cli: &Cli) {
             .map(|path| normalize_cli_root(path, &config.root_dir))
             .collect();
     }
+    if !cli.module_path_ignore_patterns.is_empty() {
+        config.module_path_ignore_patterns =
+            normalize_cli_root_patterns(&cli.module_path_ignore_patterns, &config.root_dir, true);
+    }
     if let Some(module_name_mapper) = cli.module_name_mapper.as_ref() {
         let root = config.root_dir.to_string_lossy();
         config.module_name_mapper = module_name_mapper
@@ -4132,6 +4146,7 @@ mod tests {
             "--moduleFileExtensions=special",
             "--moduleFileExtensions=cjs",
             "--modulePaths=./extra",
+            "--modulePathIgnorePatterns=<rootDir>/ignored",
             r#"--moduleNameMapper={"^@value$":["<rootDir>/first.cjs","<rootDir>/second.cjs"]}"#,
             "--resolver=./resolver.cjs",
         ])
@@ -4153,6 +4168,10 @@ mod tests {
             );
             assert_eq!(project.module_file_extensions, ["special", "cjs"]);
             assert_eq!(project.module_paths, [project.root_dir.join("extra")]);
+            assert_eq!(
+                project.module_path_ignore_patterns,
+                [format!("{}/ignored", project.root_dir.display())]
+            );
             assert_eq!(project.module_name_mapper.len(), 1);
             assert_eq!(project.module_name_mapper[0].pattern, "^@value$");
             assert_eq!(

@@ -46,7 +46,8 @@ impl DependencyGraph {
     /// Returns an error when paths cannot be scanned, ignore patterns are
     /// invalid, the resolver bridge cannot start, or it returns invalid data.
     pub fn build(options: &GraphOptions<'_>) -> Result<Self> {
-        let files = discover_modules(options)?;
+        let ignore_patterns = compile_module_path_ignore_patterns(options)?;
+        let files = discover_modules(options, &ignore_patterns)?;
         let request = serde_json::json!({
             "files": files,
             "haste": options.haste,
@@ -75,11 +76,20 @@ impl DependencyGraph {
                 .context("dependency resolver returned an invalid dependency list")?;
             let dependencies = resolved
                 .iter()
-                .map(|dependency| {
-                    dependency
-                        .as_str()
-                        .map(PathBuf::from)
-                        .context("dependency resolver returned a non-path dependency")
+                .filter_map(|dependency| {
+                    let dependency = match dependency.as_str() {
+                        Some(dependency) => PathBuf::from(dependency),
+                        None => {
+                            return Some(Err(anyhow::anyhow!(
+                                "dependency resolver returned a non-path dependency"
+                            )));
+                        }
+                    };
+                    if path_is_ignored(&dependency, &ignore_patterns) {
+                        None
+                    } else {
+                        Some(Ok(dependency))
+                    }
                 })
                 .collect::<Result<BTreeSet<_>>>()?;
             modules.insert(PathBuf::from(file), dependencies);
@@ -317,15 +327,18 @@ pub fn git_changed_files_with_options(
     })
 }
 
-fn discover_modules(options: &GraphOptions<'_>) -> Result<Vec<PathBuf>> {
-    let ignore_patterns = options
+fn compile_module_path_ignore_patterns(options: &GraphOptions<'_>) -> Result<Vec<Regex>> {
+    options
         .module_path_ignore_patterns
         .iter()
         .map(|pattern| {
             Regex::new(pattern)
                 .with_context(|| format!("invalid modulePathIgnorePatterns regex `{pattern}`"))
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect()
+}
+
+fn discover_modules(options: &GraphOptions<'_>, ignore_patterns: &[Regex]) -> Result<Vec<PathBuf>> {
     let extensions = options
         .module_file_extensions
         .iter()
@@ -336,7 +349,7 @@ fn discover_modules(options: &GraphOptions<'_>) -> Result<Vec<PathBuf>> {
         for entry in WalkDir::new(root)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|entry| should_visit(entry, &ignore_patterns))
+            .filter_entry(|entry| should_visit(entry, ignore_patterns))
         {
             let entry = entry.with_context(|| format!("cannot scan `{}`", root.display()))?;
             if !entry.file_type().is_file() {
@@ -358,8 +371,12 @@ fn should_visit(entry: &DirEntry, ignore_patterns: &[Regex]) -> bool {
     {
         return false;
     }
-    let normalized = entry.path().to_string_lossy().replace('\\', "/");
-    !ignore_patterns
+    !path_is_ignored(entry.path(), ignore_patterns)
+}
+
+fn path_is_ignored(path: &Path, ignore_patterns: &[Regex]) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    ignore_patterns
         .iter()
         .any(|pattern| pattern.is_match(&normalized))
 }
