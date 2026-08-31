@@ -9,10 +9,10 @@ output differences. Oracle fixtures run from fresh copies with both runners'
 caches disabled, so stale haste/performance data cannot alter a differential
 unless a scenario explicitly tests caching.
 
-The current generated matrix is 232/232 (100.0%) across its explicitly listed
+The current generated matrix is 233/233 (100.0%) across its explicitly listed
 scenarios and categories. Core API is 16/16 (100.0%), ESM is 8/8 (100.0%),
 transforms are 7/7 (100.0%), mocks are 16/16 (100.0%), and configuration is
-50/50 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
+51/51 (100.0%). Resolution is 12/12 (100.0%), snapshots are 16/16 (100.0%),
 Expect is 14/14 (100.0%), CLI is 36/36 (100.0%), and environments are 7/7
 (100.0%). Fake timers are 20/20 (100.0%), coverage is 19/19 (100.0%), and custom
 reporters are 7/7 (100.0%), and Watch is 4/4 (100.0%). These
@@ -327,6 +327,9 @@ off `globalThis` while preserving explicit CommonJS imports from
 `testFailureExitCode` controls the process status for completed unsuccessful
 runs while successful runs remain zero and configuration/runtime errors retain
 their own failure boundary.
+`testLocationInResults` adds Jest-shaped one-based `{line, column}` declaration
+positions to JSON test results. The differential compares exact top-level and
+indented nested locations rather than only checking that the field exists.
 `jest.isEnvironmentTornDown()` is false while test code runs and flips before
 the custom environment teardown hook, matching the official runtime boundary.
 The differential probe preserves both observations through one captured Jest

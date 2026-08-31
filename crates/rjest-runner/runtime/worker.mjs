@@ -14,7 +14,7 @@ import {
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
-const PROTOCOL_VERSION = 26;
+const PROTOCOL_VERSION = 27;
 const supportsSyncEvaluate =
   typeof vm.SourceTextModule?.prototype.hasAsyncGraph === 'function';
 const RESULT_PREFIX = '__RJEST_RESULT__';
@@ -313,6 +313,9 @@ function defineTest(
     parent: currentSuite,
     invocations: 0,
     retryReasons: [],
+    location: request.testLocationInResults
+      ? testFileStackFrame(new Error())
+      : undefined,
   };
   currentSuite.children.push(node);
   dispatchCustomEnvironmentSyncEvent({
@@ -990,7 +993,7 @@ function stripInlineSnapshotIndentation(inlineSnapshot) {
   return lines.join('\n');
 }
 
-function inlineSnapshotFrame(error) {
+function testFileStackFrame(error) {
   const testPath = normalizedRuntimePath(request.testPath);
   for (const line of String(error?.stack ?? '').split('\n')) {
     const trimmed = line.trim();
@@ -1012,6 +1015,12 @@ function inlineSnapshotFrame(error) {
       column: Number.parseInt(match[3], 10),
     };
   }
+  return undefined;
+}
+
+function inlineSnapshotFrame(error) {
+  const frame = testFileStackFrame(error);
+  if (frame) return frame;
   throw new Error("Jest: Couldn't infer stack frame for inline snapshot.");
 }
 
@@ -7685,6 +7694,7 @@ function skippedResults(node, status = 'skipped') {
       numPassingAsserts: 0,
       invocations: 0,
       retryReasons: [],
+      location: node.location,
     };
     result[RESULT_TEST_NODE] = node;
     return [result];
@@ -7728,6 +7738,7 @@ async function runTestWithContext(
     numPassingAsserts: 0,
     invocations: node.invocations ?? 0,
     retryReasons: [...(node.retryReasons ?? [])],
+    location: node.location,
   };
   result[RESULT_TEST_NODE] = node;
   result.startedAt = NativeDate.now();

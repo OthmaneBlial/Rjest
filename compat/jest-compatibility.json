@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 232,
-    "total": 232,
+    "passing": 233,
+    "total": 233,
     "percentage": 100
   },
   "categories": {
@@ -14,8 +14,8 @@
       "percentage": 100
     },
     "Configuration": {
-      "passing": 50,
-      "total": 50,
+      "passing": 51,
+      "total": 51,
       "percentage": 100
     },
     "Core API": {
@@ -232,6 +232,12 @@
     },
     {
       "name": "config-test-failure-exit-code",
+      "category": "Configuration",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "config-test-location-results",
       "category": "Configuration",
       "compatible": true,
       "differences": []

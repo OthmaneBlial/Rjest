@@ -129,6 +129,7 @@ pub struct ProjectConfig {
     pub test_environment: String,
     pub test_environment_options: Value,
     pub test_failure_exit_code: i32,
+    pub test_location_in_results: bool,
     pub setup_files: Vec<PathBuf>,
     pub setup_files_after_env: Vec<PathBuf>,
     pub snapshot_serializers: Vec<String>,
@@ -213,6 +214,7 @@ struct RawProjectConfig {
     test_environment: Option<String>,
     test_environment_options: Option<Value>,
     test_failure_exit_code: Option<i32>,
+    test_location_in_results: Option<bool>,
     setup_files: Option<Vec<String>>,
     setup_files_after_env: Option<Vec<String>>,
     snapshot_serializers: Option<Vec<String>>,
@@ -402,6 +404,7 @@ impl ProjectConfig {
             test_environment: "node".into(),
             test_environment_options: serde_json::json!({}),
             test_failure_exit_code: 1,
+            test_location_in_results: false,
             setup_files: Vec::new(),
             setup_files_after_env: Vec::new(),
             snapshot_serializers: Vec::new(),
@@ -730,6 +733,7 @@ fn merge_preset(
         test_environment,
         test_environment_options,
         test_failure_exit_code,
+        test_location_in_results,
         snapshot_serializers,
         snapshot_format,
         transform_ignore_patterns,
@@ -1033,6 +1037,9 @@ fn normalize(
         test_failure_exit_code: raw
             .test_failure_exit_code
             .unwrap_or(defaults.test_failure_exit_code),
+        test_location_in_results: raw
+            .test_location_in_results
+            .unwrap_or(defaults.test_location_in_results),
         setup_files,
         setup_files_after_env,
         snapshot_serializers: raw
@@ -1927,6 +1934,7 @@ mod tests {
         assert!(!config.pass_with_no_tests);
         assert!(config.inject_globals);
         assert_eq!(config.test_failure_exit_code, 1);
+        assert!(!config.test_location_in_results);
         assert!(config.watch_path_ignore_patterns.is_empty());
         assert!(config.watchman);
     }
@@ -2005,7 +2013,8 @@ mod tests {
               "onlyChanged":true,
               "onlyFailures":true,
               "passWithNoTests":true,
-              "testFailureExitCode":7
+              "testFailureExitCode":7,
+              "testLocationInResults":true
             }"#,
         )
         .expect("Granite-style runtime config");
@@ -2022,11 +2031,13 @@ mod tests {
         assert!(config.only_failures);
         assert!(config.pass_with_no_tests);
         assert_eq!(config.test_failure_exit_code, 7);
+        assert!(config.test_location_in_results);
 
         let serialized = serde_json::to_value(config).expect("serialized config");
         assert_eq!(serialized["maxConcurrency"], 1);
         assert_eq!(serialized["injectGlobals"], false);
         assert_eq!(serialized["testFailureExitCode"], 7);
+        assert_eq!(serialized["testLocationInResults"], true);
         assert_eq!(serialized["onlyChanged"], true);
         assert_eq!(serialized["onlyFailures"], true);
         assert_eq!(serialized["haste"]["defaultPlatform"], "ios");

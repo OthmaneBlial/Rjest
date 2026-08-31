@@ -200,6 +200,13 @@ const cases = [
     useFixtureConfig: true,
   },
   {
+    name: 'config-test-location-results',
+    category: 'Configuration',
+    compareLocation: true,
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
     name: 'config-pass-with-no-tests',
     category: 'Configuration',
     expectedExit: 0,
@@ -2882,6 +2889,9 @@ function normalizeJest(result, testCase) {
           file: basename(file.name),
           fullName: test.fullName,
           status: normalizeStatus(test.status),
+          ...(testCase.compareLocation
+            ? {location: normalizeLocation(test.location)}
+            : {}),
           ...(testCase.compareRetryMetadata
             ? {
                 invocations: test.invocations ?? 0,
@@ -2914,6 +2924,9 @@ function normalizeRjest(result, testCase) {
           file: basename(file.testPath),
           fullName: test.fullName,
           status: normalizeStatus(test.status),
+          ...(testCase.compareLocation
+            ? {location: normalizeLocation(test.location)}
+            : {}),
           ...(testCase.compareRetryMetadata
             ? {
                 invocations: test.invocations ?? 0,
@@ -2929,6 +2942,12 @@ function normalizeRjest(result, testCase) {
 
 function normalizeStatus(status) {
   return status === 'pending' || status === 'disabled' ? 'skipped' : status;
+}
+
+function normalizeLocation(location) {
+  return location
+    ? {column: location.column, line: location.line}
+    : null;
 }
 
 function normalizeProcessOutput(run) {
