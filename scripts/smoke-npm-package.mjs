@@ -39,7 +39,7 @@ try {
     JSON.stringify({ private: true, name: "rjest-npm-smoke" })
   );
   run(npm, ["install", "--ignore-scripts", tarball], smokeRoot);
-  run(npm, ["rebuild", "rjest-runner"], smokeRoot);
+  run(npm, ["rebuild", "rjest-rust-runner"], smokeRoot);
 
   writeFileSync(
     join(smokeRoot, "smoke.test.js"),
