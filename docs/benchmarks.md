@@ -6,8 +6,24 @@ release-mode Rjest binary on the same generated files and refuses to start timin
 until both runners agree on the expected suites, tests, passes, failures, file
 errors, or discovered path set.
 
-No controlled result is published yet. The first committed machine report will
-be linked here after the full benchmark completes from a clean source commit.
+## Published result
+
+The first controlled report was captured from clean commit `4a47dd3` on an
+Apple M2 with 16 GiB of memory, Node 25.9.0, the pinned Jest 30.5.0 package, and
+Rjest 0.1.0-alpha.1. It used two warm-up pairs and ten alternating measured
+pairs per workload with caches disabled for both runners.
+
+| Workload             | Jest median | Rjest median |    Rjest vs Jest |
+| -------------------- | ----------: | -----------: | ---------------: |
+| Cold start           |    737.2 ms |     462.9 ms | **1.59× faster** |
+| Assertion throughput |      2.19 s |     764.4 ms | **2.86× faster** |
+| Many files           |      1.92 s |       5.43 s | **2.83× slower** |
+| Discovery            |    727.5 ms |     184.0 ms | **3.95× faster** |
+
+Read the [formatted Apple M2 report](../benchmarks/results/apple-m2-2026-09-01.md)
+for variability, memory observations, exact commands, versions, and limitations.
+The [raw JSON report](../benchmarks/results/apple-m2-2026-09-01.json) retains all
+timing and peak-RSS samples.
 
 ## Workloads
 

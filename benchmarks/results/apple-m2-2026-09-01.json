@@ -1,0 +1,452 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T10:21:31.751Z",
+  "outputJson": "apple-m2-2026-09-01.json",
+  "source": {
+    "repository": "https://github.com/OthmaneBlial/rjest",
+    "commit": "4a47dd3a91c461cc47519b5ad8aa4477f51f2fd1",
+    "dirty": false
+  },
+  "machine": {
+    "label": "Apple M2 · 16 GiB",
+    "cpu": "Apple M2",
+    "logicalCpus": 8,
+    "totalMemoryBytes": 17179869184,
+    "platform": "darwin",
+    "release": "25.6.0",
+    "arch": "arm64"
+  },
+  "versions": {
+    "node": "v25.9.0",
+    "rust": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "jestPackage": "30.5.0",
+    "jestCli": "30.4.2",
+    "rjest": "rjest 0.1.0-alpha.1"
+  },
+  "method": {
+    "warmups": 2,
+    "runs": 10,
+    "alternatingOrder": true,
+    "cache": "disabled for both runners",
+    "memoryTool": "macOS /usr/bin/time -l"
+  },
+  "workloads": [
+    {
+      "id": "startup",
+      "name": "Cold start",
+      "description": "one Node test file and one assertion",
+      "mode": "serial",
+      "expectedSuites": 1,
+      "expectedTests": 1,
+      "directory": "benchmarks/generated/startup",
+      "config": "benchmarks/generated/startup/jest.config.cjs",
+      "verification": {
+        "jest": {
+          "suites": 1,
+          "tests": 1,
+          "passed": 1,
+          "failed": 0,
+          "fileErrors": 0
+        },
+        "rjest": {
+          "suites": 1,
+          "tests": 1,
+          "passed": 1,
+          "failed": 0,
+          "fileErrors": 0
+        }
+      },
+      "commands": {
+        "jest": "node_modules/jest/bin/jest.js --config=./benchmarks/generated/startup/jest.config.cjs --runInBand --no-cache --ci --silent",
+        "rjest": "target/release/rjest --config=./benchmarks/generated/startup/jest.config.cjs --runInBand --no-cache --ci --silent"
+      },
+      "comparison": {
+        "speedup": 1.5925774332911318,
+        "winner": "rjest",
+        "label": "1.59x faster"
+      },
+      "runners": {
+        "jest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 737.1788125,
+            "meanMs": 735.1857207999999,
+            "minMs": 577.092292,
+            "maxMs": 854.109875,
+            "standardDeviationMs": 93.9655190327281
+          },
+          "samplesMs": [
+            828.704084,
+            833.568458,
+            762.755792,
+            824.77975,
+            854.109875,
+            711.601833,
+            680.975125,
+            638.831458,
+            577.092292,
+            639.438541
+          ],
+          "peakRssBytes": 99270656,
+          "peakRssSamplesBytes": [
+            98369536,
+            99270656,
+            98762752,
+            98418688,
+            98975744,
+            97828864,
+            95256576,
+            95174656,
+            95207424,
+            94978048
+          ]
+        },
+        "rjest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 462.8841255,
+            "meanMs": 471.4858918000001,
+            "minMs": 373.30625,
+            "maxMs": 569.183792,
+            "standardDeviationMs": 71.83468041073426
+          },
+          "samplesMs": [
+            569.183792,
+            555.704208,
+            563.62875,
+            514.449292,
+            373.30625,
+            448.056667,
+            422.987,
+            477.711584,
+            382.199875,
+            407.6315
+          ],
+          "peakRssBytes": 68567040,
+          "peakRssSamplesBytes": [
+            68403200,
+            68255744,
+            68517888,
+            68435968,
+            68190208,
+            68567040,
+            68222976,
+            68108288,
+            68321280,
+            68075520
+          ]
+        }
+      }
+    },
+    {
+      "id": "assertions",
+      "name": "Assertion throughput",
+      "description": "50,000 Jest-style equality assertions in one file",
+      "mode": "serial",
+      "expectedSuites": 1,
+      "expectedTests": 1,
+      "directory": "benchmarks/generated/assertions",
+      "config": "benchmarks/generated/assertions/jest.config.cjs",
+      "verification": {
+        "jest": {
+          "suites": 1,
+          "tests": 1,
+          "passed": 1,
+          "failed": 0,
+          "fileErrors": 0
+        },
+        "rjest": {
+          "suites": 1,
+          "tests": 1,
+          "passed": 1,
+          "failed": 0,
+          "fileErrors": 0
+        }
+      },
+      "commands": {
+        "jest": "node_modules/jest/bin/jest.js --config=./benchmarks/generated/assertions/jest.config.cjs --runInBand --no-cache --ci --silent",
+        "rjest": "target/release/rjest --config=./benchmarks/generated/assertions/jest.config.cjs --runInBand --no-cache --ci --silent"
+      },
+      "comparison": {
+        "speedup": 2.864873371712335,
+        "winner": "rjest",
+        "label": "2.86x faster"
+      },
+      "runners": {
+        "jest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 2189.941375,
+            "meanMs": 2218.0652330999997,
+            "minMs": 2045.115416,
+            "maxMs": 2569.381583,
+            "standardDeviationMs": 126.73474023336611
+          },
+          "samplesMs": [
+            2180.105416,
+            2045.115416,
+            2168.899917,
+            2234.145583,
+            2190.140708,
+            2189.742042,
+            2219.400916,
+            2202.06375,
+            2569.381583,
+            2181.657
+          ],
+          "peakRssBytes": 121569280,
+          "peakRssSamplesBytes": [
+            120815616,
+            121176064,
+            121110528,
+            120553472,
+            120455168,
+            119439360,
+            121061376,
+            120504320,
+            121569280,
+            121061376
+          ]
+        },
+        "rjest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 764.411229,
+            "meanMs": 792.6397875,
+            "minMs": 641.953084,
+            "maxMs": 1049.566959,
+            "standardDeviationMs": 106.81683193597753
+          },
+          "samplesMs": [
+            641.953084,
+            715.495875,
+            715.024291,
+            766.973541,
+            742.4715,
+            816.083583,
+            761.848917,
+            853.052541,
+            1049.566959,
+            863.927584
+          ],
+          "peakRssBytes": 150454272,
+          "peakRssSamplesBytes": [
+            149766144,
+            149913600,
+            149700608,
+            149700608,
+            149667840,
+            150454272,
+            149946368,
+            149635072,
+            149389312,
+            149176320
+          ]
+        }
+      }
+    },
+    {
+      "id": "many-files",
+      "name": "Many files",
+      "description": "48 files and 384 tests across four workers",
+      "mode": "parallel",
+      "workers": 4,
+      "expectedSuites": 48,
+      "expectedTests": 384,
+      "directory": "benchmarks/generated/many-files",
+      "config": "benchmarks/generated/many-files/jest.config.cjs",
+      "verification": {
+        "jest": {
+          "suites": 48,
+          "tests": 384,
+          "passed": 384,
+          "failed": 0,
+          "fileErrors": 0
+        },
+        "rjest": {
+          "suites": 48,
+          "tests": 384,
+          "passed": 384,
+          "failed": 0,
+          "fileErrors": 0
+        }
+      },
+      "commands": {
+        "jest": "node_modules/jest/bin/jest.js --config=./benchmarks/generated/many-files/jest.config.cjs --maxWorkers=4 --no-cache --ci --silent",
+        "rjest": "target/release/rjest --config=./benchmarks/generated/many-files/jest.config.cjs --maxWorkers=4 --no-cache --ci --silent"
+      },
+      "comparison": {
+        "speedup": 0.3539308358103261,
+        "winner": "jest",
+        "label": "2.83x slower"
+      },
+      "runners": {
+        "jest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 1920.337187,
+            "meanMs": 2292.8980001000004,
+            "minMs": 1736.207834,
+            "maxMs": 3988.262583,
+            "standardDeviationMs": 703.1880625389181
+          },
+          "samplesMs": [
+            3988.262583,
+            3232.2135,
+            2319.585167,
+            1884.39475,
+            1828.50825,
+            2271.580959,
+            1934.603458,
+            1827.552584,
+            1736.207834,
+            1906.070916
+          ],
+          "peakRssBytes": 129794048,
+          "peakRssSamplesBytes": [
+            125698048,
+            129794048,
+            128466944,
+            126828544,
+            127811584,
+            128827392,
+            127467520,
+            128532480,
+            128303104,
+            128368640
+          ]
+        },
+        "rjest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 5425.7413955,
+            "meanMs": 6540.338233199999,
+            "minMs": 4869.212125,
+            "maxMs": 9954.841667,
+            "standardDeviationMs": 1906.4018971525659
+          },
+          "samplesMs": [
+            9661.291125,
+            9954.841667,
+            7086.735833,
+            8007.3165,
+            5076.459833,
+            4959.688583,
+            4869.212125,
+            5390.72775,
+            5460.755041,
+            4936.353875
+          ],
+          "peakRssBytes": 69255168,
+          "peakRssSamplesBytes": [
+            68894720,
+            69091328,
+            69074944,
+            69058560,
+            69009408,
+            69025792,
+            69255168,
+            69042176,
+            68894720,
+            68993024
+          ]
+        }
+      }
+    },
+    {
+      "id": "discovery",
+      "name": "Discovery",
+      "description": "list 1,500 test files without executing them",
+      "mode": "list",
+      "expectedSuites": 1500,
+      "expectedTests": 0,
+      "directory": "benchmarks/generated/discovery",
+      "config": "benchmarks/generated/discovery/jest.config.cjs",
+      "verification": {
+        "listedSuites": 1500,
+        "exactPathSet": true
+      },
+      "commands": {
+        "jest": "node_modules/jest/bin/jest.js --config=./benchmarks/generated/discovery/jest.config.cjs --listTests --no-cache",
+        "rjest": "target/release/rjest --config=./benchmarks/generated/discovery/jest.config.cjs --listTests --no-cache"
+      },
+      "comparison": {
+        "speedup": 3.952969611417788,
+        "winner": "rjest",
+        "label": "3.95x faster"
+      },
+      "runners": {
+        "jest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 727.515562,
+            "meanMs": 763.2283540999999,
+            "minMs": 679.656792,
+            "maxMs": 1145.682625,
+            "standardDeviationMs": 130.52881630602957
+          },
+          "samplesMs": [
+            682.28975,
+            708.064542,
+            1145.682625,
+            679.656792,
+            747.325042,
+            700.024333,
+            745.233208,
+            753.441333,
+            709.797916,
+            760.768
+          ],
+          "peakRssBytes": 87572480,
+          "peakRssSamplesBytes": [
+            86638592,
+            87572480,
+            87441408,
+            87031808,
+            87474176,
+            87261184,
+            87293952,
+            87326720,
+            87539712,
+            86818816
+          ]
+        },
+        "rjest": {
+          "timing": {
+            "samples": 10,
+            "medianMs": 184.04279150000002,
+            "meanMs": 183.55449579999998,
+            "minMs": 161.090459,
+            "maxMs": 201.127875,
+            "standardDeviationMs": 13.051167594981596
+          },
+          "samplesMs": [
+            193.168875,
+            161.090459,
+            201.127875,
+            175.090833,
+            196.268292,
+            169.6715,
+            192.525583,
+            175.56,
+            195.992166,
+            175.049375
+          ],
+          "peakRssBytes": 50020352,
+          "peakRssSamplesBytes": [
+            49758208,
+            49790976,
+            49725440,
+            50020352,
+            49692672,
+            49692672,
+            49823744,
+            49594368,
+            49889280,
+            49758208
+          ]
+        }
+      }
+    }
+  ]
+}
