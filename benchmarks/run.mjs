@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { arch, cpus, platform, release, totalmem } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { format as formatWithPrettier } from "prettier";
 
 import { generateWorkloads, generatedDir } from "./generate.mjs";
 import {
@@ -150,7 +151,10 @@ const report = {
 };
 
 await writeFile(outputJson, `${JSON.stringify(report, null, 2)}\n`);
-await writeFile(outputMarkdown, renderMarkdown(report));
+await writeFile(
+  outputMarkdown,
+  await formatWithPrettier(renderMarkdown(report), { parser: "markdown" }),
+);
 process.stdout.write(
   `Reports written to ${relative(projectDir, outputJson)} and ${relative(projectDir, outputMarkdown)}\n`,
 );

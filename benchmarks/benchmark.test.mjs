@@ -6,6 +6,7 @@ import {
   compareMedians,
   median,
   normalizeExecutionResult,
+  renderMarkdown,
   summarize,
 } from "./lib.mjs";
 
@@ -68,4 +69,54 @@ test("rejects a timing fixture before measurement when parity is absent", () => 
     () => assertEquivalentExecution(workload, jest, rjest),
     /Rjest passed was 0, expected 1/u,
   );
+});
+
+test("renders median claims with visible variability and exact version metadata", () => {
+  const timing = {
+    samples: 3,
+    medianMs: 100,
+    meanMs: 110,
+    minMs: 90,
+    maxMs: 140,
+    standardDeviationMs: 20,
+  };
+  const report = {
+    capturedAt: "2026-09-01T00:00:00.000Z",
+    source: { commit: "abc123", dirty: false },
+    machine: {
+      label: "Test machine",
+      platform: "test-os",
+      release: "1",
+      arch: "arm64",
+      totalMemoryBytes: 1024 * 1024,
+    },
+    versions: {
+      node: "v25.9.0",
+      rust: "rustc 1.95.0",
+      jestPackage: "30.5.0",
+      jestCli: "30.4.2",
+      rjest: "rjest 0.1.0-alpha.1",
+    },
+    method: { warmups: 2, runs: 3 },
+    workloads: [
+      {
+        name: "Probe",
+        description: "one deterministic probe",
+        commands: { jest: "jest probe", rjest: "rjest probe" },
+        runners: {
+          jest: { timing, peakRssBytes: 2 * 1024 * 1024 },
+          rjest: {
+            timing: { ...timing, medianMs: 50 },
+            peakRssBytes: 1024 * 1024,
+          },
+        },
+      },
+    ],
+    outputJson: "report.json",
+  };
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /2\.00x faster/u);
+  assert.match(markdown, /## Variability/u);
+  assert.match(markdown, /110\.0 ms mean · σ 20\.0 ms · 90\.0 ms–140\.0 ms/u);
+  assert.match(markdown, /Jest package: 30\.5\.0 \(CLI reports 30\.4\.2\)/u);
 });

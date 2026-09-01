@@ -141,6 +141,20 @@ export function renderMarkdown(report) {
     "",
     "Peak RSS is the maximum value reported by `/usr/bin/time` across measured runs when that tool is supported. It is not a sum of every concurrently live worker.",
     "",
+    "## Variability",
+    "",
+    "| Workload | Jest mean and spread | Rjest mean and spread |",
+    "| --- | ---: | ---: |",
+  );
+  for (const workload of report.workloads) {
+    lines.push(
+      `| ${workload.name} | ${formatSpread(workload.runners.jest.timing)} | ${formatSpread(workload.runners.rjest.timing)} |`,
+    );
+  }
+  lines.push(
+    "",
+    "Spread is the population standard deviation followed by the observed minimum–maximum range. The relative result above is Jest median divided by Rjest median.",
+    "",
     "## Method",
     "",
     `- ${report.method.warmups} warm-up pair(s), then ${report.method.runs} measured pair(s) per workload.`,
@@ -192,4 +206,8 @@ export function renderMarkdown(report) {
 
 function formatRatio(value) {
   return value >= 10 ? value.toFixed(1) : value.toFixed(2);
+}
+
+function formatSpread(timing) {
+  return `${formatDuration(timing.meanMs)} mean · σ ${formatDuration(timing.standardDeviationMs)} · ${formatDuration(timing.minMs)}–${formatDuration(timing.maxMs)}`;
 }
