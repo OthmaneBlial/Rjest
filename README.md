@@ -6,12 +6,13 @@
 
 ### JavaScript and TypeScript testing without rewriting your Jest suite
 
-**Keep your tests. Change the engine.**
+**Keep your tests. Change the engine. Measure the difference.**
 
-[Website](https://othmaneblial.github.io/rjest/) · [**Project status: ≈91% directional readiness**](docs/project-status.md) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
+[Website](https://othmaneblial.github.io/rjest/) · [**Benchmarks: 3 measured wins, 1 known loss**](docs/benchmarks.md) · [**Project status: ≈91% directional readiness**](docs/project-status.md) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
 [![Jest differential: 286/286](https://img.shields.io/badge/Jest_differential-286%2F286-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
+[![Measured discovery: 3.95x faster](https://img.shields.io/badge/measured_discovery-3.95x_faster-bbff2c?style=for-the-badge)](benchmarks/results/apple-m2-2026-09-01.md)
 [![Readiness: about 91%](https://img.shields.io/badge/readiness-about_91%25_directional-f4b942?style=for-the-badge)](docs/project-status.md)
 [![Coordinator: Rust](https://img.shields.io/badge/coordinator-Rust-111511?style=for-the-badge&logo=rust)](docs/architecture.md)
 [![Runtime: Node 22.18+](https://img.shields.io/badge/runtime-Node_22.18%2B-111511?style=for-the-badge&logo=nodedotjs)](docs/development.md)
@@ -36,6 +37,12 @@ scheduling, dependency analysis, process control, coverage aggregation, and
 reporting into Rust. Every compatibility claim must survive the same fixture
 under official Jest and Rjest.
 
+That split is already measurable. In a controlled Apple M2 comparison, Rjest
+was **1.59× faster at cold start**, **2.86× faster across 50,000 assertions**,
+and **3.95× faster listing 1,500 test files**. It was also **2.83× slower** on a
+48-file workload because fresh workers are not reused yet. The wins and the loss
+come from the same ten-run report.
+
 > Alpha status: Rjest already runs substantial React, TypeScript, Node, JSDOM,
 > CommonJS, ESM, snapshot, mock, fake-timer, coverage, and monorepo suites. It
 > does not cover the entire Jest surface yet, and the npm package is not
@@ -55,7 +62,27 @@ under official Jest and Rjest.
 | Is compatibility measured against official Jest?                 | **286 / 286 executable scenarios pass**            |
 | Has it run serious public projects?                              | **25 pinned corpus reports**                       |
 | Is it production-ready everywhere?                               | No. Current directional readiness is **about 91%** |
-| Is it already faster than Jest?                                  | No published claim yet; correctness comes first    |
+| Is it already faster than Jest?                                  | On 3 controlled workloads; slower on many files    |
+
+## Rust speed, with receipts
+
+Rjest was rebuilt to make the coordination layer native: startup, discovery,
+selection, scheduling, aggregation, and reporting no longer need to live inside
+the JavaScript runner. The first controlled benchmark shows where that decision
+already pays off—and where it does not.
+
+| Apple M2 · caches off · 10 measured pairs | Jest median | Rjest median |    Rjest vs Jest |
+| ----------------------------------------- | ----------: | -----------: | ---------------: |
+| Cold start · 1 file, 1 assertion          |    737.2 ms |     462.9 ms | **1.59× faster** |
+| Assertion throughput · 50,000 assertions  |      2.19 s |     764.4 ms | **2.86× faster** |
+| Discovery · list 1,500 files              |    727.5 ms |     184.0 ms | **3.95× faster** |
+| Many files · 48 files, 4 workers          |      1.92 s |       5.43 s | **2.83× slower** |
+
+Both runners first had to match the expected result or discovered path set.
+Every command, version, raw sample, median, variance, and memory observation is
+in the [full performance report](benchmarks/results/apple-m2-2026-09-01.md) and
+[raw JSON](benchmarks/results/apple-m2-2026-09-01.json). These are measurements
+for named workloads, not a universal speed claim.
 
 ## Compatibility with receipts
 
@@ -206,7 +233,9 @@ config + discovery  ->  isolated test workers  ->  results + snapshots + coverag
 
 Rust owns coordination: filesystem scans, configuration normalization,
 dependency graphs, scheduling, worker lifecycles, aggregation, coverage merging,
-and snapshot persistence.
+and snapshot persistence. That native boundary is why controlled discovery is
+already **3.95× faster** and cold start is **1.59× faster** on the published
+Apple M2 workload.
 
 Node owns JavaScript semantics: module loading, Jest transformers, custom
 environments, runtime extensions, and the test code itself.
@@ -216,16 +245,16 @@ aggregation stays deterministic, but startup cost is real. Worker reuse and
 persistent transform/discovery caches remain open work. The architectural
 reasoning starts in [ADR 0001](docs/adr/0001-hybrid-node-runtime.md).
 
-## Correctness before speed
+## The honest performance boundary
 
-There is deliberately no "10x faster" badge in this README. The project has not
-published a controlled performance result yet, and some transform-heavy suites
-are currently slower than Jest because workers are not reused.
+Rjest does not turn one favorable microbenchmark into “faster than Jest.” The
+same report that shows three wins records a **2.83× regression** across 48 small
+files. Each file currently pays for a fresh Node process, so worker reuse and
+persistent transform caches are the next major performance target.
 
-When benchmarks are published, they will include the exact suite, machine,
-versions, commands, warm-up policy, medians, variance, and peak memory. A runner
-that skips behavior does not get to call itself fast. See the
-[benchmark policy](docs/benchmarks.md).
+A runner that skips behavior does not get to call itself fast. Benchmark timing
+starts only after Jest and Rjest match the expected suite result or discovery
+set. Read the [benchmark method and publication policy](docs/benchmarks.md).
 
 ## Honest alpha boundaries
 
