@@ -11,7 +11,7 @@
 [Website](https://othmaneblial.github.io/rjest/) · [**Benchmarks: 3 measured wins, 1 known loss**](docs/benchmarks.md) · [**Project status: ≈91% directional readiness**](docs/project-status.md) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
-[![npm alpha](https://img.shields.io/npm/v/rjest/alpha?style=for-the-badge&label=npm%20alpha)](https://www.npmjs.com/package/rjest)
+[![npm alpha](https://img.shields.io/npm/v/rjest-runner/alpha?style=for-the-badge&label=npm%20alpha)](https://www.npmjs.com/package/rjest-runner)
 [![Jest differential: 286/286](https://img.shields.io/badge/Jest_differential-286%2F286-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Measured discovery: 3.95x faster](https://img.shields.io/badge/measured_discovery-3.95x_faster-bbff2c?style=for-the-badge)](benchmarks/results/apple-m2-2026-09-01.md)
 [![Readiness: about 91%](https://img.shields.io/badge/readiness-about_91%25_directional-f4b942?style=for-the-badge)](docs/project-status.md)
@@ -141,7 +141,7 @@ timings, and memory where practical.
 Install the current alpha as a development dependency:
 
 ```sh
-npm install --save-dev rjest@alpha
+npm install --save-dev rjest-runner@alpha
 ```
 
 The alpha compiles its native coordinator for your machine during installation,

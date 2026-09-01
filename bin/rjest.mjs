@@ -11,7 +11,7 @@ const nativeBinary = join(packageRoot, "native", executableName);
 
 if (!existsSync(nativeBinary)) {
   console.error(
-    "Rjest's native binary is missing. Run `npm rebuild rjest` after installing Rust 1.85 or newer."
+    "Rjest's native binary is missing. Run `npm rebuild rjest-runner` after installing Rust 1.85 or newer."
   );
   process.exit(1);
 }

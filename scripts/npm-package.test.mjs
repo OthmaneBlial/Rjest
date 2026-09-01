@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
-test("publishes the alpha under the public rjest package name", () => {
-  assert.equal(manifest.name, "rjest");
+test("publishes the alpha under the public rjest-runner package name", () => {
+  assert.equal(manifest.name, "rjest-runner");
   assert.equal(manifest.version, "0.1.0-alpha.1");
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.bin.rjest, "bin/rjest.mjs");

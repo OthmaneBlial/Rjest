@@ -26,7 +26,7 @@ if (sourceCheckout) {
 const cargo = spawnSync("cargo", ["--version"], { encoding: "utf8" });
 if (cargo.error || cargo.status !== 0) {
   console.error(
-    "Rjest alpha compiles its native binary during installation. Install Rust 1.85 or newer from https://rustup.rs and run `npm rebuild rjest`."
+    "Rjest alpha compiles its native binary during installation. Install Rust 1.85 or newer from https://rustup.rs and run `npm rebuild rjest-runner`."
   );
   process.exit(1);
 }

@@ -1,5 +1,5 @@
 {
-  "name": "rjest",
+  "name": "rjest-runner",
   "version": "0.1.0-alpha.1",
   "description": "Rust-powered, Jest-compatible test runner with a native coordinator",
   "type": "module",
