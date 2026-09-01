@@ -11,6 +11,7 @@
 [Website](https://othmaneblial.github.io/rjest/) · [**Benchmarks: 3 measured wins, 1 known loss**](docs/benchmarks.md) · [**Project status: ≈91% directional readiness**](docs/project-status.md) · [Compatibility](docs/compatibility.md) · [Migration guide](docs/migration-from-jest.md) · [Architecture](docs/architecture.md)
 
 [![Status: alpha](https://img.shields.io/badge/status-alpha-f4b942?style=for-the-badge)](docs/progress.md)
+[![npm alpha](https://img.shields.io/npm/v/rjest/alpha?style=for-the-badge&label=npm%20alpha)](https://www.npmjs.com/package/rjest)
 [![Jest differential: 286/286](https://img.shields.io/badge/Jest_differential-286%2F286-bbff2c?style=for-the-badge)](compat/jest-compatibility.json)
 [![Measured discovery: 3.95x faster](https://img.shields.io/badge/measured_discovery-3.95x_faster-bbff2c?style=for-the-badge)](benchmarks/results/apple-m2-2026-09-01.md)
 [![Readiness: about 91%](https://img.shields.io/badge/readiness-about_91%25_directional-f4b942?style=for-the-badge)](docs/project-status.md)
@@ -45,8 +46,8 @@ come from the same ten-run report.
 
 > Alpha status: Rjest already runs substantial React, TypeScript, Node, JSDOM,
 > CommonJS, ESM, snapshot, mock, fake-timer, coverage, and monorepo suites. It
-> does not cover the entire Jest surface yet, and the npm package is not
-> published. Build it from source and keep Jest as your release gate for now.
+> does not cover the entire Jest surface yet. Keep Jest as your release gate and
+> compare both runners before adopting the alpha.
 
 > [Read the honest project status](docs/project-status.md): what **≈91%** means,
 > what is proven automatically, and what remains before a universal drop-in
@@ -137,14 +138,14 @@ timings, and memory where practical.
 
 ## Try Rjest on an existing suite
 
-The npm package is not published yet. Build the current alpha from source:
+Install the current alpha as a development dependency:
 
 ```sh
-git clone https://github.com/OthmaneBlial/rjest.git
-cd rjest
-npm ci
-cargo build --release -p rjest-cli
+npm install --save-dev rjest@alpha
 ```
+
+The alpha compiles its native coordinator for your machine during installation,
+so it currently requires Node.js 22.18 or newer and Rust 1.85 or newer.
 
 Start in an existing Jest project with the lowest-risk comparison:
 
@@ -152,13 +153,13 @@ Start in an existing Jest project with the lowest-risk comparison:
 cd /path/to/your-jest-project
 
 # Compare discovery first
-/path/to/rjest/target/release/rjest --listTests
+npx rjest --listTests
 
 # Then compare a deterministic serial run
-/path/to/rjest/target/release/rjest --runInBand
+npx rjest --runInBand
 
 # Finally, let Rjest schedule files in parallel
-/path/to/rjest/target/release/rjest
+npx rjest
 ```
 
 If both runners disagree, reduce the mismatch to one fixture and open an issue.

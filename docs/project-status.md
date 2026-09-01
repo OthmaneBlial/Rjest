@@ -41,17 +41,17 @@ of passing. A small unmeasured edge can block an otherwise ordinary project.
 
 Use the numbers separately:
 
-| Signal | Current result | Meaning |
-| --- | ---: | --- |
-| Differential matrix | **286/286** | 100% of the bounded, versioned scenarios pass |
-| Rust tests | **133/133** | The current native implementation test suite passes |
+| Signal                | Current result | Meaning                                                           |
+| --------------------- | -------------: | ----------------------------------------------------------------- |
+| Differential matrix   |    **286/286** | 100% of the bounded, versioned scenarios pass                     |
+| Rust tests            |    **133/133** | The current native implementation test suite passes               |
 | Real-project evidence | **25 reports** | Pinned suites and exact commands/results, not one aggregate score |
-| Directional readiness | **≈91%** | Engineering estimate, not an exhaustive Jest compatibility metric |
+| Directional readiness |       **≈91%** | Engineering estimate, not an exhaustive Jest compatibility metric |
 
 ## What remains
 
-- Publish and independently verify the npm package; today the alpha is built
-  from source.
+- Replace the npm alpha's install-time Rust compilation with signed prebuilt
+  binaries for supported macOS, Linux, and Windows targets.
 - Broaden custom runner, specialized reporter, watch-plugin, terminal-output,
   Mercurial/Sapling, strict pnpm, PnP fallback, platform glob, and resolver
   combinations.

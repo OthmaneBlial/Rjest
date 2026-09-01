@@ -1,12 +1,28 @@
 {
-  "name": "rjest-development",
+  "name": "rjest",
   "version": "0.1.0-alpha.1",
-  "private": true,
-  "description": "Local compatibility tooling for the Rust-powered Rjest test runner",
+  "description": "Rust-powered, Jest-compatible test runner with a native coordinator",
+  "type": "module",
+  "bin": {
+    "rjest": "bin/rjest.mjs"
+  },
+  "files": [
+    "bin/rjest.mjs",
+    "scripts/npm-install.mjs",
+    "crates",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "LICENSE",
+    "NOTICE.md",
+    "README.md"
+  ],
   "scripts": {
-    "check:runtime": "node --check crates/rjest-config/runtime/config-loader.mjs && node --check crates/rjest-cli/runtime/test-sequencer.mjs && node --check crates/rjest-cli/runtime/custom-reporters.mjs && node --check crates/rjest-cli/runtime/global-hooks.mjs && node --check crates/rjest-cli/runtime/test-results-processor.mjs && node --check crates/rjest-dependency/runtime/dependency-graph.mjs && node --check crates/rjest-runner/runtime/worker.mjs && node --check crates/rjest-runner/runtime/v8-coverage.mjs && node --check compat/harness.mjs && node --check compat/compare-corpus-results.mjs && node --check benchmarks/generate.mjs && node --check benchmarks/run.mjs && node --check site/app.js && node --test compat/compare-corpus-results.test.mjs benchmarks/benchmark.test.mjs",
+    "postinstall": "node scripts/npm-install.mjs",
+    "check:runtime": "node --check bin/rjest.mjs && node --check scripts/npm-install.mjs && node --check scripts/smoke-npm-package.mjs && node --check crates/rjest-config/runtime/config-loader.mjs && node --check crates/rjest-cli/runtime/test-sequencer.mjs && node --check crates/rjest-cli/runtime/custom-reporters.mjs && node --check crates/rjest-cli/runtime/global-hooks.mjs && node --check crates/rjest-cli/runtime/test-results-processor.mjs && node --check crates/rjest-dependency/runtime/dependency-graph.mjs && node --check crates/rjest-runner/runtime/worker.mjs && node --check crates/rjest-runner/runtime/v8-coverage.mjs && node --check compat/harness.mjs && node --check compat/compare-corpus-results.mjs && node --check benchmarks/generate.mjs && node --check benchmarks/run.mjs && node --check site/app.js && node --test scripts/npm-package.test.mjs compat/compare-corpus-results.test.mjs benchmarks/benchmark.test.mjs",
     "compat": "node compat/harness.mjs",
     "compare:corpus": "node compat/compare-corpus-results.mjs",
+    "smoke:package": "node scripts/smoke-npm-package.mjs",
     "benchmark:generate": "node benchmarks/generate.mjs",
     "benchmark": "node benchmarks/run.mjs",
     "benchmark:quick": "node benchmarks/run.mjs --quick"
@@ -38,5 +54,26 @@
   },
   "engines": {
     "node": ">=22.18.0"
+  },
+  "keywords": [
+    "jest",
+    "testing",
+    "test-runner",
+    "rust",
+    "javascript",
+    "typescript"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OthmaneBlial/Rjest.git"
+  },
+  "homepage": "https://othmaneblial.github.io/rjest/",
+  "bugs": {
+    "url": "https://github.com/OthmaneBlial/Rjest/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
   }
 }
