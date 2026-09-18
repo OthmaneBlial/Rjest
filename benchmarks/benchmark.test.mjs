@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assertEquivalentExecution,
+  assertFasterWorkloads,
   compareMedians,
   median,
   normalizeExecutionResult,
@@ -33,6 +34,27 @@ test("describes both speed wins and regressions", () => {
     winner: "jest",
     label: "4.00x slower",
   });
+});
+
+test("requires a median win in every workload without hiding a regression", () => {
+  const workload = (id, jest, rjest) => ({
+    id,
+    runners: {
+      jest: { timing: { medianMs: jest } },
+      rjest: { timing: { medianMs: rjest } },
+    },
+  });
+  assert.doesNotThrow(() => assertFasterWorkloads([workload("win", 200, 100)]));
+  assert.throws(() => assertFasterWorkloads([]), /no measured workloads/u);
+  assert.throws(
+    () =>
+      assertFasterWorkloads([
+        workload("win", 200, 100),
+        workload("slower", 100, 200),
+        workload("tie", 100, 100),
+      ]),
+    /failed: slower, tie/u,
+  );
 });
 
 test("normalizes native Rjest and Jest JSON summaries", () => {

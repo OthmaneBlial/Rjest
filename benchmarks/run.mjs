@@ -9,6 +9,7 @@ import { format as formatWithPrettier } from "prettier";
 import { generateWorkloads, generatedDir } from "./generate.mjs";
 import {
   assertEquivalentExecution,
+  assertFasterWorkloads,
   compareMedians,
   renderMarkdown,
   summarize,
@@ -29,7 +30,8 @@ if (args.help) {
       `  --warmups=N     Override warm-up pairs (default: 2)\n` +
       `  --runs=N        Override measured pairs (default: 10)\n` +
       `  --output=PATH   Write JSON and Markdown reports to PATH\n` +
-      `  --no-memory     Skip /usr/bin/time peak-RSS collection\n`,
+      `  --no-memory     Skip /usr/bin/time peak-RSS collection\n` +
+      `  --require-faster Fail unless Rjest wins every measured workload\n`,
   );
   process.exit(0);
 }
@@ -158,6 +160,7 @@ await writeFile(
 process.stdout.write(
   `Reports written to ${relative(projectDir, outputJson)} and ${relative(projectDir, outputMarkdown)}\n`,
 );
+if (args.requireFaster) assertFasterWorkloads(measuredWorkloads);
 
 async function verifyWorkload(workload) {
   if (workload.mode === "list") {
@@ -365,6 +368,7 @@ function parseArguments(values) {
     memory: true,
     output: undefined,
     help: false,
+    requireFaster: false,
   };
   for (const value of values) {
     if (value === "--quick") {
@@ -372,6 +376,8 @@ function parseArguments(values) {
       options.runs = 3;
     } else if (value === "--no-memory") {
       options.memory = false;
+    } else if (value === "--require-faster") {
+      options.requireFaster = true;
     } else if (value === "--help" || value === "-h") {
       options.help = true;
     } else if (value.startsWith("--warmups=")) {

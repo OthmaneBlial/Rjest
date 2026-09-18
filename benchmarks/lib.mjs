@@ -50,6 +50,19 @@ export function formatDuration(milliseconds) {
   return `${(milliseconds / 1_000).toFixed(2)} s`;
 }
 
+export function assertFasterWorkloads(workloads) {
+  if (workloads.length === 0) throw new Error("no measured workloads");
+  const regressions = workloads.filter(
+    ({ runners }) =>
+      runners.rjest.timing.medianMs >= runners.jest.timing.medianMs,
+  );
+  if (regressions.length > 0) {
+    throw new Error(
+      `Rjest must be faster in every measured workload; failed: ${regressions.map(({ id }) => id).join(", ")}`,
+    );
+  }
+}
+
 export function formatBytes(bytes) {
   if (!Number.isFinite(bytes)) return "n/a";
   const mebibytes = bytes / (1024 * 1024);
