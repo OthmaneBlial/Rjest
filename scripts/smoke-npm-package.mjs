@@ -1,4 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,6 +14,9 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const artifactDirectory = process.argv[2]
+  ? resolve(process.argv[2])
+  : undefined;
 const smokeRoot = mkdtempSync(join(tmpdir(), "rjest-npm-smoke-"));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
@@ -46,6 +56,10 @@ try {
     join(smokeRoot, "smoke.test.js"),
     "test('runs from the packed npm command', () => expect(21 * 2).toBe(42));\n",
   );
+  writeFileSync(
+    join(smokeRoot, "hosted.test.cjs"),
+    "test('loads CommonJS in a second packed suite', () => expect(require('node:path').basename('/first/second')).toBe('second'));\n",
+  );
 
   const version = run(
     npm,
@@ -56,16 +70,38 @@ try {
     throw new Error(`unexpected packed command version: ${version}`);
   }
 
-  const testRun = run(
+  const resultPath = join(smokeRoot, "test-result.json");
+  run(
     npm,
-    ["exec", "--", "rjest", "--runInBand", "smoke.test.js"],
+    [
+      "exec",
+      "--",
+      "rjest",
+      "--runInBand",
+      "--json",
+      `--outputFile=${resultPath}`,
+    ],
     smokeRoot,
   );
-  if (!testRun.includes("1 passed")) {
-    throw new Error("packed Rjest command did not pass the smoke suite");
+  const result = JSON.parse(readFileSync(resultPath, "utf8"));
+  const tests = result.testResults.flatMap((file) => file.tests);
+  if (
+    result.testResults.length !== 2 ||
+    tests.length !== 2 ||
+    tests.some((test) => test.status !== "passed")
+  ) {
+    throw new Error(
+      "packed Rjest command did not pass both hosted smoke suites",
+    );
   }
 
-  console.log(`Packed npm smoke passed: ${version}; 1 test passed.`);
+  console.log(`Packed npm smoke passed: ${version}; 2 hosted suites passed.`);
+  if (artifactDirectory) {
+    mkdirSync(artifactDirectory, { recursive: true });
+    const artifact = join(artifactDirectory, filename);
+    copyFileSync(tarball, artifact);
+    console.log(`Validated package saved to ${artifact}`);
+  }
   rmSync(smokeRoot, { recursive: true, force: true });
 } catch (error) {
   console.error(`Packed npm smoke failed. Artifacts kept at ${smokeRoot}`);
