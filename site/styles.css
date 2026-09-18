@@ -1886,3 +1886,20 @@ button {
     transform: none;
   }
 }
+
+.benchmark-context {
+  margin: 20px 0 0;
+  color: rgba(236, 235, 227, 0.65);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.benchmark-context a {
+  text-underline-offset: 3px;
+}
+
+.corpus-note {
+  margin: 16px 0 0;
+  color: #555b51;
+  font-size: 13px;
+}
