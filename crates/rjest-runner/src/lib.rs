@@ -1,10 +1,10 @@
-//! Bounded process-isolated JavaScript test execution.
+//! Bounded JavaScript execution with fresh per-file Node isolates.
 
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -26,7 +26,9 @@ use thiserror::Error;
 
 const RESULT_PREFIX: &str = "__RJEST_RESULT__";
 const EVENT_PREFIX: &str = "__RJEST_EVENT__";
+const HOST_PREFIX: &str = "__RJEST_HOST__";
 const WORKER_SOURCE: &str = include_str!("../runtime/worker.mjs");
+const HOST_SOURCE: &str = include_str!("../runtime/host.mjs");
 const V8_COVERAGE_SOURCE: &str = include_str!("../runtime/v8-coverage.mjs");
 
 /// Thread-safe signal used to interrupt an active test-file execution batch.
@@ -358,6 +360,11 @@ fn run_internal(
         .and_then(|()| worker_source.flush())
         .map_err(RunnerError::WorkerSource)?;
     let worker_path = worker_source.path();
+    let host = if files.len() > 1 {
+        Some(WorkerHost::new(options, worker_path)?)
+    } else {
+        None
+    };
     let started = Instant::now();
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.max_workers)
@@ -376,6 +383,7 @@ fn run_internal(
                         index == 0,
                         Cancellation::default(),
                         observer,
+                        host.as_ref(),
                     )? {
                         FileRunOutcome::Completed(result) => {
                             notify_file_result(observer, &result)?;
@@ -389,7 +397,7 @@ fn run_internal(
                 .collect::<Result<Vec<_>, _>>()
         })?
     } else {
-        run_files_with_cancellation(files, options, worker_path, &pool, observer)?
+        run_files_with_cancellation(files, options, worker_path, &pool, observer, host.as_ref())?
     };
     let mut test_results = results;
     test_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
@@ -492,6 +500,7 @@ fn run_files_with_cancellation(
     worker_path: &Path,
     pool: &rayon::ThreadPool,
     observer: Option<&dyn RunObserver>,
+    host: Option<&WorkerHost>,
 ) -> Result<Vec<TestFileResult>, RunnerError> {
     let bail_cancelled = AtomicBool::new(false);
     let cancellation = Cancellation {
@@ -515,6 +524,7 @@ fn run_files_with_cancellation(
                     index == 0,
                     cancellation,
                     observer,
+                    host,
                 )? {
                     FileRunOutcome::Completed(result) => *result,
                     FileRunOutcome::Cancelled => return Ok(None),
@@ -713,6 +723,7 @@ fn run_file(
     collect_uncovered_sources: bool,
     cancellation: Cancellation<'_>,
     observer: Option<&dyn RunObserver>,
+    host: Option<&WorkerHost>,
 ) -> Result<FileRunOutcome, RunnerError> {
     if cancellation.requested() {
         return Ok(FileRunOutcome::Cancelled);
@@ -774,8 +785,11 @@ fn run_file(
         },
     };
     let encoded = serde_json::to_vec(&request)?;
-    let (stdout, stderr, termination) =
-        execute_worker(&encoded, path, options, worker_path, cancellation, observer)?;
+    let (stdout, stderr, termination) = if let Some(host) = host {
+        host.execute(&encoded, path, options, cancellation, observer)?
+    } else {
+        execute_worker(&encoded, path, options, worker_path, cancellation, observer)?
+    };
     if termination == WorkerTermination::Cancelled {
         return Ok(FileRunOutcome::Cancelled);
     }
@@ -785,13 +799,23 @@ fn run_file(
             options.file_timeout_ms,
         ))));
     }
-    let stdout = String::from_utf8_lossy(&stdout);
+    let result = decode_file_result(&stdout, &stderr, path)?;
+    rjest_snapshot::persist(&snapshot.path, &result.snapshot.data, result.snapshot.dirty)?;
+    Ok(FileRunOutcome::Completed(Box::new(result)))
+}
+
+fn decode_file_result(
+    stdout: &[u8],
+    stderr: &[u8],
+    path: &Path,
+) -> Result<TestFileResult, RunnerError> {
+    let stdout = String::from_utf8_lossy(stdout);
     let payload = stdout
         .rfind(RESULT_PREFIX)
         .and_then(|index| stdout[index + RESULT_PREFIX.len()..].lines().next())
         .ok_or_else(|| RunnerError::MissingResult {
             path: path.to_path_buf(),
-            details: worker_details(&stdout, &String::from_utf8_lossy(&stderr)),
+            details: worker_details(&stdout, &String::from_utf8_lossy(stderr)),
         })?;
     let result: TestFileResult =
         serde_json::from_str(payload).map_err(|source| RunnerError::InvalidResult {
@@ -811,8 +835,7 @@ fn run_file(
             received: result.test_path,
         });
     }
-    rjest_snapshot::persist(&snapshot.path, &result.snapshot.data, result.snapshot.dirty)?;
-    Ok(FileRunOutcome::Completed(Box::new(result)))
+    Ok(result)
 }
 
 fn timed_out_result(path: &Path, file_timeout_ms: u64) -> TestFileResult {
@@ -834,14 +857,268 @@ fn timed_out_result(path: &Path, file_timeout_ms: u64) -> TestFileResult {
     }
 }
 
-fn execute_worker(
-    encoded_request: &[u8],
-    path: &Path,
-    options: &RunnerOptions,
-    worker_path: &Path,
-    cancellation: Cancellation<'_>,
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "camelCase")]
+enum HostOutput {
+    Stdout(String),
+    Stderr(String),
+    Exit(String),
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HostMessage {
+    test_path: PathBuf,
+    #[serde(flatten)]
+    output: HostOutput,
+}
+
+type HostRoutes = Arc<Mutex<BTreeMap<PathBuf, mpsc::Sender<Result<HostOutput, String>>>>>;
+
+struct WorkerHost {
+    child: Mutex<Child>,
+    stdin: Mutex<ChildStdin>,
+    routes: HostRoutes,
+    alive: Arc<AtomicBool>,
+    readers: Vec<thread::JoinHandle<std::io::Result<Vec<u8>>>>,
+    _source: tempfile::NamedTempFile,
+}
+
+impl WorkerHost {
+    fn new(options: &RunnerOptions, worker_path: &Path) -> Result<Self, RunnerError> {
+        let mut source = tempfile::Builder::new()
+            .prefix("rjest-host-")
+            .suffix(".mjs")
+            .tempfile()
+            .map_err(RunnerError::WorkerSource)?;
+        source
+            .write_all(HOST_SOURCE.as_bytes())
+            .and_then(|()| source.flush())
+            .map_err(RunnerError::WorkerSource)?;
+        let mut command = worker_command(options);
+        let mut child = command
+            .arg(source.path())
+            .arg(worker_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|source| RunnerError::Spawn {
+                binary: options.node_binary.clone(),
+                source,
+            })?;
+        let stdin = child.stdin.take().expect("piped host stdin");
+        let stdout = child.stdout.take().expect("piped host stdout");
+        let stderr = child.stderr.take().expect("piped host stderr");
+        let routes = HostRoutes::default();
+        let reader_routes = Arc::clone(&routes);
+        let alive = Arc::new(AtomicBool::new(true));
+        let reader_alive = Arc::clone(&alive);
+        let stdout_reader = thread::spawn(move || {
+            let outcome = read_host_stdout(stdout, &reader_routes);
+            let reason = outcome.as_ref().err().map_or_else(
+                || "Node worker host closed stdout".to_owned(),
+                ToString::to_string,
+            );
+            let routes = reader_routes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            reader_alive.store(false, Ordering::Release);
+            for sender in routes.values() {
+                let _ = sender.send(Err(reason.clone()));
+            }
+            outcome
+        });
+        let stderr_reader = thread::spawn(move || read_pipe(stderr));
+        Ok(Self {
+            child: Mutex::new(child),
+            stdin: Mutex::new(stdin),
+            routes,
+            alive,
+            readers: vec![stdout_reader, stderr_reader],
+            _source: source,
+        })
+    }
+
+    fn send(&self, request: &[u8]) -> Result<(), RunnerError> {
+        let mut stdin = self
+            .stdin
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        stdin
+            .write_all(request)
+            .and_then(|()| stdin.write_all(b"\n"))
+            .map_err(RunnerError::Write)
+    }
+
+    fn execute(
+        &self,
+        encoded: &[u8],
+        path: &Path,
+        options: &RunnerOptions,
+        cancellation: Cancellation<'_>,
+        observer: Option<&dyn RunObserver>,
+    ) -> Result<(Vec<u8>, Vec<u8>, WorkerTermination), RunnerError> {
+        let (sender, receiver) = mpsc::channel();
+        {
+            let mut routes = self
+                .routes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !self.alive.load(Ordering::Acquire) {
+                return Err(RunnerError::MissingResult {
+                    path: path.to_path_buf(),
+                    details: ": Node worker host has exited".into(),
+                });
+            }
+            routes.insert(path.to_path_buf(), sender);
+        }
+        let result = self
+            .send(encoded)
+            .and_then(|()| self.await_worker(&receiver, path, options, cancellation, observer));
+        self.routes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(path);
+        result
+    }
+
+    fn await_worker(
+        &self,
+        receiver: &mpsc::Receiver<Result<HostOutput, String>>,
+        path: &Path,
+        options: &RunnerOptions,
+        cancellation: Cancellation<'_>,
+        observer: Option<&dyn RunObserver>,
+    ) -> Result<(Vec<u8>, Vec<u8>, WorkerTermination), RunnerError> {
+        let started = Instant::now();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut events = Vec::new();
+        let mut termination = WorkerTermination::Completed;
+        let mut interrupted_at = None;
+        let mut event_error = None;
+        loop {
+            if termination == WorkerTermination::Completed {
+                if cancellation.requested() || event_error.is_some() {
+                    termination = WorkerTermination::Cancelled;
+                } else if started.elapsed() >= Duration::from_millis(options.file_timeout_ms) {
+                    termination = WorkerTermination::TimedOut;
+                }
+                if termination != WorkerTermination::Completed {
+                    self.send(&serde_json::to_vec(&serde_json::json!({"cancel": path}))?)?;
+                    interrupted_at = Some(Instant::now());
+                }
+            }
+            if interrupted_at.is_some_and(|at: Instant| at.elapsed() > Duration::from_secs(1)) {
+                // A blocked native addon can prevent thread termination. Keep
+                // the coordinator deadline enforceable at the process boundary.
+                let _ = self
+                    .child
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .kill();
+            }
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok(Ok(HostOutput::Stdout(data))) => {
+                    stdout.extend_from_slice(data.as_bytes());
+                    if termination == WorkerTermination::Completed {
+                        events.extend_from_slice(data.as_bytes());
+                        if let Err(error) = forward_host_events(&mut events, observer, path) {
+                            event_error = Some(error);
+                        }
+                    }
+                }
+                Ok(Ok(HostOutput::Stderr(data))) => stderr.extend_from_slice(data.as_bytes()),
+                Ok(Ok(HostOutput::Exit(code))) => {
+                    if code != "0" {
+                        stderr.extend_from_slice(format!("\nWorker exited with {code}").as_bytes());
+                    }
+                    break;
+                }
+                Ok(Err(reason)) => {
+                    stderr.extend_from_slice(reason.as_bytes());
+                    break;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        if let Some(error) = event_error {
+            return Err(error);
+        }
+        Ok((stdout, stderr, termination))
+    }
+}
+
+impl Drop for WorkerHost {
+    fn drop(&mut self) {
+        let child = self
+            .child
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = child.kill();
+        let _ = child.wait();
+        for reader in self.readers.drain(..) {
+            let _ = reader.join();
+        }
+    }
+}
+
+fn read_host_stdout(pipe: impl Read, routes: &HostRoutes) -> std::io::Result<Vec<u8>> {
+    let mut reader = BufReader::new(pipe);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        // Native writes to fd 1 can bypass a thread's stdout stream. Preserve
+        // framing even when that application output lacks a trailing newline.
+        let Some(index) = line
+            .windows(HOST_PREFIX.len())
+            .position(|window| window == HOST_PREFIX.as_bytes())
+        else {
+            continue;
+        };
+        let message: HostMessage = serde_json::from_slice(&line[index + HOST_PREFIX.len()..])
+            .map_err(std::io::Error::other)?;
+        if let Some(sender) = routes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&message.test_path)
+        {
+            let _ = sender.send(Ok(message.output));
+        }
+    }
+    Ok(Vec::new())
+}
+
+fn forward_host_events(
+    buffer: &mut Vec<u8>,
     observer: Option<&dyn RunObserver>,
-) -> Result<(Vec<u8>, Vec<u8>, WorkerTermination), RunnerError> {
+    path: &Path,
+) -> Result<(), RunnerError> {
+    while let Some(end) = buffer.iter().position(|byte| *byte == b'\n') {
+        let line = buffer.drain(..=end).collect::<Vec<_>>();
+        if let Some(index) = line
+            .windows(EVENT_PREFIX.len())
+            .position(|window| window == EVENT_PREFIX.as_bytes())
+        {
+            let event =
+                serde_json::from_slice(&line[index + EVENT_PREFIX.len()..]).map_err(|source| {
+                    RunnerError::InvalidEvent {
+                        path: path.to_path_buf(),
+                        source,
+                    }
+                })?;
+            notify_worker_event(observer, path, &event)?;
+        }
+    }
+    Ok(())
+}
+
+fn worker_command(options: &RunnerOptions) -> Command {
     let mut command = Command::new(&options.node_binary);
     if std::env::var_os("NODE_ENV").is_none() {
         command.env("NODE_ENV", "test");
@@ -856,6 +1133,18 @@ fn execute_worker(
             command.env_remove(key);
         }
     }
+    command
+}
+
+fn execute_worker(
+    encoded_request: &[u8],
+    path: &Path,
+    options: &RunnerOptions,
+    worker_path: &Path,
+    cancellation: Cancellation<'_>,
+    observer: Option<&dyn RunObserver>,
+) -> Result<(Vec<u8>, Vec<u8>, WorkerTermination), RunnerError> {
+    let mut command = worker_command(options);
     let mut child = command
         .arg(worker_path)
         .stdin(Stdio::piped())
@@ -1402,6 +1691,111 @@ mod tests {
                 .contains("case reporter rejected the event")
         );
         assert!(!marker.exists());
+    }
+
+    #[test]
+    fn reuses_the_host_without_leaking_file_state_or_timers() {
+        let temp = tempdir().expect("temp dir");
+        fs::write(
+            temp.path().join("shared.cjs"),
+            "module.exports = {value: 42};",
+        )
+        .expect("shared module");
+        let first = temp.path().join("a.test.cjs");
+        let second = temp.path().join("b.test.cjs");
+        fs::write(
+            &first,
+            r"
+          const fs = require('node:fs');
+          const {threadId} = require('node:worker_threads');
+          fs.writeFileSync(__dirname + '/first.json', JSON.stringify({pid: process.pid, threadId}));
+          test('changes its own isolate', () => {
+            globalThis.fileLeak = true;
+            Array.prototype.fileLeak = true;
+            process.env.RJEST_ISOLATION_PROBE = 'changed';
+            fs.fileLeak = true;
+            fs.writeSync(1, 'raw native output without a newline');
+            fs.writeSync(1, Buffer.from([0xff, 0x00]));
+            require('./shared.cjs').value = 99;
+            setTimeout(() => fs.writeFileSync(__dirname + '/timer.marker', 'leaked'), 100);
+            process.stdout.write('🙂'.repeat(20_000));
+            console.log('Unicode stays intact: 🙂');
+          });
+        ",
+        )
+        .expect("first file");
+        fs::write(&second, r"
+          const fs = require('node:fs');
+          const {threadId} = require('node:worker_threads');
+          fs.writeFileSync(__dirname + '/second.json', JSON.stringify({pid: process.pid, threadId}));
+          test('has fresh globals, modules, builtins, and environment', async () => {
+            expect(globalThis.fileLeak).toBeUndefined();
+            expect(Array.prototype.fileLeak).toBeUndefined();
+            expect(process.env.RJEST_ISOLATION_PROBE).toBeUndefined();
+            expect(fs.fileLeak).toBeUndefined();
+            expect(require('./shared.cjs').value).toBe(42);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            expect(fs.existsSync(__dirname + '/timer.marker')).toBe(false);
+          });
+        ").expect("second file");
+        let files = [first, second].map(|path| TestFile {
+            path: path.canonicalize().expect("test path"),
+        });
+        let result = run(
+            &files,
+            &RunnerOptions {
+                max_workers: 1,
+                ..RunnerOptions::default()
+            },
+        )
+        .expect("isolated host run");
+
+        assert!(result.is_success(), "{result:?}");
+        assert_eq!(result.count(TestStatus::Passed), 2);
+        assert_eq!(
+            result.test_results[0].console[0].message,
+            "Unicode stays intact: 🙂"
+        );
+        let identity = |name| -> serde_json::Value {
+            serde_json::from_str(&fs::read_to_string(temp.path().join(name)).expect("identity"))
+                .expect("identity JSON")
+        };
+        let first = identity("first.json");
+        let second = identity("second.json");
+        assert_eq!(
+            first["pid"], second["pid"],
+            "files should share the Node host"
+        );
+        assert_ne!(
+            first["threadId"], second["threadId"],
+            "isolates must be fresh"
+        );
+    }
+
+    #[test]
+    fn continues_in_the_same_host_after_a_file_blocks_the_event_loop() {
+        let temp = tempdir().expect("temp dir");
+        let blocked = temp.path().join("a-blocked.test.cjs");
+        let later = temp.path().join("z-later.test.cjs");
+        fs::write(&blocked, "test('blocks', () => {while (true) {}});").expect("blocked file");
+        fs::write(&later, "test('still runs', () => expect(21 * 2).toBe(42));")
+            .expect("later file");
+        let files = [blocked, later].map(|path| TestFile {
+            path: path.canonicalize().expect("test path"),
+        });
+        let result = run(
+            &files,
+            &RunnerOptions {
+                max_workers: 1,
+                file_timeout_ms: 500,
+                ..RunnerOptions::default()
+            },
+        )
+        .expect("host timeout recovery");
+
+        assert_eq!(result.test_results.len(), 2);
+        assert!(result.test_results[0].errors[0].contains("wall-clock limit"));
+        assert_eq!(result.count(TestStatus::Passed), 1);
     }
 
     #[test]

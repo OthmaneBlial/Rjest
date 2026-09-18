@@ -13,6 +13,7 @@ import {
 } from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
+import {workerData} from 'node:worker_threads';
 
 const PROTOCOL_VERSION = 28;
 const supportsSyncEvaluate =
@@ -37,7 +38,7 @@ const nativePerformanceNowDescriptor = Object.getOwnPropertyDescriptor(
 );
 const nativeNextTick = process.nextTick;
 const nativeHrtime = process.hrtime;
-const request = JSON.parse(readFileSync(0, 'utf8'));
+const request = workerData ?? JSON.parse(readFileSync(0, 'utf8'));
 const coverageFilter = request.coverageFilter
   ? new Set(request.coverageFilter.map(normalizedRuntimePath))
   : undefined;

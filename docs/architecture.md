@@ -18,7 +18,7 @@ The architecture follows the boundary recorded in
 - `rjest-dependency`: Git working-tree change discovery, project module
   indexing, Jest-style static dependency extraction, resolver bridging, and
   inverse transitive affected-test selection.
-- `rjest-runner`: bounded parallel dispatch, Node process isolation, versioned
+- `rjest-runner`: bounded parallel dispatch, fresh Node execution isolates, versioned
   request/result validation, thread-safe file lifecycle observation,
   deterministic aggregation, Istanbul counter merging, and raw V8 range
   aggregation before conversion.
@@ -31,6 +31,8 @@ The architecture follows the boundary recorded in
   snapshots, fake timers, configured sync/async transforms, JSDOM globals,
   custom-environment lifecycle bridging, async timeouts, and per-file execution
   inside Node.
+- `runtime/host.mjs`: one Node host per execution batch, newline-framed request
+  routing, fresh worker-thread isolates, output forwarding, and termination.
 - `runtime/v8-coverage.mjs`: one coordinator-side conversion pass over merged
   worker ranges, transformed-source metadata, source maps, and zero-hit
   `collectCoverageFrom` files.
@@ -41,15 +43,36 @@ The architecture follows the boundary recorded in
   configured transformer execution, project-aware deduplication, and explicit
   environment transfer to later reporter and test-worker processes.
 
-Workers currently receive one JSON request over stdin and return a prefixed,
-versioned JSON result. Snapshot content crosses that protocol as validated data:
+Single-file runs receive one JSON request over stdin and return a prefixed,
+versioned JSON result. Multi-file runs reuse a Node host, which receives framed
+requests from Rust and starts a fresh worker thread for each selected file.
+The thread receives the same request through `workerData`; its result and live
+events pass back through the host with a file-path envelope. Rust bounds the
+number of active isolates with the same scheduler in serial and parallel runs.
+Snapshot content crosses that protocol as validated data:
 Node matches and serializes runtime values, while Rust owns external `.snap`
 loading and persistence without evaluating snapshot files as JavaScript. Rust
 also bounds process concurrency, rejects malformed or mismatched results, and
-sorts aggregation by canonical path. Each file gets a fresh process, which
-isolates global state and crashes at the cost of startup overhead. A coordinator
-wall-clock limit terminates a worker whose event loop is synchronously blocked.
-Worker reuse and cooperative cancellation remain future work.
+sorts aggregation by canonical path. Each file gets fresh globals, module
+caches, environment variables, and timers. The default Babel transformer is
+resolved during setup and initialized only when a matching module is loaded,
+including dependencies reached from a CJS file. Explicit custom transformers
+retain their asynchronous initialization path.
+Snapshot formatting tools load on the first snapshot or formatted parameterized
+test name; files without a leading block comment skip docblock-parser loading.
+
+Rust forwards cancellation and wall-clock deadlines to thread termination,
+including files that synchronously block their own event loops. The host stays
+available for subsequent files after a timeout. If native code prevents thread
+termination, Rust terminates the host process after a one-second grace period.
+
+Threads share the host PID and native process resources. A native crash or
+`process.kill(process.pid)` can therefore stop the batch, and Node APIs that
+require the main thread (such as `process.chdir`) are unavailable in multi-file
+runs. Single-file runs still use a separate Node process. These are execution
+boundaries to check when comparing a project with Jest's default process
+workers. Long-lived test isolates and persistent transform caches remain future
+work; only the host is reused.
 
 `--watchAll` starts the native watcher before its initial execution cycle, then
 re-enters the same discovery, sequencing, hook, reporter, coverage, and result
@@ -71,7 +94,7 @@ test rather than risk a false negative. Rjest rejects `--watch` outside Git and
 directs the user to `--watchAll`, matching Jest's no-SCM control flow; Mercurial
 and Sapling adapters remain future work.
 
-Test processes run with the invoking user's permissions. Process isolation is a
+Test code runs with the invoking user's permissions. Execution isolation is a
 reliability boundary, not a security sandbox.
 
 Executable Jest configuration is also trusted user code. Rjest evaluates it in a
