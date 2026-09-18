@@ -1139,6 +1139,63 @@ mod tests {
     }
 
     #[test]
+    fn initializes_default_babel_only_when_a_matching_dependency_is_loaded() {
+        let temp = tempdir().expect("temp dir");
+        let transformer_dir = temp.path().join("node_modules/babel-jest");
+        fs::create_dir_all(&transformer_dir).expect("transformer directory");
+        let marker = temp.path().join("babel-initialized.marker");
+        fs::write(
+            transformer_dir.join("index.js"),
+            format!(
+                "exports.createTransformer = () => {{\n\
+                   require('node:fs').appendFileSync({}, 'initialized\\n');\n\
+                   return {{process(source) {{\n\
+                     return {{code: source.replace('__ANSWER__', '42')}};\n\
+                   }}}};\n\
+                 }};",
+                serde_json::to_string(&marker).expect("marker path")
+            ),
+        )
+        .expect("write transformer");
+        for name in ["first.js", "second.js"] {
+            fs::write(temp.path().join(name), "module.exports = __ANSWER__;")
+                .expect("write dependency");
+        }
+        let test_path = temp.path().join("lazy.test.cjs");
+        fs::write(
+            &test_path,
+            format!(
+                "const fs = require('node:fs');\n\
+                 const marker = {};\n\
+                 test('does not initialize Babel for CJS', () => {{\n\
+                   expect(fs.existsSync(marker)).toBe(false);\n\
+                 }});\n\
+                 test('transforms matching dependencies on demand', () => {{\n\
+                   expect(require('./first.js')).toBe(42);\n\
+                   expect(require('./second.js')).toBe(42);\n\
+                   expect(fs.readFileSync(marker, 'utf8')).toBe('initialized\\n');\n\
+                 }});",
+                serde_json::to_string(&marker).expect("marker path")
+            ),
+        )
+        .expect("write test");
+        let files = vec![TestFile {
+            path: test_path.canonicalize().expect("test path"),
+        }];
+        let result = run(
+            &files,
+            &RunnerOptions {
+                root_dir: temp.path().to_path_buf(),
+                ..RunnerOptions::default()
+            },
+        )
+        .expect("run lazy transformer test");
+
+        assert!(result.is_success(), "{result:?}");
+        assert_eq!(result.count(TestStatus::Passed), 2);
+    }
+
+    #[test]
     fn reports_assertion_failures_without_losing_other_tests() {
         let temp = tempdir().expect("temp dir");
         let test_path = temp.path().join("failure.test.js");

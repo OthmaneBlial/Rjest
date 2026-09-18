@@ -98,6 +98,7 @@ const pendingAsyncTransforms = new Map();
 const instrumentedFiles = new Set();
 const runtimeSnapshotSerializers = [];
 let runtimePrettyFormatter;
+let runtimePrettyFormatLoaded = false;
 let runtimePrettyFormatPlugins = [];
 let runtimePrettyFormatSupportsBasicPrototype = false;
 let jsdomEnvironment;
@@ -481,6 +482,7 @@ function isPrimitive(value) {
 }
 
 function formatEachValue(value) {
+  ensureRuntimePrettyFormat();
   return runtimePrettyFormatter
     ? runtimePrettyFormatter(value, {maxDepth: 1, min: true})
     : inspect(value, {breakLength: Infinity, compact: true, depth: 1});
@@ -943,6 +945,7 @@ function formatSnapshot(
   value,
   escapeString = request.snapshotFormat?.escapeString ?? false,
 ) {
+  ensureRuntimePrettyFormat();
   const formatterOptions = {
     escapeRegex: true,
     escapeString,
@@ -5234,6 +5237,16 @@ async function transformerFromConfig(pattern, configured) {
   } finally {
     leaveTransformerRuntime();
   }
+  validateTransformer(transformer, moduleName);
+  return {
+    moduleName,
+    pattern: new RegExp(pattern),
+    transformer,
+    transformerConfig: transformerConfig ?? {},
+  };
+}
+
+function validateTransformer(transformer, moduleName) {
   if (
     !transformer ||
     (typeof transformer.process !== 'function' &&
@@ -5243,12 +5256,6 @@ async function transformerFromConfig(pattern, configured) {
       `Transformer ${moduleName} does not expose process() or processAsync()`,
     );
   }
-  return {
-    moduleName,
-    pattern: new RegExp(pattern),
-    transformer,
-    transformerConfig: transformerConfig ?? {},
-  };
 }
 
 function projectContainsRuntimePath(path) {
@@ -5314,9 +5321,34 @@ async function configureTransforms() {
       } catch {
         // Projects without Jest can still provide Babel-Jest directly.
       }
-      runtimeTransformers.push(
-        await transformerFromConfig('^.+\\.[jt]sx?$', babelJest),
+      // Resolve the default transformer now, but do not initialize Babel for
+      // files outside its pattern (for example, a CJS-only suite). The getter
+      // also covers matching dependencies first encountered through require.
+      const moduleName = requireFromTest.resolve(
+        configuredTransformerSpecifier(babelJest),
       );
+      const selected = {
+        moduleName,
+        pattern: /^.+\.[jt]sx?$/,
+        transformerConfig: {},
+        get transformer() {
+          const leaveTransformerRuntime = enterTransformerModuleRuntime();
+          try {
+            const loaded = requireFromTest(moduleName);
+            const exported = loaded?.default ?? loaded;
+            const transformer =
+              typeof exported?.createTransformer === 'function'
+                ? exported.createTransformer({})
+                : exported;
+            validateTransformer(transformer, moduleName);
+            Object.defineProperty(selected, 'transformer', {value: transformer});
+            return transformer;
+          } finally {
+            leaveTransformerRuntime();
+          }
+        },
+      };
+      runtimeTransformers.push(selected);
     } catch (error) {
       if (error?.code !== 'MODULE_NOT_FOUND') throw error;
     }
@@ -5350,6 +5382,11 @@ function configureSnapshotFormat() {
     }
     runtimeSnapshotSerializers.push(serializer);
   }
+}
+
+function ensureRuntimePrettyFormat() {
+  if (runtimePrettyFormatLoaded) return;
+  runtimePrettyFormatLoaded = true;
   try {
     const loaded = loadUnmockedRuntimeTool(
       installedJestToolSpecifier('pretty-format') ?? 'pretty-format',
@@ -6213,6 +6250,9 @@ async function teardownCustomTestEnvironment() {
 }
 
 function parseDocblockPragmas(source) {
+  // Jest's extractor only accepts a leading block comment. Most unit files
+  // have none, so avoid loading a parser that would return empty pragmas.
+  if (!/^\s*\/\*/.test(source)) return Object.create(null);
   try {
     const docblock = requireFromTest('jest-docblock');
     return docblock.parse(docblock.extract(source));
