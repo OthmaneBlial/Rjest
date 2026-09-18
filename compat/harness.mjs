@@ -34,6 +34,22 @@ const ptyRunner = join(repository, 'compat', 'pty_runner.py');
 
 const cases = [
   {
+    name: 'environment-file-isolation',
+    label: 'environment-file-isolation-serial',
+    category: 'Environment',
+    expectedExit: 0,
+    useFixtureConfig: true,
+  },
+  {
+    name: 'environment-file-isolation',
+    label: 'environment-file-isolation-parallel',
+    category: 'Environment',
+    expectedExit: 0,
+    useFixtureConfig: true,
+    jestMaxWorkers: 2,
+    rjestMaxWorkers: 2,
+  },
+  {
     name: 'config-mjs',
     category: 'Configuration',
     expectedExit: 0,
