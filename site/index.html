@@ -27,7 +27,7 @@
     <meta property="og:site_name" content="Rjest" />
     <meta
       property="og:image"
-      content="https://othmaneblial.github.io/rjest/og-card.png"
+      content="https://othmaneblial.github.io/rjest/og-card.png?v=alpha-2"
     />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -46,7 +46,7 @@
     />
     <meta
       name="twitter:image"
-      content="https://othmaneblial.github.io/rjest/og-card.png"
+      content="https://othmaneblial.github.io/rjest/og-card.png?v=alpha-2"
     />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -597,35 +597,45 @@
           <div class="start-panel reveal">
             <div class="start-panel__copy">
               <p class="eyebrow">Bring a real suite</p>
-              <h2>Find the next gap.</h2>
+              <h2>Try your existing suite.</h2>
               <p>
-                Install the alpha, list the tests in an existing project, run
-                serially, and compare the result with official Jest.
+                Install alpha.2 from the release below. Requires Node.js 22.18
+                or newer and rustup; installation builds the native coordinator
+                with Rust 1.95. Compare discovery, then run serially and in
+                parallel with official Jest.
               </p>
               <div class="step-list">
-                <span><b>1</b> Install the alpha</span>
+                <span><b>1</b> Install alpha.2</span>
                 <span><b>2</b> Compare discovery</span>
                 <span><b>3</b> Run the suite</span>
               </div>
+              <a class="text-link release-link" href="https://github.com/OthmaneBlial/Rjest/releases/tag/v0.1.0-alpha.2" target="_blank" rel="noreferrer">
+                Alpha.2 release &amp; checksums <span aria-hidden="true">↗</span>
+              </a>
             </div>
 
             <div class="install-terminal">
               <div class="terminal-toolbar">
-                <span>BUILD / TRY</span>
+                <span>INSTALL / ALPHA.2</span>
                 <button
                   class="copy-button"
                   type="button"
-                  data-copy="npm install --save-dev rjest-rust-runner@alpha&#10;npx rjest --listTests&#10;npx rjest --runInBand"
+                  data-copy="npm install --save-dev https://github.com/OthmaneBlial/Rjest/releases/download/v0.1.0-alpha.2/rjest-rust-runner-0.1.0-alpha.2.tgz&#10;npx jest --listTests&#10;npx rjest --listTests&#10;npx jest --runInBand&#10;npx rjest --runInBand&#10;npx rjest --maxWorkers=4"
                 >
                   Copy
                 </button>
               </div>
-              <pre><code><span class="terminal-comment"># Install the current alpha</span>
-<span class="terminal-prompt">$</span> npm install --save-dev rjest-rust-runner@alpha
+              <pre><code><span class="terminal-comment"># Install alpha.2 from GitHub</span>
+<span class="terminal-prompt">$</span> npm install --save-dev https://github.com/OthmaneBlial/Rjest/releases/download/v0.1.0-alpha.2/rjest-rust-runner-0.1.0-alpha.2.tgz
 
-<span class="terminal-comment"># Compare discovery, then execute serially</span>
+<span class="terminal-comment"># Compare discovered tests</span>
+<span class="terminal-prompt">$</span> npx jest --listTests
 <span class="terminal-prompt">$</span> npx rjest --listTests
-<span class="terminal-prompt">$</span> npx rjest --runInBand</code></pre>
+
+<span class="terminal-comment"># Compare serial results, then run in parallel</span>
+<span class="terminal-prompt">$</span> npx jest --runInBand
+<span class="terminal-prompt">$</span> npx rjest --runInBand
+<span class="terminal-prompt">$</span> npx rjest --maxWorkers=4</code></pre>
             </div>
           </div>
         </div>
@@ -650,8 +660,9 @@
                 interruption are tested against Jest.
               </li>
               <li>
-                <span>02</span> Transform/discovery persistence and worker reuse
-                remain performance work.
+                <span>02</span> Persistent discovery/transform caches and reuse
+                of test isolates remain open. Alpha.2 reuses the Node host;
+                every file still gets a fresh isolate.
               </li>
               <li>
                 <span>03</span> Custom VM identity, specialized reporter
@@ -659,8 +670,16 @@
                 combinations, and long-tail resolvers need broader proof.
               </li>
               <li>
-                <span>04</span> Unlisted Jest behavior is not yet a
-                compatibility claim.
+                <span>04</span> Multi-file threads share a PID and native
+                process resources. Main-thread-only APIs such as
+                <code>process.chdir</code> are unavailable; a native crash or
+                killing the host PID can stop the batch. Single-file runs use
+                a separate process.
+              </li>
+              <li>
+                <span>05</span> Unlisted Jest behavior needs comparison with
+                your project. Test execution uses your permissions and is not
+                a security sandbox.
               </li>
             </ul>
             <a
@@ -686,6 +705,7 @@
           <p>Switch the runner. Keep the test suite.</p>
         </div>
         <div class="footer-links">
+          <a href="https://github.com/OthmaneBlial/Rjest/releases/tag/v0.1.0-alpha.2" target="_blank" rel="noreferrer">Alpha.2 release ↗</a>
           <a
             href="https://github.com/OthmaneBlial/Rjest"
             target="_blank"
