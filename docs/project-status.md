@@ -1,6 +1,6 @@
 # Rjest project status
 
-Last updated: 2026-08-31
+Last updated: 2026-09-18
 
 ## The honest headline
 
@@ -10,9 +10,9 @@ projects. That 91% is a human assessment of implementation breadth, real-world
 evidence, operational maturity, and remaining risk. It is **not** an automated
 percentage of the complete Jest API and must not be presented as one.
 
-The automated claim is narrower and reproducible: **286/286 versioned
+The automated claim is narrower and reproducible: **288/288 versioned
 differential scenarios pass** against pinned official Jest, and the Rust
-workspace has **133/133 tests passing**. The repository also contains 25 pinned
+workspace has **136/136 tests passing**. The repository also contains 25 pinned
 real-project corpus reports. Those measurements prove the listed behavior and
 the captured projects; they do not prove every unlisted Jest behavior.
 
@@ -43,8 +43,8 @@ Use the numbers separately:
 
 | Signal                | Current result | Meaning                                                           |
 | --------------------- | -------------: | ----------------------------------------------------------------- |
-| Differential matrix   |    **286/286** | 100% of the bounded, versioned scenarios pass                     |
-| Rust tests            |    **133/133** | The current native implementation test suite passes               |
+| Differential matrix   |    **288/288** | 100% of the bounded, versioned scenarios pass                     |
+| Rust tests            |    **136/136** | The current native implementation test suite passes               |
 | Real-project evidence | **25 reports** | Pinned suites and exact commands/results, not one aggregate score |
 | Directional readiness |       **≈91%** | Engineering estimate, not an exhaustive Jest compatibility metric |
 
@@ -59,8 +59,9 @@ Use the numbers separately:
   identity gaps.
 - Add more independent native-ESM, TypeScript, React Native, and monorepo
   corpora and preserve every discovered mismatch as a differential fixture.
-- Persist discovery/transform caches and reuse workers. Correctness comes first,
-  but cold Node/JSDOM startup remains a major performance cost.
+- Persist discovery/transform caches and explore reuse of test isolates.
+  Multi-file batches now reuse a Node host with fresh worker threads; matching
+  Babel transforms and JSDOM setup still run separately for each file.
 - Re-run controlled benchmarks only after the relevant compatibility surface is
   held constant; Rjest currently makes no general speed claim.
 

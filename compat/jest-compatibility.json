@@ -3,8 +3,8 @@
   "metric": "Jest/Rjest parity across the versioned differential scenario corpus",
   "limitations": "This percentage measures only the scenarios listed below; it is not an exhaustive percentage of the Jest API.",
   "score": {
-    "passing": 286,
-    "total": 286,
+    "passing": 288,
+    "total": 288,
     "percentage": 100
   },
   "categories": {
@@ -29,8 +29,8 @@
       "percentage": 100
     },
     "Environment": {
-      "passing": 7,
-      "total": 7,
+      "passing": 9,
+      "total": 9,
       "percentage": 100
     },
     "ESM": {
@@ -80,6 +80,18 @@
     }
   },
   "scenarios": [
+    {
+      "name": "environment-file-isolation-serial",
+      "category": "Environment",
+      "compatible": true,
+      "differences": []
+    },
+    {
+      "name": "environment-file-isolation-parallel",
+      "category": "Environment",
+      "compatible": true,
+      "differences": []
+    },
     {
       "name": "config-mjs",
       "category": "Configuration",
