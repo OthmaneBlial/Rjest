@@ -9,7 +9,11 @@ const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 test("publishes the alpha under the public rjest-rust-runner package name", () => {
   assert.equal(manifest.name, "rjest-rust-runner");
-  assert.equal(manifest.version, "0.1.0-alpha.1");
+  const workspace = readFileSync(join(root, "Cargo.toml"), "utf8");
+  const [, nativeVersion] = workspace.match(
+    /\[workspace\.package\]\s+version = "([^"]+)"/u,
+  );
+  assert.equal(manifest.version, nativeVersion);
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.bin.rjest, "bin/rjest.mjs");
   assert.equal(manifest.publishConfig.access, "public");

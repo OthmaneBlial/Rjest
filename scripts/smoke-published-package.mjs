@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const packageSpec = "rjest-rust-runner@0.1.0-alpha.1";
+const packageSpec = process.argv[2] ?? "rjest-rust-runner@alpha";
 const smokeRoot = mkdtempSync(join(tmpdir(), "rjest-published-smoke-"));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
@@ -24,17 +24,23 @@ function run(args) {
 try {
   writeFileSync(
     join(smokeRoot, "package.json"),
-    JSON.stringify({ private: true, name: "rjest-published-smoke" })
+    JSON.stringify({ private: true, name: "rjest-published-smoke" }),
   );
   run(["install", "--save-dev", packageSpec]);
 
   writeFileSync(
     join(smokeRoot, "published.test.js"),
-    "test('runs from the npm registry package', () => expect('rjest').toContain('jest'));\n"
+    "test('runs from the npm registry package', () => expect('rjest').toContain('jest'));\n",
   );
 
   const version = run(["exec", "--", "rjest", "--version"]).trim();
-  if (version !== "rjest 0.1.0-alpha.1") {
+  const installedManifest = JSON.parse(
+    readFileSync(
+      join(smokeRoot, "node_modules", "rjest-rust-runner", "package.json"),
+      "utf8",
+    ),
+  );
+  if (version !== `rjest ${installedManifest.version}`) {
     throw new Error(`unexpected published command version: ${version}`);
   }
 

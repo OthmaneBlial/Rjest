@@ -613,7 +613,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rjest-cli"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-config"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "globset",
  "rjest-core",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-coverage"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "globset",
  "regex",
@@ -667,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-dependency"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anyhow",
  "regex",
@@ -679,7 +679,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-discovery"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "globset",
  "regex",
@@ -692,7 +692,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-runner"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "rayon",
  "rjest-core",
@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-snapshot"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "natord",
  "rjest-core",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "rjest-watch"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anyhow",
  "notify",
